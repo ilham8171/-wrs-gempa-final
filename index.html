@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0a0e17">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="Independent monitoring by ilham — data resmi BMKG/InaTEWS. Monitor gempabumi realtime Indonesia.">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<title>WRS Gempa · Independent Monitoring by Ilham</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="map"></div>
+<div class="map-overlay"></div>
+<div class="map-stats glass-panel" id="mapStats">
+  <button type="button" class="stat-btn" data-stat="all" title="Daftar semua event"><b id="statTotal">0</b><span>EVENT</span></button>
+  <button type="button" class="stat-btn" data-stat="strong" title="Daftar M≥4"><b id="statStrong">0</b><span>M≥4</span></button>
+  <button type="button" class="stat-btn" data-stat="felt" title="Daftar dirasakan"><b id="statFelt">0</b><span>DIRASAKAN</span></button>
+  <button type="button" class="stat-btn stat-tsunami" data-stat="tsunami" title="Riwayat & peringatan tsunami"><b id="statTsunami">0</b><span>TSUNAMI</span></button>
+</div>
+
+<!-- Vertical Toolbar (kanan peta) -->
+<nav class="v-toolbar" id="vToolbar" aria-label="Toolbar peta">
+  <button type="button" class="tb-btn" id="tbBasemap" title="Ganti basemap">🗺</button>
+  <button type="button" class="tb-btn" id="tbFullscreen" title="Layar penuh">⛶</button>
+  <button type="button" class="tb-btn" id="tbRefresh" title="Refresh data">↻</button>
+  <button type="button" class="tb-btn" id="tbHistory" title="Riwayat 7 hari">☰</button>
+  <button type="button" class="tb-btn" id="tbFaults" title="Toggle sesar" data-on="1">⚡</button>
+  <button type="button" class="tb-btn" id="tbFilter" title="Filter monitoring">☷</button>
+  <button type="button" class="tb-btn" id="tbLocation" title="Aktifkan lokasi">📍</button>
+</nav>
+
+<!-- Basemap picker -->
+<div id="basemapMenu" class="basemap-menu hidden">
+  <button type="button" data-bm="dark" class="bm-opt active">Dark (Carto)</button>
+  <button type="button" data-bm="street" class="bm-opt">Peta Jalan</button>
+  <button type="button" data-bm="sat" class="bm-opt">Satelit</button>
+  <button type="button" data-bm="topo" class="bm-opt">Topografi</button>
+</div>
+
+<!-- Panel Informasi Gempa Terkini (Kiri Atas) -->
+<aside class="glass-panel left-top" id="cardRealtime">
+  <div class="panel-header">
+    <span class="pulse-dot"></span>
+    <span>GEMPA REALTIME</span>
+  </div>
+  <div class="panel-sub">InaTEWS · BMKG katalog</div>
+  <div class="rt-filter" id="rtFilter">Area: Indonesia · Mag ≥ 1.5 · 7 hari</div>
+  <div class="rt-row">
+    <div class="rt-mag" id="rtMag">—</div>
+    <div class="rt-meta">
+      <div id="rtDate">—</div>
+      <div class="rt-ago" id="rtAgo">⏰ —</div>
+    </div>
+  </div>
+  <div class="rt-coord" id="rtCoord">◎ —</div>
+  <div class="rt-update hidden" id="rtUpdate" role="status"></div>
+  <div class="rt-place" id="rtPlace">—</div>
+  <div class="rt-dist" id="rtDist">📍 Jarak ke Anda: —</div>
+  <div class="rt-src" id="rtSrc">Sumber: —</div>
+</aside>
+
+<!-- Panel Legenda Seismik (Kiri Bawah) -->
+<aside class="glass-panel left-bottom">
+  <div class="disc">
+    <b>Disclaimer</b>
+    Parameter dapat berubah dalam menit pertama. Hanya data resmi BMKG/InaTEWS yang valid untuk keputusan operasional.
+  </div>
+  <div class="leg">
+    <div class="leg-h">Legenda</div>
+    <div class="leg-row">
+      <span class="leg-lab">Isi = Mag:</span>
+      <span class="m-dot m1">1</span>
+      <span class="m-dot m2">2</span>
+      <span class="m-dot m3">3</span>
+      <span class="m-dot m4">4</span>
+      <span class="m-dot m5">5</span>
+      <span class="m-dot m6">6</span>
+      <span class="m-dot m7">7</span>
+      <span class="m-dot m8">8+</span>
+    </div>
+    <div class="leg-row depth-leg">
+      <span class="leg-lab">Tepi = Kedalaman:</span>
+      <span><i class="dbox d50"></i>≤50</span>
+      <span><i class="dbox d100"></i>51–100</span>
+      <span><i class="dbox d250"></i>101–250</span>
+      <span><i class="dbox d600"></i>251–600</span>
+      <span><i class="dbox ddeep"></i>&gt;600</span>
+    </div>
+    <div class="leg-row">
+      <span class="leg-lab">Ukuran:</span>
+      <span style="font-size:10px;opacity:.85">lingkaran lebih besar = magnitudo lebih tinggi</span>
+    </div>
+    <div class="leg-row">
+      <span class="leg-lab">Terbaru:</span>
+      <span class="star-legend">★</span> pulse + radius
+    </div>
+    <div class="leg-row">
+      <span class="leg-lab">Anda:</span>
+      <span class="user-leg-dot"></span> pin lokasi
+    </div>
+    <div class="leg-row">
+      <span class="leg-lab">Sesar:</span>
+      <span class="fault-line-leg"></span> patahan aktif
+    </div>
+  </div>
+  <div class="brand-row">
+    <div class="brand-box">WRS</div>
+    <div class="brand-box accent">Ilham</div>
+    <div class="brand-clock" id="clock">—</div>
+  </div>
+</aside>
+
+<!-- Panel Kanan (di HP jadi bottom sheet) -->
+<aside class="right-panel glass-panel" id="rightPanel">
+  <button type="button" class="rp-sheet-handle" id="rpSheetToggle" aria-label="Buka/tutup panel" title="Geser panel">
+    <span class="rp-handle-bar"></span>
+  </button>
+  <div class="rp-mag-bar">
+    <div class="rp-mag" id="offMag">—</div>
+    <div class="rp-mag-info">
+      <b>INFO RESMI BMKG</b>
+      <span id="offTitle">INFO GEMPA</span>
+      <small id="offSent">—</small>
+    </div>
+  </div>
+  <div class="rp-mode" id="rpMode">MODE OPERASIONAL</div>
+  <div class="rp-mini-map" id="miniFocus"></div>
+  <div class="rp-stats">
+    <div><small>Waktu Gempa</small><b id="offTime">—</b></div>
+    <div><small>Lokasi</small><b id="offCoord">—</b></div>
+    <div><small>Kedalaman</small><b id="offDepth">—</b></div>
+  </div>
+  <div class="rp-desc" id="offDesc">Menunggu data…</div>
+  <div class="rp-shakemap hidden" id="shakemapBox">
+    <div class="rp-shakemap-h">Shakemap (Peta Guncangan)</div>
+    <img id="shakemapImg" alt="Shakemap BMKG" loading="lazy">
+  </div>
+  <button type="button" class="btn-detail-standalone" id="btnDetail">≫ Lihat Detail</button>
+  <div class="rp-pot" id="offPot">—</div>
+  <div class="rp-instr" id="offInstr">
+    <b>Saran & Instruksi BMKG</b>
+    <span>Waspadai kemungkinan gempa susulan.</span>
+  </div>
+  <div class="rp-links">
+    <a href="https://inatews.bmkg.go.id/wrs/index.html" target="_blank" rel="noopener" class="ext-link">WRS Resmi</a>
+    <a href="https://www.bmkg.go.id" target="_blank" rel="noopener" class="ext-link">BMKG</a>
+    <a href="https://data.bmkg.go.id/gempabumi/" target="_blank" rel="noopener" class="ext-link">Data Terbuka</a>
+  </div>
+  <div class="rp-quick">
+    <button type="button" id="btnAlarm" class="qbtn" title="Alarm bel + suara">🔔<span>Alarm</span></button>
+    <button type="button" id="btnLocation" class="qbtn" title="Lokasi saya di peta">📍<span>Lokasi</span></button>
+    <button type="button" id="btnPush" class="qbtn" title="Notifikasi latar belakang">📲<span>Notif</span></button>
+  </div>
+  <div class="rp-quick-opts">
+    <label><input type="checkbox" id="optBell" checked> Bel</label>
+    <label><input type="checkbox" id="optVoice" checked> Suara</label>
+  </div>
+  <div class="rp-quick-status" id="alarmStatus">Alarm · belum aktif</div>
+  <div class="rp-quick-status" id="locStatus">Lokasi · belum aktif</div>
+  <div class="rp-quick-status" id="pushStatus">Notif · belum aktif</div>
+  <div class="rp-live">
+    <i id="liveDot"></i>
+    <span id="liveText">CONNECTING</span>
+    <span id="srcCount"></span>
+  </div>
+  <div class="rp-foot">
+    Independent monitoring by <b>ilham</b><br>
+    Sumber data resmi: InaTEWS / BMKG / USGS<br>
+    © 2026 · Bukan sistem resmi BMKG
+  </div>
+</aside>
+
+
+<!-- Filter Monitoring -->
+<div id="filterModal" class="modal-overlay hidden">
+  <div class="modal-card glass-panel filter-card">
+    <button type="button" class="modal-close" id="filterClose" aria-label="Tutup">×</button>
+    <div class="hist-header"><h2>Filter Monitoring</h2><span id="filterCount">Semua event</span></div>
+    <div class="filter-grid">
+      <label>Magnitudo minimum<select id="filterMag"><option value="1.5">M1.5+</option><option value="3">M3+</option><option value="4">M4+</option><option value="5">M5+</option><option value="6">M6+</option></select></label>
+      <label>Periode<select id="filterAge"><option value="1">1 jam</option><option value="6">6 jam</option><option value="24" selected>24 jam</option><option value="168">7 hari</option></select></label>
+      <label>Sumber<select id="filterSource"><option value="ALL">Semua sumber</option><option value="BMKG">BMKG</option><option value="InaTEWS">InaTEWS</option><option value="USGS">USGS</option></select></label>
+      <label>Kedalaman<select id="filterDepth"><option value="ALL">Semua kedalaman</option><option value="shallow">Dangkal ≤50 km</option><option value="mid">Menengah 51–300 km</option><option value="deep">Dalam &gt;300 km</option></select></label>
+    </div>
+    <div class="filter-actions"><button id="filterReset" class="btn-save">Reset</button><button id="filterApply" class="btn-share">Terapkan Filter</button></div>
+  </div>
+</div>
+
+<!-- Modal Detail Shakemap -->
+<div id="modalDetail" class="modal-overlay hidden">
+  <div class="modal-card glass-panel">
+    <button type="button" class="modal-close" id="modalClose" aria-label="Tutup">×</button>
+    <div class="modal-header bmkg-style">
+      <div class="modal-mag-badge" id="modalMag">—</div>
+      <div class="modal-title-block">
+        <div class="modal-label" id="modalLabel">INFO GEMPA</div>
+        <div class="modal-time" id="modalTime">—</div>
+        <div class="modal-sent" id="modalSent">—</div>
+      </div>
+      <div class="modal-bmkg-logo">BMKG</div>
+    </div>
+    <div class="modal-body-grid">
+      <div class="modal-left">
+        <div class="modal-shakemap hidden" id="modalShakemapBox">
+          <div class="mmi-h">ShakeMap</div>
+          <img id="modalShakemapImg" alt="Shakemap BMKG" loading="lazy">
+        </div>
+      </div>
+      <div class="modal-right">
+        <div class="modal-mmi" id="modalMmiBox">
+          <div class="mmi-h">Daerah yang merasakan getaran gempa bumi dalam skala MMI:</div>
+          <div class="mmi-list" id="modalMmiList"></div>
+        </div>
+        <div class="modal-params">
+          <div class="mmi-h">Parameter Gempa Bumi:</div>
+          <div class="param-row"><span class="param-icon">◎</span> Lokasi <b id="modalCoord">—</b></div>
+          <div class="param-row"><span class="param-icon">◎</span> Kedalaman <b id="modalDepth">—</b></div>
+          <div class="param-row"><span class="param-icon">◎</span> <b id="modalRegion">—</b></div>
+          <div class="param-row"><span class="param-icon">◎</span> Sumber <b id="modalSrc">—</b></div>
+        </div>
+        <div class="modal-tsunami" id="modalTsunami">
+          <span class="ts-icon">⚠</span>
+          <span id="modalTsunamiText">tidak ada potensi TSUNAMI</span>
+        </div>
+        <div class="modal-instr" id="modalInstr">
+          <b>Saran dan Instruksi dari BMKG:</b>
+          <p id="modalInstrText">Waspadai kemungkinan gempa susulan.</p>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-save" id="btnSave">💾 Simpan</button>
+      <button type="button" class="btn-share" id="btnShare">📤 Bagikan</button>
+      <a id="modalLink" href="https://inatews.bmkg.go.id/wrs/index.html" target="_blank" rel="noopener">WRS Resmi →</a>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Riwayat / Daftar Event (EVENT / M≥4 / DIRASAKAN / TSUNAMI) -->
+<div id="modalHistory" class="modal-overlay hidden">
+  <div class="modal-card glass-panel hist-card">
+    <button type="button" class="modal-close" id="histClose" aria-label="Tutup">×</button>
+    <div class="hist-header">
+      <h2 id="histTitle">Riwayat Gempa 7 Hari</h2>
+      <span id="histCount">0 event</span>
+    </div>
+    <div id="histTsunamiBanner" class="hist-tsunami-banner hidden">
+      <div class="htb-icon">🌊</div>
+      <div>
+        <b>Peringatan / riwayat tsunami</b>
+        <span>Data dari potensi tsunami BMKG/InaTEWS. Klik baris untuk detail (ShakeMap, status AWAS/SIAGA/WASPADA, arahan).</span>
+      </div>
+    </div>
+    <div class="hist-body">
+      <div class="hist-map" id="histMap"></div>
+      <div class="hist-table-wrap">
+        <table class="hist-table">
+          <thead>
+            <tr id="histHeadRow">
+              <th>M</th><th>Waktu</th><th>Wilayah</th><th>Kedalaman</th>
+            </tr>
+          </thead>
+          <tbody id="histBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Popup gempa baru -->
+<div id="popupNew" class="popup-new hidden">
+  <button type="button" class="popup-x" id="popupClose">×</button>
+  <div class="popup-label">GEMPA BARU TERDETEKSI</div>
+  <div class="popup-mag" id="popMag">M—</div>
+  <div class="popup-place" id="popPlace">—</div>
+  <div class="popup-meta" id="popMeta">—</div>
+  <div class="popup-distance" id="popDistance">📍 Jarak dari lokasi Anda: menghitung…</div>
+  <div class="popup-location" id="popUserLocation">Lokasi Anda: meminta izin lokasi…</div>
+</div>
+
+<!-- Tsunami Alert Modal -->
+<div id="modalTsunamiAlert" class="tsunami-overlay hidden">
+  <div class="tsunami-card" id="tsunamiCard">
+    <button type="button" class="modal-close" id="tsunamiClose" aria-label="Tutup">×</button>
+    <div class="tsunami-header">
+      <div class="tsunami-wave-icon">🌊</div>
+      <div>
+        <h2 id="tsunamiTitle">PERINGATAN TSUNAMI</h2>
+        <div class="ts-sub" id="tsunamiSubtitle">Potensi tsunami terdeteksi — segera ikuti arahan BMKG</div>
+      </div>
+    </div>
+    <div class="tsunami-body">
+      <div class="tsunami-mag-row">
+        <div class="tsunami-mag" id="tsunamiMag">—</div>
+        <div class="tsunami-meta">
+          <div><b id="tsunamiTime">—</b></div>
+          <div id="tsunamiPlace">—</div>
+          <div id="tsunamiCoordDepth">—</div>
+          <div>Sumber: <b id="tsunamiSrc">BMKG</b></div>
+        </div>
+      </div>
+      <div class="tsunami-status-grid">
+        <div class="tsunami-status awas">AWAS<span>Evakuasi segera</span></div>
+        <div class="tsunami-status siaga">SIAGA<span>Siap evakuasi</span></div>
+        <div class="tsunami-status waspada">WASPADA<span>Waspada & pantau</span></div>
+      </div>
+      <div class="tsunami-areas">
+        <h4>Wilayah terdampak / laporan getaran:</h4>
+        <div class="tsunami-area-list" id="tsunamiAreaList"></div>
+      </div>
+      <div class="tsunami-maps">
+        <div class="tsunami-map-box" id="tsunamiShakemapBox">
+          <div class="mmi-h">ShakeMap BMKG</div>
+          <img id="tsunamiShakemapImg" alt="ShakeMap" loading="lazy" crossorigin="anonymous">
+        </div>
+        <div class="tsunami-map-box" id="tsunamiSshBox" style="display:none">
+          <div class="mmi-h">Peta Tinggi Muka Laut (SSHmax)</div>
+          <img id="tsunamiSshImg" alt="SSHmax" loading="lazy" crossorigin="anonymous">
+        </div>
+        <div class="tsunami-map-box" id="tsunamiWzBox" style="display:none">
+          <div class="mmi-h">Peta Warning Zone</div>
+          <img id="tsunamiWzImg" alt="Warning Zone" loading="lazy" crossorigin="anonymous">
+        </div>
+        <div class="tsunami-map-box" id="tsunamiTtBox" style="display:none">
+          <div class="mmi-h">Peta Estimasi Tiba</div>
+          <img id="tsunamiTtImg" alt="Travel Time" loading="lazy" crossorigin="anonymous">
+        </div>
+        <div class="tsunami-map-box" id="tsunamiPotBox">
+          <div class="mmi-h">Status / headline</div>
+          <div id="tsunamiPotText" style="padding:14px;font-size:13px;color:#fecaca;line-height:1.5;font-weight:600"></div>
+        </div>
+      </div>
+      <div class="tsunami-instr">
+        <b>Arahan BMKG:</b>
+        <p id="tsunamiInstrText" style="margin:0">Segera menjauh dari pantai dan daerah rawan tsunami. Ikuti instruksi petugas setempat. Pantau informasi resmi BMKG.</p>
+      </div>
+      <div class="tsunami-zone-wrap">
+        <div class="mmi-h" style="margin:8px 0 6px">Daerah zona peringatan (Awas / Siaga / Waspada)</div>
+        <div class="tsunami-zone-table" id="tsunamiZoneTable">
+          <div class="tz-empty">Data zona wilayah belum tersedia pada buletin ini.</div>
+        </div>
+      </div>
+    </div>
+    <div class="tsunami-actions">
+      <button type="button" class="btn-save" id="btnSaveTsunami">💾 Simpan Gambar</button>
+      <button type="button" class="btn-share" id="btnShareTsunami">📤 Bagikan</button>
+      <button type="button" class="btn-close-ts" id="tsunamiCloseBtn">Tutup</button>
+      <a href="https://inatews.bmkg.go.id/wrs/index.html" target="_blank" rel="noopener" style="margin-left:auto;color:#38bdf8;font-size:12px;text-decoration:none">WRS Resmi →</a>
+    </div>
+  </div>
+</div>
+
+<!-- Loading overlay -->
+<div id="loadingOverlay" class="loading-overlay hidden">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Memuat data…</div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
