@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - ".github/workflows/build-apk.yml"
+      - "android/**"
 
 permissions:
   contents: read
@@ -20,9 +21,7 @@ jobs:
       - name: Checkout Android app source
         uses: actions/checkout@v4
         with:
-          repository: ilham8171/wrs-gempa-app
-          ref: main
-          path: android
+          path: .
 
       - name: Set up JDK
         uses: actions/setup-java@v4
