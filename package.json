@@ -1,0 +1,11 @@
+{
+  "name": "wrs-gempa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WRS GEMPA realtime monitoring website",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0",
+    "@netlify/functions": "^2.8.2",
+    "web-push": "^3.6.7"
+  }
+}
