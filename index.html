@@ -27,13 +27,13 @@
 
 <!-- Vertical Toolbar (kanan peta) -->
 <nav class="v-toolbar" id="vToolbar" aria-label="Toolbar peta">
-  <button type="button" class="tb-btn" id="tbBasemap" title="Ganti basemap">🗺</button>
+  <button type="button" class="tb-btn" id="tbBasemap" title="Ganti basemap"><span aria-hidden="true">▧</span></button>
   <button type="button" class="tb-btn" id="tbFullscreen" title="Layar penuh">⛶</button>
   <button type="button" class="tb-btn" id="tbRefresh" title="Refresh data">↻</button>
   <button type="button" class="tb-btn" id="tbHistory" title="Riwayat 7 hari">☰</button>
   <button type="button" class="tb-btn" id="tbFaults" title="Toggle sesar" data-on="1">⚡</button>
   <button type="button" class="tb-btn" id="tbFilter" title="Filter monitoring">☷</button>
-  <button type="button" class="tb-btn" id="tbLocation" title="Aktifkan lokasi">📍</button>
+  <button type="button" class="tb-btn" id="tbLocation" title="Aktifkan lokasi"><span aria-hidden="true">⌖</span></button>
 </nav>
 
 <!-- Basemap picker -->
@@ -56,13 +56,13 @@
     <div class="rt-mag" id="rtMag">—</div>
     <div class="rt-meta">
       <div id="rtDate">—</div>
-      <div class="rt-ago" id="rtAgo">⏰ —</div>
+      <div class="rt-ago" id="rtAgo">—</div>
     </div>
   </div>
   <div class="rt-coord" id="rtCoord">◎ —</div>
   <div class="rt-update hidden" id="rtUpdate" role="status"></div>
   <div class="rt-place" id="rtPlace">—</div>
-  <div class="rt-dist" id="rtDist">📍 Jarak ke Anda: —</div>
+  <div class="rt-dist" id="rtDist">Jarak ke Anda: —</div>
   <div class="rt-src" id="rtSrc">Sumber: —</div>
 </aside>
 
@@ -99,7 +99,7 @@
     </div>
     <div class="leg-row">
       <span class="leg-lab">Terbaru:</span>
-      <span class="star-legend">★</span> pulse + radius
+      <span class="star-legend">●</span> pulse + radius
     </div>
     <div class="leg-row">
       <span class="leg-lab">Anda:</span>
@@ -154,9 +154,9 @@
     <a href="https://data.bmkg.go.id/gempabumi/" target="_blank" rel="noopener" class="ext-link">Data Terbuka</a>
   </div>
   <div class="rp-quick">
-    <button type="button" id="btnAlarm" class="qbtn" title="Alarm bel + suara">🔔<span>Alarm</span></button>
-    <button type="button" id="btnLocation" class="qbtn" title="Lokasi saya di peta">📍<span>Lokasi</span></button>
-    <button type="button" id="btnPush" class="qbtn" title="Notifikasi latar belakang">📲<span>Notif</span></button>
+    <button type="button" id="btnAlarm" class="qbtn" title="Alarm bel + suara"><span class="qicon" aria-hidden="true">◉</span><span>Alarm</span></button>
+    <button type="button" id="btnLocation" class="qbtn" title="Lokasi saya di peta"><span class="qicon" aria-hidden="true">⌖</span><span>Lokasi</span></button>
+    <button type="button" id="btnPush" class="qbtn" title="Notifikasi latar belakang"><span class="qicon" aria-hidden="true">▣</span><span>Notifikasi</span></button>
   </div>
   <div class="rp-quick-opts">
     <label><input type="checkbox" id="optBell" checked> Bel</label>
@@ -237,7 +237,7 @@
     </div>
     <div class="modal-actions">
       <button type="button" class="btn-save" id="btnSave">💾 Simpan</button>
-      <button type="button" class="btn-share" id="btnShare">📤 Bagikan</button>
+      <button type="button" class="btn-share" id="btnShare">Bagikan</button>
       <a id="modalLink" href="https://inatews.bmkg.go.id/wrs/index.html" target="_blank" rel="noopener">WRS Resmi →</a>
     </div>
   </div>
@@ -252,7 +252,7 @@
       <span id="histCount">0 event</span>
     </div>
     <div id="histTsunamiBanner" class="hist-tsunami-banner hidden">
-      <div class="htb-icon">🌊</div>
+      <div class="htb-icon" aria-hidden="true">!</div>
       <div>
         <b>Peringatan / riwayat tsunami</b>
         <span>Data dari potensi tsunami BMKG/InaTEWS. Klik baris untuk detail (ShakeMap, status AWAS/SIAGA/WASPADA, arahan).</span>
@@ -281,7 +281,7 @@
   <div class="popup-mag" id="popMag">M—</div>
   <div class="popup-place" id="popPlace">—</div>
   <div class="popup-meta" id="popMeta">—</div>
-  <div class="popup-distance" id="popDistance">📍 Jarak dari lokasi Anda: menghitung…</div>
+  <div class="popup-distance" id="popDistance">Jarak dari lokasi Anda: menghitung…</div>
   <div class="popup-location" id="popUserLocation">Lokasi Anda: meminta izin lokasi…</div>
 </div>
 
@@ -290,7 +290,7 @@
   <div class="tsunami-card" id="tsunamiCard">
     <button type="button" class="modal-close" id="tsunamiClose" aria-label="Tutup">×</button>
     <div class="tsunami-header">
-      <div class="tsunami-wave-icon">🌊</div>
+      <div class="tsunami-wave-icon" aria-hidden="true">!</div>
       <div>
         <h2 id="tsunamiTitle">PERINGATAN TSUNAMI</h2>
         <div class="ts-sub" id="tsunamiSubtitle">Potensi tsunami terdeteksi — segera ikuti arahan BMKG</div>
@@ -349,8 +349,8 @@
       </div>
     </div>
     <div class="tsunami-actions">
-      <button type="button" class="btn-save" id="btnSaveTsunami">💾 Simpan Gambar</button>
-      <button type="button" class="btn-share" id="btnShareTsunami">📤 Bagikan</button>
+      <button type="button" class="btn-save" id="btnSaveTsunami">Simpan Gambar</button>
+      <button type="button" class="btn-share" id="btnShareTsunami">Bagikan</button>
       <button type="button" class="btn-close-ts" id="tsunamiCloseBtn">Tutup</button>
       <a href="https://inatews.bmkg.go.id/wrs/index.html" target="_blank" rel="noopener" style="margin-left:auto;color:#38bdf8;font-size:12px;text-decoration:none">WRS Resmi →</a>
     </div>
@@ -365,6 +365,32 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+<script>
+/* Responsive panel flow: on phones, place the legend after alarm/notification controls. */
+(function () {
+  const legend = document.querySelector('.left-bottom');
+  const panel = document.getElementById('rightPanel');
+  const anchor = document.getElementById('pushStatus');
+  if (!legend || !panel || !anchor) return;
+  const placeholder = document.createComment('legend original position');
+  legend.parentNode.insertBefore(placeholder, legend);
+  const mobile = window.matchMedia('(max-width: 900px)');
+  function placeLegend() {
+    if (mobile.matches) {
+      panel.insertBefore(legend, anchor.nextSibling);
+      legend.classList.add('legend-in-panel');
+    } else {
+      if (placeholder.parentNode) placeholder.parentNode.insertBefore(legend, placeholder.nextSibling);
+      legend.classList.remove('legend-in-panel');
+    }
+  }
+  placeLegend();
+  if (mobile.addEventListener) mobile.addEventListener('change', placeLegend);
+  else mobile.addListener(placeLegend);
+})();
+</script>
+
 <script src="/app.js"></script>
 </body>
 </html>
