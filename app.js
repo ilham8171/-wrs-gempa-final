@@ -1,7 +1,6 @@
 const API = "/api/earthquakes";
 const SUBSCRIBE_API = "/api/subscribe";
-const VAPID_PUBLIC_KEY =
-  "BMMLWEJGdS_HeyHwUWt9z6iswzec3RzLIXGWIrLmLa7xptYq4oLYFLiYlR-g0XE7rZJ4PFieSK9NRf-tOtKRmAA";
+const VAPID_PUBLIC_KEY = "BMqnAlvfTK-ZY0MbDNfZjlRTU3J4elbEiSGLXbyFudedq73wMmEVaRWhgSeBayi2dyWGO_GbJ3e7cjstITG4dHE";
 const NORMAL_INTERVAL = 15000;
 const currentInterval = () => NORMAL_INTERVAL;
 const SHAKEMAP_BASE = "https://bmkg-content-inatews.storage.googleapis.com/";
