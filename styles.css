@@ -1222,3 +1222,12 @@ body.battery-saver *,body.battery-saver *::before,body.battery-saver *::after{sc
   .left-bottom{width:min(280px,calc(100vw - 16px));bottom:58px;max-height:24vh}
   .map-stats{bottom:8px}
 }
+
+
+/* Action controls on every earthquake history row */
+.hist-actions{white-space:nowrap;display:flex;gap:6px;align-items:center}
+.hist-actions button{border:1px solid #334155;border-radius:7px;padding:6px 8px;background:#0f172a;color:#e2e8f0;font-size:11px;font-weight:700;cursor:pointer}
+.hist-actions .hist-action-download{border-color:#0e7490;color:#a5f3fc}
+.hist-actions .hist-action-share{border-color:#4f46e5;color:#c7d2fe}
+.hist-actions button:active{transform:scale(.97)}
+@media(max-width:700px){.hist-actions{flex-wrap:wrap}.hist-actions button{padding:5px 6px;font-size:10px}}
