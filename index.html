@@ -13,6 +13,8 @@
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
 <title>WRS Gempa · Independent Monitoring by Ilham</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -95,11 +97,11 @@
     </div>
     <div class="leg-row">
       <span class="leg-lab">Ukuran:</span>
-      <span style="font-size:10px;opacity:.85">lingkaran lebih besar = magnitudo lebih tinggi</span>
+      <span style="font-size:10px;opacity:.85">simbol lebih besar = magnitudo lebih tinggi</span>
     </div>
     <div class="leg-row">
       <span class="leg-lab">Terbaru:</span>
-      <span class="star-legend">●</span> pulse + radius
+      <span class="star-legend">◆</span> kejadian terbaru · tanpa efek pulse
     </div>
     <div class="leg-row">
       <span class="leg-lab">Anda:</span>
@@ -466,6 +468,7 @@
 })();
 </script>
 
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
