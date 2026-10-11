@@ -16,6 +16,8 @@ let firstLoad = true;
 let currentOfficial = null;
 let currentRealtime = null;
 let realtimeEvents = [];
+let operationalQuakes = [];
+let wrsMode = localStorage.getItem("wrsModeV1") === "simulation" ? "simulation" : "operational";
 let faultsVisible = true;
 let filterState = JSON.parse(localStorage.getItem("wrsFilterV1") || "null") || { mag: 1.5, age: 168, source: "ALL", depth: "ALL" };
 let lastRenderFingerprint = "";
@@ -1622,9 +1624,85 @@ function processNew() {
 }
 
 function status(ok, text) {
-  $("#liveDot").className = ok ? "ok" : "bad";
-  $("#liveText").textContent = text;
+  const dot = $("#liveDot");
+  const label = $("#liveText");
+  if (dot) dot.className = ok ? "ok" : "bad";
+  if (label) label.textContent = text;
 }
+
+function simulationQuake() {
+  return {
+    key: "simulation|wrs-demo-event",
+    magnitude: 4.8, lat: -8.5, lon: 116.1,
+    place: "SIMULASI · Wilayah Lombok, NTB",
+    depth: "10", time: new Date().toISOString(),
+    potential: "DATA UJI — bukan kejadian gempa nyata",
+    felt: "", source: "SIMULASI", status: "TEST",
+    official: false, simulation: true, wrsRealtime: false
+  };
+}
+function updateModeButtons() {
+  document.querySelectorAll("[data-wrs-mode]").forEach(button => {
+    const active = button.dataset.wrsMode === wrsMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+function applySimulationMode() {
+  const sample = simulationQuake();
+  quakes = [sample];
+  realtimeEvents = [sample];
+  currentRealtime = sample;
+  currentOfficial = sample;
+  const filter = $("#rtFilter");
+  if (filter) filter.textContent = "MODE SIMULASI · DATA UJI, BUKAN GEMPA NYATA";
+  renderRealtime(sample);
+  status(true, "MODE SIMULASI");
+  const healthText = $("#wrsHealthText");
+  const healthTime = $("#wrsLastUpdated");
+  const health = $("#wrsHealth");
+  if (healthText) healthText.textContent = "SIMULASI AKTIF · DATA UJI";
+  if (healthTime) healthTime.textContent = "Bukan data gempa nyata";
+  if (health) {
+    health.classList.remove("is-error");
+    health.title = "Mode simulasi: data contoh, bukan kejadian gempa nyata.";
+  }
+  updateModeButtons();
+  drawMarkers(true);
+  updateStats(getFilteredQuakes());
+}
+function setWrsMode(mode) {
+  wrsMode = mode === "simulation" ? "simulation" : "operational";
+  try { localStorage.setItem("wrsModeV1", wrsMode); } catch {}
+  updateModeButtons();
+  if (wrsMode === "simulation") {
+    applySimulationMode();
+    return;
+  }
+  const filter = $("#rtFilter");
+  if (filter) filter.textContent = "Area Indonesia · Mag > 2 · 7 hari terakhir";
+  status(false, "MENGHUBUNGKAN WRS");
+  const healthText = $("#wrsHealthText");
+  const healthTime = $("#wrsLastUpdated");
+  const health = $("#wrsHealth");
+  if (healthText) healthText.textContent = "MENGHUBUNGKAN KEMBALI KE WRS";
+  if (healthTime) healthTime.textContent = "Meminta data operasional terbaru";
+  if (health) health.classList.remove("is-error");
+  if (operationalQuakes.length) {
+    quakes = operationalQuakes;
+    currentRealtime = realtimeEvents.find(q => !q.simulation) || null;
+    currentOfficial = quakes.find(q => q.official) || null;
+    const primary = primaryRealtimeQuake();
+    if (primary) renderRealtime(primary);
+    if (currentOfficial) renderOfficial(currentOfficial);
+    drawMarkers(true);
+    updateStats(getFilteredQuakes());
+  }
+  load(true);
+}
+document.querySelectorAll("[data-wrs-mode]").forEach(button => {
+  button.addEventListener("click", () => setWrsMode(button.dataset.wrsMode));
+});
 
 function showLoading(msg) {
   const el = $("#loadingOverlay");
@@ -1639,6 +1717,10 @@ function hideLoading() {
 }
 
 async function load(showSpin) {
+  if (wrsMode === "simulation") {
+    if (!quakes.some(q => q.simulation)) applySimulationMode();
+    return;
+  }
   if (loadInFlight) return;
   loadInFlight = true;
   if (showSpin) showLoading("Memuat data gempa…");
@@ -1657,6 +1739,7 @@ async function load(showSpin) {
     }
 
     const incoming = d.recent;
+    operationalQuakes = incoming;
     realtimeEvents = Array.isArray(d.realtimeEvents) ? d.realtimeEvents : [];
     if (!incoming.length) {
       const hasPreviousData = quakes.length > 0;
@@ -1688,7 +1771,7 @@ async function load(showSpin) {
       }
     }
     const newFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
-    const wrsFeedOk = realtimeEvents.length > 0 && !(d.sources?.errors || []).includes("InaTEWS QL");
+    const wrsFeedOk = d.sources?.wrs?.ok === true || (d.sources?.wrs == null && !(d.sources?.errors || []).includes("InaTEWS QL"));
     const usingFallback = !wrsFeedOk;
     status(true, wrsFeedOk ? "WRS LIVE" : "CADANGAN · WRS OFFLINE");
     const healthText = $("#wrsHealthText");
@@ -1714,6 +1797,9 @@ async function load(showSpin) {
     currentRealtime = d.realtime || realtimeEvents[0] || null;
     const primary = primaryRealtimeQuake();
     if (primary) renderRealtime(primary);
+    const rtFilter = $("#rtFilter");
+    if (rtFilter) rtFilter.textContent = "Area Indonesia · Mag > 2 · 7 hari terakhir";
+    updateModeButtons();
 
     if (oldFingerprint !== newFingerprint || showSpin) drawMarkers(true);
     else updateStats(getFilteredQuakes());
