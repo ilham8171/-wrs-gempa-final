@@ -21,6 +21,17 @@
 <div id="map"></div>
 <div class="map-overlay"></div>
 <div class="wrs-health" id="wrsHealth" role="status" aria-live="polite"><span class="health-led"></span><span id="wrsHealthText">MENYIAPKAN DATA</span><time id="wrsLastUpdated">Menunggu pembaruan</time></div>
+<div class="wrs-utility-bar" aria-label="Utilitas pemantauan">
+  <button type="button" id="btnWeather" class="utility-btn" title="Cuaca di lokasi Anda">Cuaca lokal</button>
+  <button type="button" id="btnBattery" class="utility-btn" aria-pressed="false" title="Kurangi penggunaan baterai">Hemat baterai: mati</button>
+</div>
+<section id="weatherCard" class="weather-card hidden" aria-live="polite">
+  <button type="button" id="weatherClose" class="weather-close" aria-label="Tutup cuaca">×</button>
+  <div class="weather-kicker">CUACA LOKAL · OPEN-METEO</div>
+  <div id="weatherPlace" class="weather-place">Menunggu lokasi</div>
+  <div class="weather-main"><strong id="weatherTemp">—</strong><span id="weatherDesc">Aktifkan lokasi untuk melihat cuaca</span></div>
+  <div id="weatherExtra" class="weather-extra">Data cuaca terpisah dari peringatan gempa BMKG.</div>
+</section>
 <div class="map-stats glass-panel" id="mapStats">
   <button type="button" class="stat-btn" data-stat="all" title="Daftar semua event"><b id="statTotal">0</b><span>EVENT</span></button>
   <button type="button" class="stat-btn" data-stat="strong" title="Daftar M≥4"><b id="statStrong">0</b><span>M≥4</span></button>
@@ -261,6 +272,7 @@
         <span>Data dari potensi tsunami BMKG/InaTEWS. Klik baris untuk detail (ShakeMap, status AWAS/SIAGA/WASPADA, arahan).</span>
       </div>
     </div>
+    <div id="histTimeline" class="hist-timeline" aria-label="Timeline aktivitas gempa 7 hari"></div>
     <div class="hist-body">
       <div class="hist-map" id="histMap"></div>
       <div class="hist-table-wrap">
