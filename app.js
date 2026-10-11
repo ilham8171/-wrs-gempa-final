@@ -1852,7 +1852,11 @@ function toggleSimulationPause() {
     simulationSequencePaused = false;
     simulationSequenceActive = true;
     updateSimulationControls();
-    showNextSimulationEvent();
+    const speed = $("#wrsTestSpeed")?.value || "normal";
+    const delay = speed === "slow" ? 15000 : speed === "fast" ? 4000 : 8000;
+    simulationSequenceTimer = setTimeout(() => {
+      if (!simulationSequencePaused && simulationSequenceActive) showNextSimulationEvent();
+    }, simulationSequenceIndex < simulationSequence.length || simulationSequenceRepeat ? delay : 1200);
     logSimulationTest("Simulasi dilanjutkan.", "info");
   } else {
     simulationSequencePaused = true;
