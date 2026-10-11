@@ -819,9 +819,9 @@ async function loadUsgsProducts(q) {
   if (!box) return;
   const eventId = q.usgsEventId || q.eventid || String(q.key || "").replace(/^usgs\\|/, "");
   const endpoint = q.detailApiUrl || (eventId ? "https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/" + encodeURIComponent(eventId) + ".geojson" : "");
-  box.innerHTML = '<div style="font-weight:900;font-size:16px;margin-bottom:8px">PETA GUNCANGAN</div><p style="font-size:13px;opacity:.75">Memuat peta intensitas MMI…</p>';
+  box.innerHTML = '<div style="font-weight:900;font-size:16px;margin-bottom:8px">PETA INTENSITAS GUNCANGAN (MMI)</div><p style="font-size:13px;opacity:.75">Memuat peta…</p>';
   if (!endpoint) {
-    box.innerHTML = '<div style="font-weight:900">PETA GUNCANGAN</div><p>Peta intensitas MMI belum tersedia untuk kejadian ini.</p>';
+    box.innerHTML = '<div style="font-weight:900">PETA INTENSITAS GUNCANGAN (MMI)</div><p>Peta belum tersedia untuk kejadian ini.</p>';
     return;
   }
   try {
@@ -835,33 +835,31 @@ async function loadUsgsProducts(q) {
     const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
     const contents = shake?.contents || {};
     const entries = Object.entries(contents).filter(([, item]) => item?.url);
-    // Hanya tampilkan peta intensitas MMI. Jangan tampilkan PGA/PGV/PSA atau tautan produk teknis.
     const mmiEntry = entries.find(([path]) => /(?:^|\\/)(?:intensity|mmi)\\.(?:jpg|jpeg|png)$/i.test(path))
-      || entries.find(([path]) => /(?:^|\\/)(?:intensity|mmi)[^/]*\\.(?:jpg|jpeg|png)$/i.test(path));
+      || entries.find(([path]) => /(?:^|\\/)(?:ii_thumbnail|pin-thumbnail)\\.(?:jpg|jpeg|png)$/i.test(path));
     const eventUrl = p.url || q.detailUrl || ("https://earthquake.usgs.gov/earthquakes/eventpage/" + encodeURIComponent(feature?.id || eventId));
+    const tsunamiFlag = Number(p.tsunami) === 1;
+    const tsunamiProducts = Array.isArray(products.tsunami) ? products.tsunami : [];
+    const tsunamiProduct = getPreferredUsgsProduct(tsunamiProducts);
+    const instruction = tsunamiFlag || tsunamiProduct
+      ? "Gempa ditandai terkait tsunami oleh USGS. Jika berada di pesisir, ikuti peringatan resmi setempat dan segera menuju tempat tinggi bila merasakan guncangan kuat atau lama."
+      : "Pantau informasi otoritas setempat dan waspadai gempa susulan. Status tsunami tidak dapat dipastikan hanya dari magnitudo atau ketiadaan penanda USGS.";
     let html = '<div style="font-weight:900;font-size:16px;margin-bottom:8px">PETA INTENSITAS GUNCANGAN (MMI)</div>';
     if (mmiEntry) {
       const imageUrl = mmiEntry[1].url;
       html += '<figure style="margin:0"><a href="' + safe(imageUrl) + '" target="_blank" rel="noopener noreferrer"><img src="' + safe(imageUrl) + '" alt="Peta intensitas guncangan MMI" loading="lazy" style="display:block;width:100%;height:auto;max-height:520px;object-fit:contain;background:#fff;border-radius:8px" onerror="this.closest(\'figure\')?.classList.add(\'hidden\')"></a></figure>';
-      html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:7px">Sumber peta intensitas MMI: USGS ShakeMap. Ketuk gambar untuk membuka gambar asli. Intensitas merupakan estimasi ilmiah, bukan pengukuran pasti di setiap lokasi.</div>';
+      html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:7px">Sumber peta: USGS ShakeMap. Intensitas adalah estimasi ilmiah. Ketuk gambar untuk memperbesar.</div>';
     } else {
-      html += '<div style="padding:10px;border:1px solid var(--border,#cbd5e1);border-radius:9px;font-size:13px;line-height:1.5">Peta intensitas MMI belum tersedia dari USGS untuk kejadian ini.</div>';
+      html += '<div style="padding:10px;border:1px solid var(--border,#cbd5e1);border-radius:9px;font-size:13px">Peta intensitas MMI belum tersedia dari USGS untuk kejadian ini.</div>';
     }
-
-    // Informasi tsunami tidak disimpulkan dari magnitudo saja. Tampilkan hanya status yang didukung data USGS.
-    const tsunamiProducts = Array.isArray(products.tsunami) ? products.tsunami : [];
-    const tsunamiProduct = getPreferredUsgsProduct(tsunamiProducts);
-    const tsunamiFlag = p.properties?.tsunami === 1 || p.tsunami === 1;
     html += '<div style="margin-top:12px;padding-top:9px;border-top:1px solid var(--border,#cbd5e1);font-size:12px;line-height:1.5">';
-    html += '<b>Status tsunami menurut data USGS:</b> ';
-    if (tsunamiFlag || tsunamiProduct) {
-      html += 'kejadian ditandai terkait tsunami pada data USGS. Segera periksa peringatan resmi otoritas tsunami setempat.';
-      html += '<br><b>Saran:</b> Jika berada di pesisir dan merasakan guncangan kuat atau lama, segera menuju tempat tinggi dan ikuti arahan petugas; jangan menunggu perkiraan di aplikasi.';
-    } else {
-      html += 'tidak ada penanda/produk tsunami pada detail USGS yang diterima. Ini bukan jaminan aman atau pengganti peringatan resmi.';
-      html += '<br><b>Saran:</b> Pantau otoritas resmi setempat dan waspadai gempa susulan.';
-    }
-    html += '<div style="font-size:11px;opacity:.72;margin-top:5px">Sumber peta dan informasi kejadian: USGS ComCat.</div></div>';
+    html += '<b>Status tsunami menurut USGS:</b> ' + (tsunamiFlag || tsunamiProduct
+      ? 'kejadian ditandai terkait tsunami. Ini bukan pengganti peringatan resmi.'
+      : 'tidak ada penanda tsunami pada data USGS yang diterima; ini bukan jaminan aman.');
+    html += '<br><b>Saran dan instruksi:</b> ' + safe(instruction);
+    html += '<br><span style="font-size:11px;opacity:.72">Sumber status dan instruksi: data kejadian USGS. Ikuti otoritas tsunami resmi setempat.</span>';
+    html += '</div>';
+    html += '<details style="margin-top:10px;font-size:12px"><summary style="cursor:pointer;font-weight:800">Sumber data dan detail lainnya</summary><p style="margin:7px 0">Parameter, peta MMI, dan status terkait tsunami diambil dari USGS ComCat/ShakeMap apabila tersedia.</p><a href="' + safe(eventUrl) + '" target="_blank" rel="noopener noreferrer">Buka sumber resmi USGS ↗</a></details>';
     box.innerHTML = html;
   } catch (error) {
     if (window._modalQuake?.key !== q.key) return;
