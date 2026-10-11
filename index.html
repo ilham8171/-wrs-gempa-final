@@ -7,31 +7,19 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="description" content="Independent monitoring by ilham — data resmi BMKG/InaTEWS. Monitor gempabumi realtime Indonesia.">
+<meta name="description" content="WRS Gempa: pemantauan gempa Indonesia dan dunia dari BMKG, InaTEWS, dan USGS.">
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icons/icon-192.png">
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
-<title>WRS Gempa · Independent Monitoring by Ilham</title>
+<title>WRS Gempa — Earthquake Monitor</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
 <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/ui-refresh.css">
 </head>
 <body>
 <div id="map"></div>
 <div class="map-overlay"></div>
-<div class="wrs-health" id="wrsHealth" role="status" aria-live="polite"><span class="health-led"></span><span id="wrsHealthText">MENYIAPKAN DATA</span><time id="wrsLastUpdated">Menunggu pembaruan</time></div>
-<div class="wrs-utility-bar" aria-label="Utilitas pemantauan">
-  <button type="button" id="btnWeather" class="utility-btn" title="Cuaca di lokasi Anda">Cuaca lokal</button>
-  <button type="button" id="btnBattery" class="utility-btn" aria-pressed="false" title="Kurangi penggunaan baterai">Hemat baterai: mati</button>
-</div>
-<section id="weatherCard" class="weather-card hidden" aria-live="polite">
-  <button type="button" id="weatherClose" class="weather-close" aria-label="Tutup cuaca">×</button>
-  <div class="weather-kicker">CUACA LOKAL · OPEN-METEO</div>
-  <div id="weatherPlace" class="weather-place">Menunggu lokasi</div>
-  <div class="weather-main"><strong id="weatherTemp">—</strong><span id="weatherDesc">Aktifkan lokasi untuk melihat cuaca</span></div>
-  <div id="weatherExtra" class="weather-extra">Data cuaca terpisah dari peringatan gempa BMKG.</div>
-</section>
+<div class="wrs-health" id="wrsHealth" role="status" aria-live="polite"><span class="health-led"></span><span class="health-brand">WRS</span><span class="health-divider" aria-hidden="true"></span><span id="wrsHealthText">MENYIAPKAN PEMANTAUAN</span><time id="wrsLastUpdated">Menunggu pembaruan</time></div>
 <div class="map-stats glass-panel" id="mapStats">
   <button type="button" class="stat-btn" data-stat="all" title="Daftar semua event"><b id="statTotal">0</b><span>EVENT</span></button>
   <button type="button" class="stat-btn" data-stat="strong" title="Daftar M≥4"><b id="statStrong">0</b><span>M≥4</span></button>
@@ -62,9 +50,9 @@
 <aside class="glass-panel left-top" id="cardRealtime">
   <div class="panel-header">
     <span class="pulse-dot"></span>
-    <span>GEMPA REALTIME</span>
+    <span>GEMPA TERBARU</span>
   </div>
-  <div class="panel-sub">InaTEWS · BMKG katalog</div>
+  <div class="panel-sub">Indonesia · katalog BMKG / InaTEWS</div>
   <div class="rt-filter" id="rtFilter">Area: Indonesia · Mag ≥ 1.5 · 7 hari</div>
   <div class="rt-row">
     <div class="rt-mag" id="rtMag">—</div>
@@ -113,7 +101,7 @@
     </div>
     <div class="leg-row">
       <span class="leg-lab">Terbaru:</span>
-      <span class="star-legend">◆</span> kejadian terbaru · tanpa efek pulse
+      <span class="star-legend">★</span> gempa terbaru · berdenyut
     </div>
     <div class="leg-row">
       <span class="leg-lab">Anda:</span>
@@ -139,12 +127,12 @@
   <div class="rp-mag-bar">
     <div class="rp-mag" id="offMag">—</div>
     <div class="rp-mag-info">
-      <b>INFO RESMI BMKG</b>
+      <b>RINGKASAN KEJADIAN</b>
       <span id="offTitle">INFO GEMPA</span>
       <small id="offSent">—</small>
     </div>
   </div>
-  <div class="rp-mode" id="rpMode">MODE OPERASIONAL</div>
+  <div class="rp-mode" id="rpMode">INDONESIA + GEMPA GLOBAL M5+</div>
   <div class="rp-mini-map" id="miniFocus"></div>
   <div class="rp-stats">
     <div><small>Waktu Gempa</small><b id="offTime">—</b></div>
@@ -181,13 +169,13 @@
   <div class="rp-quick-status" id="pushStatus">Notif · belum aktif</div>
   <div class="rp-live">
     <i id="liveDot"></i>
-    <span id="liveText">CONNECTING</span>
+    <span id="liveText">MENGHUBUNGKAN</span>
     <span id="srcCount"></span>
   </div>
   <div class="rp-foot">
     Independent monitoring by <b>ilham</b><br>
-    Sumber data resmi: InaTEWS / BMKG / USGS<br>
-    © 2026 · Bukan sistem resmi BMKG
+    Sumber data: InaTEWS / BMKG / USGS<br>
+    © 2026 · Pemantauan independen, bukan sistem resmi BMKG
   </div>
 </aside>
 
@@ -425,7 +413,7 @@
   title.className = 'mobile-page-title';
   title.innerHTML = '<span>WRS GEMPA</span><small>Legenda & panduan peta</small>';
   legendPage.appendChild(title);
-  const mapNodes = ['map','map-overlay','mapStats','vToolbar','basemapMenu','cardRealtime'];
+  const mapNodes = ['map','map-overlay','wrsHealth','mapStats','vToolbar','basemapMenu','cardRealtime'];
   mapNodes.forEach(id => { const el=document.getElementById(id); if(el) mapPage.appendChild(el); });
   const panel = document.getElementById('rightPanel');
   const legend = document.querySelector('.left-bottom');
@@ -439,7 +427,7 @@
   const nav = document.createElement('nav');
   nav.className = 'mobile-bottom-nav';
   nav.setAttribute('aria-label','Navigasi utama');
-  nav.innerHTML = '<button type="button" data-page="map" class="active"><span class="nav-symbol" aria-hidden="true">⌖</span><span>Peta</span></button><button type="button" data-page="info"><span class="nav-symbol" aria-hidden="true">▤</span><span>Gempa</span></button><button type="button" data-page="alerts"><span class="nav-symbol" aria-hidden="true">!</span><span>Peringatan</span></button><button type="button" data-page="more"><span class="nav-symbol" aria-hidden="true">•••</span><span>Lainnya</span></button>';
+  nav.innerHTML = '<button type="button" data-page="map" class="active"><span class="nav-symbol" aria-hidden="true">⌖</span><span>Peta</span></button><button type="button" data-page="info"><span class="nav-symbol" aria-hidden="true">▤</span><span>Detail</span></button><button type="button" data-page="alerts"><span class="nav-symbol" aria-hidden="true">!</span><span>Notifikasi</span></button><button type="button" data-page="more"><span class="nav-symbol" aria-hidden="true">•••</span><span>Lainnya</span></button>';
   body.appendChild(nav);
   function showPage(name) {
     const screen = name === 'alerts' ? 'info' : name === 'more' ? 'legend' : name;
@@ -481,7 +469,6 @@
 })();
 </script>
 
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
