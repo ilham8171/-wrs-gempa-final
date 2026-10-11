@@ -1124,3 +1124,51 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible { 
   place-items:center !important;
   overflow:visible !important;
 }
+
+
+/* WRS health strip and focused monitoring mode */
+.wrs-health {
+  position:fixed;
+  z-index:620;
+  top:12px;
+  left:50%;
+  transform:translateX(-50%);
+  display:flex;
+  align-items:center;
+  gap:9px;
+  max-width:min(430px,calc(100vw - 180px));
+  padding:8px 12px;
+  border:1px solid rgba(100,205,240,.2);
+  border-radius:10px;
+  background:rgba(7,17,30,.86);
+  color:#d9edf7;
+  box-shadow:0 6px 24px rgba(0,0,0,.2);
+  backdrop-filter:blur(12px);
+  font:700 10px/1.2 system-ui,sans-serif;
+  letter-spacing:.06em;
+}
+.wrs-health .health-led {
+  width:7px;height:7px;flex:0 0 7px;border-radius:50%;
+  background:#4ad6a0;box-shadow:0 0 0 3px rgba(74,214,160,.12);
+}
+.wrs-health time { color:#8fa9bb;font-weight:500;letter-spacing:0;white-space:nowrap; }
+.wrs-health.is-error { border-color:rgba(255,95,110,.5); }
+.wrs-health.is-error .health-led { background:#ff5f6e;box-shadow:0 0 0 3px rgba(255,95,110,.13); }
+body.monitoring-mode .left-bottom,
+body.monitoring-mode .map-stats { opacity:.18; transition:opacity .18s ease; }
+body.monitoring-mode .left-top { max-width:300px; }
+body.monitoring-mode .wrs-health { top:10px; }
+@media (max-width:900px) {
+ .wrs-health {
+   top:calc(8px + env(safe-area-inset-top,0px));
+   left:50%; max-width:calc(100vw - 126px);
+   padding:7px 9px; gap:7px;
+   font-size:9px;
+ }
+ .wrs-health time { display:none; }
+ body.monitoring-mode .left-top { display:none; }
+ body.monitoring-mode .map-stats { opacity:0; pointer-events:none; }
+}
+@media (prefers-reduced-motion:reduce) {
+ .wrs-health, body.monitoring-mode .left-bottom, body.monitoring-mode .map-stats { transition:none; }
+}
