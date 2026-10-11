@@ -875,25 +875,14 @@ async function loadUsgsProducts(q) {
     html += param("Sumber data","USGS ComCat") + param("ID kejadian",safe(feature?.id || eventId)) + '</div>';
     html += '<div style="font-weight:900;border-bottom:1px solid var(--border,#cbd5e1);padding-bottom:7px;margin:16px 0 8px">PETA GUNCANGAN</div>';
     if (shakeMapUrl) {
-      html += '<div style="font-size:12px;opacity:.75;margin-bottom:7px">ShakeMap resmi USGS tersedia untuk kejadian ini.</div><a href="' + safe(shakeMapUrl) + '" target="_blank" rel="noopener noreferrer"><img src="' + safe(shakeMapUrl) + '" alt="Peta intensitas guncangan resmi USGS" loading="lazy" style="display:block;width:100%;max-height:390px;object-fit:contain;background:#fff;border-radius:9px;border:1px solid var(--border,#cbd5e1)"></a>';
+      html += '<a href="' + safe(shakeMapUrl) + '" target="_blank" rel="noopener noreferrer"><img src="' + safe(shakeMapUrl) + '" alt="Peta intensitas guncangan resmi USGS" loading="lazy" style="display:block;width:100%;max-height:390px;object-fit:contain;background:#fff;border-radius:9px;border:1px solid var(--border,#cbd5e1)"></a>';
+      html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:7px">Catatan: Sumber peta ShakeMap dan detail informasi gempa berasal dari USGS.</div>';
     } else {
-      html += '<div style="padding:12px;border:1px solid var(--border,#cbd5e1);border-radius:9px;font-size:13px;line-height:1.5">Peta ShakeMap belum tersedia dari USGS untuk kejadian ini. WRS mencoba menyediakan tautan pencarian sumber pembanding di bawah; peta dari kejadian lain tidak akan dipakai sebagai pengganti.</div>';
+      html += '<div style="padding:12px;border:1px solid var(--border,#cbd5e1);border-radius:9px;font-size:13px;line-height:1.5">Peta guncangan belum tersedia untuk kejadian ini.</div>';
     }
     html += '<div style="font-weight:900;border-bottom:1px solid var(--border,#cbd5e1);padding-bottom:7px;margin:16px 0 8px">INFORMASI TSUNAMI</div>';
     html += '<div style="font-size:13px;line-height:1.55;padding:11px;border-radius:9px;background:rgba(148,163,184,.10)">Status tsunami harus diperiksa melalui otoritas resmi untuk lokasi kejadian. Magnitudo saja tidak cukup untuk menyatakan ada atau tidaknya ancaman tsunami.</div>';
-    // Ringkasan sumber dibuat singkat agar tampilan utama tetap seperti buletin BMKG.
-    const sourceNote = shakeMapUrl
-      ? 'Sumber peta: USGS ShakeMap. Produk tambahan dan metadata tersedia di sumber resmi.'
-      : 'Peta ShakeMap belum tersedia untuk kejadian ini. Data tambahan dapat diperiksa melalui sumber resmi.';
-    html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:7px">' + sourceNote + '</div>';
-    if (productRows.length || uniqueLinks.length) {
-      html += '<details style="margin-top:10px;border:1px solid var(--border,#cbd5e1);border-radius:9px;padding:10px"><summary style="cursor:pointer;font-weight:800;font-size:12px">Detail sumber & produk tambahan</summary>';
-      html += '<div style="font-size:12px;line-height:1.5;margin-top:7px">Produk tambahan tersedia dari katalog resmi USGS untuk kejadian ini.</div>';
-      if (productRows.length) html += '<ul style="padding-left:19px;font-size:12px;line-height:1.6">' + productRows.join("") + '</ul>';
-      if (uniqueLinks.length) html += '<div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:8px">' + uniqueLinks.map(item => '<a href="' + safe(item.url) + '" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:7px 10px;border-radius:7px;background:var(--accent,#0f766e);color:white;text-decoration:none;font-size:11px;font-weight:700">' + safe(item.label) + ' ↗</a>').join("") + '</div>';
-      html += '</details>';
-    }
-    html += '<p style="margin:10px 0 0;font-size:11px"><a href="' + safe(eventUrl) + '" target="_blank" rel="noopener noreferrer">Sumber resmi USGS ↗</a></p>';
+    html += '<details style="margin-top:10px;font-size:12px"><summary style="cursor:pointer">Detail produk tambahan</summary><p>Produk tambahan hanya tersedia jika disediakan oleh sumber resmi untuk kejadian ini.</p><a href="' + safe(eventUrl) + '" target="_blank" rel="noopener noreferrer">Buka detail resmi USGS ↗</a></details>';
     html += '<div style="font-size:11px;opacity:.7;margin-top:7px">Peta guncangan merupakan estimasi ilmiah, bukan pengukuran pasti di setiap lokasi.</div>';
     box.innerHTML = html;
   } catch (error) {
