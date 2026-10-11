@@ -901,11 +901,9 @@ async function loadUsgsProducts(q, forceFallback = false) {
     const shake = getPreferredUsgsProduct(products.shakemap);
     const contents = shake?.contents || {};
     const entries = Object.entries(contents).filter(([, item]) => item?.url);
-    // USGS product paths may include download/ and newer names such as psa3p0.jpg.
-    // Select only the MMI intensity map for the main detail view, not other technical maps.
-    const normPath = path => String(path || "").replace(/^.*\/download\//i, "").replace(/^\/+/, "");
-    const mmiEntry = entries.find(([path]) => /^(?:intensity|mmi)\.(?:jpg|jpeg|png)$/i.test(normPath(path)))
-      || entries.find(([path]) => /^(?:ii_thumbnail|pin-thumbnail)\.(?:jpg|jpeg|png)$/i.test(normPath(path)));
+    // Utamakan intensity.jpg/png (MMI); thumbnail hanya cadangan.
+    const mmiEntry = entries.find(([path]) => /(?:^|\/)(?:intensity|mmi)\.(?:jpg|jpeg|png)$/i.test(path))
+      || entries.find(([path]) => /(?:^|\/)(?:ii_thumbnail|pin-thumbnail)\.(?:jpg|jpeg|png)$/i.test(path));
     let html = '<div style="font-weight:900;font-size:16px;margin-bottom:8px">PETA INTENSITAS GUNCANGAN (MMI)</div>';
     if (mmiEntry) {
       const imageUrl = mmiEntry[1].url;
@@ -913,15 +911,7 @@ async function loadUsgsProducts(q, forceFallback = false) {
       html += '<figure style="margin:0"><a href="' + safe(imageUrl) + '" target="_blank" rel="noopener noreferrer"><img src="' + safe(imageUrl) + '" alt="Peta intensitas guncangan MMI" loading="lazy" style="display:block;width:100%;height:auto;max-height:520px;object-fit:contain;background:#fff;border-radius:8px" onerror="this.closest(\'figure\')?.classList.add(\'hidden\')"></a></figure>';
       html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:7px">Sumber peta: ' + sourceName + '. Peta merupakan estimasi ilmiah, bukan pengukuran pasti di setiap lokasi.</div>';
     } else {
-      // Fallback to a ShakeMap URL even when the product's content key is oddly named.
-      const fallback = entries.find(([path, item]) => /\.(?:jpg|jpeg|png)$/i.test(normPath(path)) && /intensity|mmi/i.test(normPath(path) + " " + (item.contentType || "")));
-      if (fallback) {
-        const imageUrl = fallback[1].url;
-        html += '<figure style="margin:0"><a href="' + safe(imageUrl) + '" target="_blank" rel="noopener noreferrer"><img src="' + safe(imageUrl) + '" alt="Peta intensitas guncangan MMI" loading="lazy" style="display:block;width:100%;height:auto;max-height:520px;object-fit:contain;background:#fff;border-radius:8px" onerror="this.closest(\'figure\')?.classList.add(\'hidden\')"></a></figure>';
-        html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:7px">Sumber peta: USGS ShakeMap. Peta merupakan estimasi ilmiah.</div>';
-      } else {
-        html += '<div style="padding:10px;border:1px solid var(--border,#cbd5e1);border-radius:9px;font-size:13px">Peta intensitas MMI belum tersedia untuk kejadian ini.</div>';
-      }
+      html += '<div style="padding:10px;border:1px solid var(--border,#cbd5e1);border-radius:9px;font-size:13px">Peta intensitas MMI belum tersedia untuk kejadian ini.</div>';
     }
     // Jangan ulangi koordinat/magnitudo atau daftar tautan produk. Satu tautan sumber
     // ditempatkan tersembunyi di bagian catatan ringkas.
@@ -936,3 +926,1542 @@ async function loadUsgsProducts(q, forceFallback = false) {
     console.warn("Gagal memuat peta MMI cadangan USGS", error);
   }
 }
+
+function openModal(q) {
+  if (!q) return;
+  // Jika potensi tsunami → buka modal tsunami khusus
+  if (isTsunamiPotential(q.potential)) {
+    openTsunamiModal(q);
+    return;
+  }
+
+  $("#modalMag").textContent = q.magnitude.toFixed(1);
+  $("#modalLabel").textContent = q.magnitude >= 5
+    ? "INFO GEMPA BUMI M>5"
+    : q.felt ? "INFO GEMPA DIRASAKAN" : "INFO GEMPA";
+  $("#modalTime").textContent = "WAKTU GEMPA BUMI: " + fmtTime(q);
+  $("#modalSent").textContent = q.timesent
+    ? "Waktu pengiriman: " + q.timesent
+    : "Waktu pengiriman: " + fmtTime(q);
+  $("#modalCoord").textContent = fmtCoord(q);
+  $("#modalDepth").textContent = q.depth + " Km";
+  $("#modalRegion").textContent = q.place;
+  $("#modalSrc").textContent = q.source || "BMKG";
+
+  const pot = q.potential && q.potential !== "—"
+    ? q.potential
+    : "tidak ada potensi TSUNAMI";
+  const tsEl = $("#modalTsunami");
+  $("#modalTsunamiText").textContent = pot;
+  if (isTsunamiPotential(pot)) tsEl.classList.remove("safe");
+  else tsEl.classList.add("safe");
+
+  const isGlobalUsgs = q.source === "USGS" || String(q.key || "").startsWith("usgs|");
+  // Untuk kejadian global, jangan menampilkan saran/status BMKG seolah-olah
+  // berasal dari USGS. Status USGS akan diperbarui setelah detail event dimuat.
+  $("#modalInstrText").textContent = isGlobalUsgs
+    ? "Sumber informasi: USGS ComCat. Waspadai gempa susulan dan ikuti arahan otoritas kebencanaan setempat."
+    : (q.instruction || "Waspadai kemungkinan gempa susulan. Ikuti informasi dan arahan resmi BMKG.");
+
+  const mmiItems = parseMmi(q.felt);
+  const mmiList = $("#modalMmiList");
+  if (mmiItems.length) {
+    mmiList.innerHTML = mmiItems
+      .map((it) => `<div class="mmi-item"><span class="mmi-badge">${it.scale}</span><span>${it.place}</span></div>`)
+      .join("");
+  } else {
+    mmiList.innerHTML = `<div class="mmi-item"><span class="mmi-badge">—</span><span>Belum ada laporan mengenai hal tersebut.</span></div>`;
+  }
+  $("#modalMmiBox").classList.remove("hidden");
+
+  const smBox = $("#modalShakemapBox");
+  const smImg = $("#modalShakemapImg");
+  if (q.shakemap) {
+    // Utamakan peta MMI BMKG. Jika URL gambar gagal, cari peta MMI USGS
+    // untuk kejadian yang sama; jangan menampilkan banyak produk teknis.
+    smImg.onload = () => {
+      smBox.classList.remove("hidden");
+      const fallbackBox = document.getElementById("usgsProductsBox");
+      if (fallbackBox) fallbackBox.innerHTML = "";
+    };
+    smImg.onerror = () => {
+      smBox.classList.add("hidden");
+      smImg.removeAttribute("src");
+      loadUsgsProducts({ ...q, shakemap: "" }, true);
+    };
+    smImg.src = q.shakemap;
+    smBox.classList.remove("hidden");
+  } else {
+    smBox.classList.add("hidden");
+    smImg.removeAttribute("src");
+  }
+
+  window._modalQuake = q;
+  $("#modalDetail").classList.remove("hidden");
+  const fallbackBox = document.getElementById("usgsProductsBox");
+  if (!q.shakemap) {
+    loadUsgsProducts(q);
+  } else if (fallbackBox) {
+    fallbackBox.innerHTML = "";
+  }
+}
+
+function classifyAreaLevel(scale) {
+  const s = String(scale || "").toUpperCase();
+  if (/VI|VII|VIII|IX|X|XI|XII|AWAS/i.test(s)) return "awas";
+  if (/IV|V|SIAGA/i.test(s)) return "siaga";
+  return "waspada";
+}
+
+function isTsunamiEnded(q) {
+  if (q?.ended === true) return true;
+  const blob = [q?.headline, q?.description, q?.subject, q?.potential].filter(Boolean).join(" ");
+  return /telah\s*berakhir|dinyatakan\s*telah\s*berakhir|all[\s-]?clear|peringatan\s*dicabut/i.test(blob);
+}
+
+function openTsunamiModal(q) {
+  if (!q) return;
+  window._modalQuake = q;
+  const mag = Number(q.magnitude);
+  $("#tsunamiMag").textContent = Number.isFinite(mag) ? mag.toFixed(1) : "—";
+  const when =
+    q.date && q.timeLocal
+      ? `${q.date} ${q.timeLocal}`
+      : fmtTime(q);
+  $("#tsunamiTime").textContent = when;
+  $("#tsunamiPlace").textContent = q.place || "—";
+  $("#tsunamiCoordDepth").textContent = `${fmtCoord(q)} · Kedalaman ${q.depth} km`;
+  $("#tsunamiSrc").textContent = q.source || "InaTEWS / BMKG";
+
+  const subject = q.subject || "";
+  const pot =
+    q.potential && q.potential !== "—"
+      ? q.potential
+      : subject || "Berpotensi tsunami — pantau informasi resmi BMKG";
+  const pd =
+    q.pd ||
+    (subject.match(/PD[-\s]?([\d.]+)/i) || [])[1] ||
+    "";
+  const ended = isTsunamiEnded(q);
+
+  $("#tsunamiTitle").textContent = pd
+    ? `WARNING TSUNAMI PD-${pd}`
+    : /awas/i.test(pot)
+    ? "PERINGATAN TSUNAMI — AWAS"
+    : "PERINGATAN TSUNAMI";
+  // Subtitle = status berakhir / masih aktif (bukan ulang judul)
+  $("#tsunamiSubtitle").textContent = ended
+    ? "✅ Status: Dinyatakan TELAH BERAKHIR oleh BMKG/InaTEWS"
+    : "⚠️ Status: MASIH AKTIF / pantau terus informasi resmi BMKG";
+
+  $("#tsunamiPotText").textContent = q.headline || pot;
+
+  const card = $("#tsunamiCard");
+  const header = card?.querySelector(".tsunami-header");
+  if (card) {
+    card.classList.toggle("tsunami-ended", ended);
+    card.classList.toggle("tsunami-active", !ended);
+  }
+  if (header) {
+    header.style.background = ended
+      ? "linear-gradient(90deg,#14532d,#15803d 40%,#166534)"
+      : "";
+  }
+
+  const instrParts = [
+    q.instruction,
+    q.instruction1,
+    q.instruction2,
+    q.instruction3,
+  ].filter(Boolean);
+  $("#tsunamiInstrText").textContent =
+    instrParts.join(" ") ||
+    "Segera menjauh dari pantai, muara, dan daerah rawan tsunami. Ikuti arahan petugas setempat. Pantau informasi resmi BMKG/InaTEWS.";
+
+  const mmiItems = parseMmi(q.felt);
+  const list = $("#tsunamiAreaList");
+  if (mmiItems.length) {
+    list.innerHTML = mmiItems
+      .map((it) => {
+        const lvl = classifyAreaLevel(it.scale);
+        const label = lvl === "awas" ? "AWAS" : lvl === "siaga" ? "SIAGA" : "WASPADA";
+        return `<div class="tsunami-area-item"><span class="badge badge-${lvl}">${label}</span><span>${it.scale !== "—" ? it.scale + " · " : ""}${it.place}</span></div>`;
+      })
+      .join("");
+  } else if (q.description) {
+    list.innerHTML = `<div class="tsunami-area-item"><span class="badge ${ended ? "badge-waspada" : "badge-siaga"}">${ended ? "BERAKHIR" : "INFO"}</span><span>${q.description.slice(0, 280)}${q.description.length > 280 ? "…" : ""}</span></div>`;
+  } else {
+    list.innerHTML = `<div class="tsunami-area-item"><span class="badge badge-waspada">WASPADA</span><span>${q.place || "Wilayah sekitar pusat gempa"} — pantau info resmi</span></div>`;
+  }
+
+  // Pastikan URL peta pakai GCS (bukan data.bmkg yang 403)
+  const fixUrl = (u) => {
+    if (!u) return null;
+    return String(u).replace(
+      /^https?:\/\/data\.bmkg\.go\.id\/DataMKG\/TEWS\//i,
+      SHAKEMAP_BASE
+    );
+  };
+
+  const setMap = (boxId, imgId, url, label) => {
+    const box = $(boxId);
+    const img = $(imgId);
+    if (!box || !img) return;
+    const u = fixUrl(url);
+    if (u) {
+      img.onload = () => { box.style.display = ""; };
+      img.onerror = () => { box.style.display = "none"; };
+      img.src = u;
+      img.alt = label || "";
+      box.style.display = "";
+    } else {
+      box.style.display = "none";
+      img.removeAttribute("src");
+    }
+  };
+  setMap("#tsunamiShakemapBox", "#tsunamiShakemapImg", q.shakemap, "ShakeMap");
+  setMap("#tsunamiSshBox", "#tsunamiSshImg", q.sshmap, "SSHmax");
+  setMap("#tsunamiWzBox", "#tsunamiWzImg", q.wzmap, "Warning Zone");
+  setMap("#tsunamiTtBox", "#tsunamiTtImg", q.ttmap, "Travel Time");
+
+  renderTsunamiZoneTable(q);
+
+  $("#modalDetail").classList.add("hidden");
+  $("#modalTsunamiAlert").classList.remove("hidden");
+}
+
+function closeTsunamiModal() {
+  $("#modalTsunamiAlert")?.classList.add("hidden");
+}
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const toRad = (v) => v * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function updatePopupDistance(q) {
+  const distEl = $("#popDistance");
+  const locEl = $("#popUserLocation");
+  if (!distEl || !locEl) return;
+  if (userLocation && Number.isFinite(q.lat) && Number.isFinite(q.lon)) {
+    const km = haversineKm(userLocation.lat, userLocation.lon, q.lat, q.lon);
+    distEl.textContent = `📍 Jarak dari lokasi Anda: ${km < 10 ? km.toFixed(1) : Math.round(km).toLocaleString("id-ID")} km`;
+    locEl.textContent = `Lokasi Anda: ${userLocation.lat.toFixed(4)}°, ${userLocation.lon.toFixed(4)}°`;
+  } else {
+    distEl.textContent = "📍 Jarak dari lokasi Anda: belum tersedia";
+    locEl.textContent = "Aktifkan izin lokasi untuk menghitung jarak dari perangkat";
+  }
+}
+
+function setLocStatus(ok, text) {
+  const el = $("#locStatus");
+  if (el) el.textContent = text;
+  const btn = $("#btnLocation");
+  if (btn) btn.classList.toggle("on", !!ok);
+  const tb = $("#tbLocation");
+  if (tb) tb.dataset.on = ok ? "1" : "0";
+}
+
+function updateUserMarker(fly) {
+  if (!map || !userLocation) return;
+  const latlng = [userLocation.lat, userLocation.lon];
+  if (!userMarker) {
+    userMarker = L.marker(latlng, {
+      icon: L.divIcon({
+        className: "user-loc-marker",
+        html: '<div class="user-pin"><span class="user-pin-dot"></span><span class="user-pin-ring"></span></div>',
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      }),
+      zIndexOffset: 2000,
+      title: "Lokasi Anda",
+    }).addTo(map);
+    userMarker.bindTooltip("📍 Lokasi Anda", { direction: "top", opacity: 0.95 });
+  } else {
+    userMarker.setLatLng(latlng);
+  }
+  if (fly) map.flyTo(latlng, Math.max(map.getZoom(), 8), { duration: 0.7 });
+  updateRealtimeDistance();
+}
+
+function updateRealtimeDistance() {
+  const el = $("#rtDist");
+  if (!el) return;
+  const q = quakes[0];
+  if (userLocation && q && Number.isFinite(q.lat) && Number.isFinite(q.lon)) {
+    const km = haversineKm(userLocation.lat, userLocation.lon, q.lat, q.lon);
+    const dist =
+      km < 10 ? km.toFixed(1) : Math.round(km).toLocaleString("id-ID");
+    el.textContent = `📍 Jarak ke Anda: ${dist} km · Anda ${userLocation.lat.toFixed(3)}°, ${userLocation.lon.toFixed(3)}°`;
+    el.classList.add("has-loc");
+  } else if (userLocation) {
+    el.textContent = `📍 Lokasi Anda: ${userLocation.lat.toFixed(3)}°, ${userLocation.lon.toFixed(3)}°`;
+    el.classList.add("has-loc");
+  } else {
+    el.textContent = "📍 Jarak ke Anda: aktifkan lokasi";
+    el.classList.remove("has-loc");
+  }
+}
+
+function activateLocation(showAlert) {
+  // Jika sudah punya lokasi → fokus ke pin di peta
+  if (userLocation && map) {
+    updateUserMarker(true);
+    setLocStatus(true, `Lokasi · ${userLocation.lat.toFixed(3)}°, ${userLocation.lon.toFixed(3)}°`);
+    if (window._modalQuake) updatePopupDistance(window._modalQuake);
+    if (quakes[0]) updatePopupDistance(quakes[0]);
+    return;
+  }
+  if (!navigator.geolocation) {
+    setLocStatus(false, "Lokasi · browser tidak mendukung");
+    if (showAlert) alert("Browser tidak mendukung lokasi.");
+    return;
+  }
+  setLocStatus(false, "Lokasi · meminta izin…");
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      userLocation = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      locationAttempted = true;
+      try {
+        localStorage.setItem("wrsUserLoc", JSON.stringify(userLocation));
+      } catch {}
+      setLocStatus(true, `Lokasi · ${userLocation.lat.toFixed(3)}°, ${userLocation.lon.toFixed(3)}°`);
+      updateUserMarker(true);
+      if (window._modalQuake) updatePopupDistance(window._modalQuake);
+      const pop = $("#popupNew");
+      if (pop && !pop.classList.contains("hidden") && quakes[0]) updatePopupDistance(quakes[0]);
+    },
+    (err) => {
+      locationAttempted = true;
+      const msg =
+        err?.code === 1
+          ? "Lokasi · izin ditolak"
+          : err?.code === 2
+          ? "Lokasi · GPS tidak tersedia"
+          : "Lokasi · gagal";
+      setLocStatus(false, msg);
+      if (showAlert) alert(msg);
+    },
+    { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
+  );
+}
+
+function requestUserLocation(q) {
+  updatePopupDistance(q);
+  if (userLocation) return;
+  // Restore cached
+  try {
+    const cached = JSON.parse(localStorage.getItem("wrsUserLoc") || "null");
+    if (cached?.lat) {
+      userLocation = cached;
+      setLocStatus(true, `Lokasi (cache): ${cached.lat.toFixed(4)}°, ${cached.lon.toFixed(4)}°`);
+      updatePopupDistance(q);
+      return;
+    }
+  } catch {}
+  if (locationAttempted || !navigator.geolocation) return;
+  activateLocation(false);
+}
+
+function showPopup(q) {
+  $("#popMag").textContent = "M" + q.magnitude.toFixed(1);
+  $("#popPlace").textContent = q.place;
+  $("#popMeta").textContent = fmtTime(q) + " · " + fmtCoord(q) + " · " + q.depth + " km";
+  requestUserLocation(q);
+  $("#popupNew").classList.remove("hidden");
+  clearTimeout(popupTimer);
+  popupTimer = setTimeout(() => {
+    $("#popupNew").classList.add("hidden");
+    renderRealtime(q);
+  }, 10000);
+}
+
+/* ---------- Audio: bel sekolah + TTS lengkap ---------- */
+function ensureAudio() {
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === "suspended") {
+      return audioCtx.resume().then(() => audioCtx).catch(() => audioCtx);
+    }
+    return Promise.resolve(audioCtx);
+  } catch (e) {
+    console.warn("AudioContext gagal:", e);
+    return Promise.reject(e);
+  }
+}
+
+/** Nada tunggal bel (oscilator + envelope) */
+function tone(ctx, freq, t0, dur, vol, type) {
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = type || "sine";
+  o.frequency.setValueAtTime(freq, t0);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
+  g.gain.exponentialRampToValueAtTime(vol * 0.7, t0 + dur * 0.4);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g).connect(ctx.destination);
+  o.start(t0);
+  o.stop(t0 + dur + 0.05);
+}
+
+/**
+ * Bel sekolah: nada rendah → tinggi (mirip bel sekolah klasik),
+ * lalu bel penutup setelah TTS.
+ * mode: 'normal' | 'alert' (M≥5) | 'tsunami'
+ */
+function playSchoolBell(mode) {
+  return ensureAudio().then((ctx) => {
+    if (!ctx) return 0;
+    const now = ctx.currentTime;
+    const isAlert = mode === "alert" || mode === "tsunami";
+    const isTsunami = mode === "tsunami";
+    const vol = isTsunami ? 0.42 : isAlert ? 0.36 : 0.28;
+
+    // Pola bel sekolah: do-re-mi naik (rendah → tinggi), 2x
+    // C4 D4 E4 G4  lalu  C5 E5 G5
+    const pattern = isTsunami
+      ? [
+          { f: 392, d: 0.22 }, { f: 494, d: 0.22 }, { f: 587, d: 0.22 }, { f: 784, d: 0.35 },
+          { f: 0, d: 0.12 },
+          { f: 523, d: 0.18 }, { f: 659, d: 0.18 }, { f: 784, d: 0.18 }, { f: 1047, d: 0.4 },
+        ]
+      : isAlert
+      ? [
+          { f: 349, d: 0.2 }, { f: 440, d: 0.2 }, { f: 523, d: 0.2 }, { f: 698, d: 0.32 },
+          { f: 0, d: 0.1 },
+          { f: 440, d: 0.16 }, { f: 554, d: 0.16 }, { f: 659, d: 0.28 },
+        ]
+      : [
+          { f: 330, d: 0.18 }, { f: 392, d: 0.18 }, { f: 494, d: 0.18 }, { f: 587, d: 0.28 },
+          { f: 0, d: 0.08 },
+          { f: 392, d: 0.15 }, { f: 494, d: 0.15 }, { f: 587, d: 0.25 },
+        ];
+
+    let t = now;
+    pattern.forEach((p) => {
+      if (p.f > 0) {
+        tone(ctx, p.f, t, p.d, vol, isTsunami ? "square" : "sine");
+        // Harmonic ringan agar lebih "metallic" seperti bel
+        tone(ctx, p.f * 2.01, t, p.d * 0.7, vol * 0.18, "sine");
+      }
+      t += p.d + 0.02;
+    });
+    return (t - now) * 1000; // durasi ms
+  }).catch(() => 0);
+}
+
+/** Bel penutup singkat */
+function playBellClose(mode) {
+  return ensureAudio().then((ctx) => {
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const isAlert = mode === "alert" || mode === "tsunami";
+    const vol = isAlert ? 0.3 : 0.22;
+    // Naik singkat lalu turun
+    tone(ctx, 523, now, 0.2, vol, "sine");
+    tone(ctx, 659, now + 0.18, 0.22, vol * 0.9, "sine");
+    tone(ctx, 784, now + 0.36, 0.35, vol, "sine");
+    tone(ctx, 1568, now + 0.36, 0.25, vol * 0.15, "sine");
+  }).catch(() => {});
+}
+
+function getIdVoice() {
+  if (!("speechSynthesis" in window)) return null;
+  const voices = speechSynthesis.getVoices();
+  return voices.find((v) => /id/i.test(v.lang)) || voices.find((v) => /indonesia/i.test(v.name)) || null;
+}
+
+/**
+ * TTS lengkap:
+ * "Mohon perhatian. Telah terjadi gempa terbaru magnitudo X,
+ *  kedalaman Y kilometer, di wilayah Z. Terima kasih."
+ * Versi lebih tegas untuk M≥5 / tsunami.
+ */
+function speakFull(q, mode) {
+  if (!$("#optVoice")?.checked || !("speechSynthesis" in window)) return Promise.resolve();
+  speechSynthesis.cancel();
+
+  const mag = q.magnitude.toFixed(1).replace(".", ",");
+  const depth = q.depth;
+  const place = (q.place || "Indonesia").replace(/,/g, " ");
+  let text;
+  if (mode === "tsunami") {
+    text = `Mohon perhatian. Peringatan tsunami. Telah terjadi gempa magnitudo ${mag}, kedalaman ${depth} kilometer, di wilayah ${place}. Terdapat potensi tsunami. Segera menjauh dari pantai dan ikuti arahan petugas. Terima kasih.`;
+  } else if (mode === "alert") {
+    text = `Mohon perhatian. Alert gempa magnitudo ${mag}. Kedalaman ${depth} kilometer. Wilayah ${place}. Harap waspada terhadap gempa susulan. Terima kasih.`;
+  } else {
+    text = `Mohon perhatian. Telah terjadi gempa terbaru magnitudo ${mag}, kedalaman ${depth} kilometer, di wilayah ${place}. Terima kasih.`;
+  }
+
+  return new Promise((resolve) => {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "id-ID";
+    u.rate = mode === "tsunami" ? 0.95 : 1.0;
+    u.volume = 1;
+    u.pitch = mode === "tsunami" ? 1.05 : 1;
+    const idv = getIdVoice();
+    if (idv) u.voice = idv;
+    u.onend = () => resolve();
+    u.onerror = () => resolve();
+    speechSynthesis.speak(u);
+    // Fallback timeout jika onend tidak terpanggil
+    setTimeout(resolve, Math.min(22000, text.length * 80 + 2000));
+  });
+}
+
+/** Sequence: bel sekolah → TTS → bel penutup */
+async function playAlarmSequence(q) {
+  const pot = q.potential || "";
+  const isTs = isTsunamiPotential(pot);
+  const mode = isTs ? "tsunami" : q.magnitude >= 5 ? "alert" : "normal";
+
+  if ($("#optBell")?.checked) {
+    const waitMs = await playSchoolBell(mode);
+    await new Promise((r) => setTimeout(r, Math.max(waitMs, 600) + 150));
+  }
+  if ($("#optVoice")?.checked) {
+    await speakFull(q, mode);
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  if ($("#optBell")?.checked) {
+    playBellClose(mode);
+  }
+}
+
+function processNew() {
+  if (firstLoad) {
+    quakes.forEach((q) => {
+      seen.add(q.key);
+      const id = stableEventId(q);
+      if (id) paramCache[id] = snapshotParams(q);
+    });
+    localStorage.setItem("wrsSeenV8", JSON.stringify([...seen].slice(-1000)));
+    saveParamCache();
+    firstLoad = false;
+    return;
+  }
+
+  // Deteksi revisi parameter pada event yang sudah dikenal (prioritas gempa realtime terbaru)
+  const top = quakes[0];
+  if (top) {
+    const rev = detectRevision(top);
+    if (rev) {
+      showRealtimeUpdate(rev);
+      renderRealtime(top);
+      saveParamCache();
+      // Alarm hanya untuk revisi signifikan (bukan setiap update kecil)
+      if (rev.significant && alarmOn) {
+        ensureAudio()
+          .then(async () => {
+            if ($("#optBell")?.checked) {
+              await playSchoolBell(rev.next.magnitude >= 5 ? "alert" : "normal");
+              await new Promise((r) => setTimeout(r, 400));
+            }
+            if ($("#optVoice")?.checked && "speechSynthesis" in window) {
+              speechSynthesis.cancel();
+              const u = new SpeechSynthesisUtterance(
+                `Pemutakhiran parameter gempa. Magnitudo sekarang ${rev.next.magnitude
+                  .toFixed(1)
+                  .replace(".", ",")}, kedalaman ${rev.next.depth} kilometer.`
+              );
+              u.lang = "id-ID";
+              u.rate = 1;
+              const idv = getIdVoice();
+              if (idv) u.voice = idv;
+              speechSynthesis.speak(u);
+            }
+          })
+          .catch(() => {});
+      }
+    } else {
+      saveParamCache();
+    }
+  }
+
+  // Seed cache untuk event lain (tanpa notif)
+  quakes.slice(0, 80).forEach((q) => {
+    const id = stableEventId(q);
+    if (id && !paramCache[id]) paramCache[id] = snapshotParams(q);
+  });
+
+  const fresh = quakes.filter((q) => !seen.has(q.key));
+  quakes.forEach((q) => seen.add(q.key));
+  localStorage.setItem("wrsSeenV8", JSON.stringify([...seen].slice(-1000)));
+  if (!fresh.length) return;
+
+  const q = fresh.sort((a, b) => new Date(a.time) - new Date(b.time)).at(-1);
+  // Isi cache event baru
+  const sid = stableEventId(q);
+  if (sid) {
+    paramCache[sid] = snapshotParams(q);
+    saveParamCache();
+  }
+  showPopup(q);
+  if (Number.isFinite(q.lat) && Number.isFinite(q.lon)) {
+    map.flyTo([q.lat, q.lon], 7, { duration: 0.8 });
+    const highlight = L.circleMarker([q.lat, q.lon], {
+      radius: 20, color: "#ffffff", weight: 3, fillColor: "#22d3ee", fillOpacity: 0.16,
+      className: "quake-new-event-highlight"
+    }).addTo(map);
+    setTimeout(() => { try { map.removeLayer(highlight); } catch {} }, 10000);
+  }
+
+  if (isTsunamiPotential(q.potential)) {
+    openTsunamiModal(q);
+  }
+
+  if (alarmOn) {
+    ensureAudio().then(() => playAlarmSequence(q)).catch(() => {});
+  }
+}
+
+function status(ok, text) {
+  $("#liveDot").className = ok ? "ok" : "bad";
+  $("#liveText").textContent = text;
+}
+
+function showLoading(msg) {
+  const el = $("#loadingOverlay");
+  if (!el) return;
+  const t = el.querySelector(".loading-text");
+  if (t) t.textContent = msg || "Memuat data…";
+  el.classList.remove("hidden");
+}
+function hideLoading() {
+  const el = $("#loadingOverlay");
+  if (el) el.classList.add("hidden");
+}
+
+async function load(showSpin) {
+  if (loadInFlight) return;
+  loadInFlight = true;
+  if (showSpin) showLoading("Memuat data gempa…");
+  try {
+    let d = null;
+    try {
+      const r = await fetch(API + "?t=" + Date.now(), { cache: "no-store" });
+      if (r.ok) d = await r.json();
+    } catch { /* function offline */ }
+
+    // Cloudflare Pages API adalah satu-satunya jalur data aplikasi.
+    // Jangan diam-diam mengganti API dengan fetch browser karena hasilnya bisa
+    // membuat data cadangan terlihat seperti aliran utama.
+    if (!d || d.ok !== true || !Array.isArray(d.recent)) {
+      throw new Error("API gempa tidak mengembalikan respons yang valid");
+    }
+
+    const incoming = d.recent;
+    if (!incoming.length) {
+      const hasPreviousData = quakes.length > 0;
+      status(false, hasPreviousData ? "MEMAKAI DATA TERAKHIR" : "MENUNGGU DATA");
+      const healthText = $("#wrsHealthText");
+      const healthTime = $("#wrsLastUpdated");
+      const health = $("#wrsHealth");
+      if (healthText) healthText.textContent = hasPreviousData ? "MENUNGGU PEMBARUAN" : "SUMBER BELUM TERSEDIA";
+      if (healthTime) healthTime.textContent = hasPreviousData ? "Data sebelumnya dipertahankan" : "Coba muat ulang sebentar lagi";
+      if (health) {
+        health.classList.add("is-error");
+        health.title = "Belum ada katalog gempa yang diterima; data yang sudah tampil tidak dihapus.";
+      }
+      return;
+    }
+    const oldFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
+    quakes = incoming;
+    if (Array.isArray(d.tsunamiHistory)) tsunamiHistory = d.tsunamiHistory;
+    const newFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
+    status(true, d.sources?.client ? "LIVE · client" : "LIVE");
+    const healthText = $("#wrsHealthText");
+    const healthTime = $("#wrsLastUpdated");
+    const health = $("#wrsHealth");
+    if (healthText) healthText.textContent = d.sources?.client ? "SUMBER CADANGAN" : (d.sources?.errors?.length ? "TERHUBUNG · DATA PARSIAL" : "TERHUBUNG");
+    if (healthTime) healthTime.textContent = "Diperbarui " + new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    if (health) { health.classList.remove("is-error"); health.title = "Pembaruan data berhasil"; }
+    const s = d.sources || {};
+    const sourceSummary = [`${d.count ?? quakes.length} event`];
+    if (s.public != null) sourceSummary.push(`BMKG ${s.public}/3`);
+    if (s.usgs != null) sourceSummary.push(`USGS ${s.usgs}`);
+    $("#srcCount").textContent = sourceSummary.join(" · ");
+
+    if (quakes[0]) renderRealtime(quakes[0]);
+    const off = d.official || quakes.find((q) => q.official) || quakes[0];
+    if (off) renderOfficial(off);
+
+    if (oldFingerprint !== newFingerprint || showSpin) drawMarkers(true);
+    else updateStats(getFilteredQuakes());
+    processNew();
+
+    // Push deep link: resolve the exact event after fresh data has arrived.
+    const params = new URLSearchParams(window.location.search);
+    const requestedKey = params.get("quake");
+    if (requestedKey && !window.__wrsHandledQuakeDeepLink) {
+      const paramsLat = Number(params.get("lat"));
+      const paramsLon = Number(params.get("lon"));
+      const paramsMag = Number(params.get("mag"));
+      const paramsTime = params.get("time");
+      const target = quakes.find((q) => String(q.key || "") === requestedKey) ||
+        quakes.find((q) => Number.isFinite(paramsLat) && Number.isFinite(paramsLon) &&
+          Math.abs(Number(q.lat) - paramsLat) < 0.08 && Math.abs(Number(q.lon) - paramsLon) < 0.08 &&
+          (!Number.isFinite(paramsMag) || Math.abs(Number(q.magnitude) - paramsMag) < 0.2) &&
+          (!paramsTime || Math.abs(new Date(q.time).getTime() - new Date(paramsTime).getTime()) < 6 * 3600000));
+      if (target) {
+        window.__wrsHandledQuakeDeepLink = true;
+        if (Number.isFinite(target.lat) && Number.isFinite(target.lon)) {
+          map?.flyTo([target.lat, target.lon], 8, { duration: 0.8 });
+          const marker = L.circleMarker([target.lat, target.lon], {
+            radius: 22, color: "#ffffff", weight: 3, fillColor: "#38bdf8", fillOpacity: 0.18,
+            className: "quake-deeplink-highlight"
+          }).addTo(map);
+          setTimeout(() => { try { map.removeLayer(marker); } catch {} }, 12000);
+        }
+        openModal(target);
+      } else if (requestedKey && !window.__wrsDeepLinkRetry) {
+        window.__wrsDeepLinkRetry = setTimeout(() => {
+          window.__wrsHandledQuakeDeepLink = false;
+          window.__wrsDeepLinkRetry = null;
+          load(false);
+        }, 2500);
+      }
+    }
+  } catch (e) {
+    console.error(e);
+    status(false, "OFFLINE");
+    const healthText = $("#wrsHealthText");
+    const health = $("#wrsHealth");
+    if (healthText) healthText.textContent = "GAGAL MEMPERBARUI";
+    if (health) { health.classList.add("is-error"); health.title = "Pembaruan gagal; data terakhir mungkin sudah lama"; }
+  } finally {
+    loadInFlight = false;
+    hideLoading();
+  }
+}
+
+/* Timeline 7 hari: ringkasan event per hari, dibangun dari katalog yang sedang tersedia. */
+function renderHistoryTimeline() {
+  const root = $("#histTimeline");
+  if (!root) return;
+  const now = Date.now();
+  const bins = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(now - (6 - i) * 86400000);
+    date.setHours(0, 0, 0, 0);
+    const next = new Date(date.getTime() + 86400000);
+    const events = quakes.filter(q => {
+      const t = new Date(q.time).getTime();
+      return Number.isFinite(t) && t >= date.getTime() && t < next.getTime();
+    });
+    return { date, events };
+  });
+  const max = Math.max(1, ...bins.map(b => b.events.length));
+  root.innerHTML = '<div class="timeline-title">Aktivitas 7 hari terakhir</div><div class="timeline-bars">' +
+    bins.map(b => {
+      const strong = b.events.filter(q => q.magnitude >= 4).length;
+      const height = Math.max(4, Math.round(b.events.length / max * 48));
+      const label = b.date.toLocaleDateString("id-ID", { day: "2-digit", month: "short" });
+      return '<button type="button" class="timeline-day" data-day="' + b.date.toISOString().slice(0,10) +
+        '" title="' + label + ': ' + b.events.length + ' event, ' + strong + ' M4+" aria-label="' + label + ', ' + b.events.length + ' event">' +
+        '<span class="timeline-count">' + b.events.length + '</span><span class="timeline-bar" style="height:' + height + 'px"></span><span class="timeline-label">' + label + '</span></button>';
+    }).join('') + '</div><div class="timeline-note">Jumlah berdasarkan event yang tersedia di katalog saat ini; bukan arsip historis tanpa batas.</div>';
+  root.querySelectorAll(".timeline-day").forEach(btn => btn.addEventListener("click", () => {
+    const day = btn.dataset.day;
+    const selected = quakes.filter(q => q.time && new Date(q.time).toISOString().slice(0,10) === day)
+      .sort((a,b) => new Date(b.time) - new Date(a.time));
+    const body = $("#histBody");
+    if (!body) return;
+    body.innerHTML = "";
+    selected.forEach(q => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = '<td class="hist-mag"></td><td></td><td></td><td></td>';
+      tr.children[0].textContent = Number(q.magnitude).toFixed(1);
+      tr.children[1].textContent = shortDate(q);
+      tr.children[2].textContent = q.place || "Wilayah tidak diketahui";
+      tr.children[3].textContent = (q.depth ?? "—") + " km";
+      tr.addEventListener("click", () => { window._modalQuake = q; openModal(q); });
+      body.appendChild(tr);
+    });
+    $("#histTitle").textContent = "Timeline · " + new Date(day + "T12:00:00").toLocaleDateString("id-ID", { weekday:"long", day:"numeric", month:"long" });
+    $("#histCount").textContent = selected.length + " event";
+    $("#histMap")?.classList.toggle("hidden", selected.length === 0);
+  }));
+}
+
+/* History / daftar modal — mode: all | strong | felt | tsunami */
+function openHistory(mode = "all") {
+  renderHistoryTimeline();
+  const body = $("#histBody");
+  body.innerHTML = "";
+  const titles = {
+    all: "Semua Event (filter aktif)",
+    strong: "Gempa M≥4",
+    felt: "Gempa Dirasakan",
+    tsunami: "Riwayat & Peringatan Tsunami",
+  };
+  let list;
+  if (mode === "strong") list = quakes.filter((q) => q.magnitude >= 4);
+  else if (mode === "felt") list = quakes.filter((q) => q.felt && String(q.felt).trim());
+  else if (mode === "tsunami") {
+    // Data resmi sama dengan https://inatews.bmkg.go.id/web/tsunami
+    list = tsunamiHistory.length
+      ? tsunamiHistory.slice()
+      : quakes.filter((q) => isTsunamiPotential(q.potential));
+  } else list = getFilteredQuakes();
+
+  list = list.slice(0, 100);
+  const titleEl = $("#histTitle");
+  if (titleEl) {
+    titleEl.textContent =
+      mode === "tsunami" ? "DAFTAR 30 TSUNAMI TERAKHIR (InaTEWS)" : titles[mode] || titles.all;
+  }
+  $("#histCount").textContent =
+    mode === "tsunami" ? list.length + " buletin PD" : list.length + " event";
+
+  const banner = $("#histTsunamiBanner");
+  if (banner) {
+    if (mode === "tsunami") {
+      banner.classList.remove("hidden");
+      banner.querySelector("span") &&
+        (banner.querySelector("span").textContent =
+          "Sumber: cdn.bmkg.go.id/last30tsunamievent.xml (sama dengan inatews.bmkg.go.id/web/tsunami). Klik baris untuk detail + peta.");
+    } else banner.classList.add("hidden");
+  }
+
+  const head = $("#histHeadRow");
+  if (head) {
+    head.innerHTML =
+      mode === "tsunami"
+        ? "<th>M</th><th>Waktu</th><th>Peringatan / Wilayah</th><th>Kedalaman</th><th>Aksi</th>"
+        : "<th>M</th><th>Waktu</th><th>Wilayah</th><th>Kedalaman</th><th>Aksi</th>";
+  }
+
+  list.forEach((q) => {
+    const tr = document.createElement("tr");
+    if (mode === "tsunami") {
+      const pd =
+        q.pd ||
+        (String(q.subject || "").match(/PD[-\s]?([\d.]+)/i) || [])[1] ||
+        "";
+      const pdLabel = q.subject || (pd ? `WARNING TSUNAMI PD-${pd}` : "WARNING TSUNAMI");
+      const when = q.date && q.timeLocal ? `${q.date} ${q.timeLocal}` : shortDate(q);
+      const ended = isTsunamiEnded(q);
+      const statusBadge = ended
+        ? '<span class="ts-badge" style="background:#15803d">BERAKHIR</span>'
+        : '<span class="ts-badge">AKTIF?</span>';
+      tr.innerHTML = `<td class="hist-mag">${Number(q.magnitude).toFixed(1)}</td>
+        <td>${when}</td>
+        <td><span class="ts-pd">${pdLabel}</span><br>${q.place || "—"} <span class="ts-badge">PD${pd ? "-" + pd : ""}</span> ${statusBadge}</td>
+        <td>${q.depth} km</td>`;
+      tr.onclick = () => {
+        openTsunamiModal(q);
+        if (Number.isFinite(q.lat)) {
+          map.flyTo([q.lat, q.lon], 7);
+          if (histMap) histMap.setView([q.lat, q.lon], 6);
+        }
+      };
+    } else {
+      tr.innerHTML = `<td class="hist-mag">${q.magnitude.toFixed(1)}</td><td>${shortDate(q)}</td><td>${q.place}${isTsunamiPotential(q.potential) ? ' <span class="ts-badge">TS</span>' : ""}</td><td>${q.depth} km</td>`;
+      tr.onclick = () => {
+        openModal(q);
+        if (Number.isFinite(q.lat)) {
+          map.flyTo([q.lat, q.lon], 8);
+          if (histMap) histMap.setView([q.lat, q.lon], 7);
+        }
+      };
+    }
+    const actions = document.createElement("td");
+    actions.className = "hist-actions";
+    actions.innerHTML = '<button type="button" class="hist-action-download">Unduh</button><button type="button" class="hist-action-share">Bagikan</button>';
+    actions.querySelector(".hist-action-download").addEventListener("click", (event) => {
+      event.stopPropagation();
+      window._modalQuake = q;
+      const date = String(q.time || q.date || new Date().toISOString()).slice(0, 10);
+      saveModalAsImage(null, "gempa_M" + Number(q.magnitude || 0).toFixed(1) + "_" + date + ".png");
+    });
+    actions.querySelector(".hist-action-share").addEventListener("click", (event) => {
+      event.stopPropagation();
+      shareQuake(q);
+    });
+    tr.appendChild(actions);
+    body.appendChild(tr);
+  });
+
+  if (!list.length) {
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;color:#94a3b8">${
+      mode === "tsunami"
+        ? "Belum ada data buletin tsunami. Pastikan Functions Netlify ter-deploy."
+        : "Tidak ada data untuk kategori ini."
+    }</td></tr>`;
+  }
+
+  $("#modalHistory").classList.remove("hidden");
+  setTimeout(() => {
+    if (!histMap) {
+      histMap = L.map("histMap", { zoomControl: false, attributionControl: false }).setView([-3.5, 118], 4);
+      L.tileLayer(BASEMAPS.sat.url, { maxZoom: 18, attribution: BASEMAPS.sat.attr }).addTo(histMap);
+    }
+    histMap.invalidateSize();
+    histMap.eachLayer((l) => {
+      if (l instanceof L.Marker || l instanceof L.CircleMarker) histMap.removeLayer(l);
+    });
+    list
+      .filter((q) => Number.isFinite(q.lat))
+      .slice(0, 50)
+      .forEach((q) => {
+        L.circleMarker([q.lat, q.lon], {
+          radius: Math.max(4, q.magnitude),
+          color: isTsunamiPotential(q.potential) ? "#fecaca" : "#fff",
+          fillColor: isTsunamiPotential(q.potential) ? "#dc2626" : depthColor(q.depth),
+          fillOpacity: 0.85,
+          weight: 1.5,
+        })
+          .addTo(histMap)
+          .on("click", () => openModal(q));
+      });
+  }, 100);
+}
+
+/* Events */
+document.querySelectorAll("#optVoice, #prefVoice").forEach((element) => {
+  element.addEventListener("change", (event) => {
+    try {
+      if (window.AndroidWrs && typeof window.AndroidWrs.setVoiceEnabled === "function") {
+        window.AndroidWrs.setVoiceEnabled(!!event.target.checked);
+      }
+    } catch (error) {
+      console.warn("Could not sync Android voice preference", error);
+    }
+  });
+});
+$("#prefVibrate")?.addEventListener("change", (event) => {
+  try {
+    if (window.AndroidWrs && typeof window.AndroidWrs.setVibrationEnabled === "function") {
+      window.AndroidWrs.setVibrationEnabled(!!event.target.checked);
+    }
+  } catch (error) {
+    console.warn("Could not sync Android vibration preference", error);
+  }
+});
+
+$("#btnAlarm").onclick = async () => {
+  try {
+    await ensureAudio();
+    if ("speechSynthesis" in window) {
+      speechSynthesis.getVoices();
+      try {
+        const u0 = new SpeechSynthesisUtterance(" ");
+        u0.volume = 0;
+        speechSynthesis.speak(u0);
+      } catch {}
+    }
+    alarmOn = true;
+    $("#btnAlarm")?.classList.add("on");
+    $("#alarmStatus").textContent = "Alarm · aktif (bel + suara)";
+    // Demo: bel sekolah normal
+    playSchoolBell("normal").then((ms) => {
+      setTimeout(() => {
+        if ($("#optVoice")?.checked) {
+          const u = new SpeechSynthesisUtterance("Alarm aktif. Bel dan suara siap.");
+          u.lang = "id-ID";
+          u.volume = 1;
+          const idv = getIdVoice();
+          if (idv) u.voice = idv;
+          speechSynthesis.speak(u);
+        }
+      }, Math.max(ms, 500) + 100);
+    });
+  } catch (err) {
+    console.warn(err);
+    $("#alarmStatus").textContent = "Browser blokir audio — ketuk lagi / izinkan suara";
+  }
+};
+
+$("#popupClose").onclick = () => { clearTimeout(popupTimer); $("#popupNew").classList.add("hidden"); renderRealtime(quakes[0]); };
+$("#modalClose").onclick = () => $("#modalDetail").classList.add("hidden");
+$("#modalDetail").addEventListener("click", (e) => {
+  if (e.target === $("#modalDetail")) $("#modalDetail").classList.add("hidden");
+});
+$("#histClose").onclick = () => $("#modalHistory").classList.add("hidden");
+$("#modalHistory").addEventListener("click", (e) => {
+  if (e.target === $("#modalHistory")) $("#modalHistory").classList.add("hidden");
+});
+$("#tsunamiClose")?.addEventListener("click", closeTsunamiModal);
+$("#tsunamiCloseBtn")?.addEventListener("click", closeTsunamiModal);
+$("#modalTsunamiAlert")?.addEventListener("click", (e) => {
+  if (e.target === $("#modalTsunamiAlert")) closeTsunamiModal();
+});
+
+function buildShareText(q) {
+  return `Gempa M${q.magnitude.toFixed(1)} — ${q.place}\nWaktu: ${fmtTime(q)}\nKoordinat: ${fmtCoord(q)}\nKedalaman: ${q.depth} km\nPotensi: ${q.potential || "—"}\nSumber: ${q.source || "BMKG"}\n\nWRS GEMPA · pemantauan independen · data BMKG/InaTEWS/USGS`;
+}
+
+async function shareQuake(q) {
+  if (!q) return;
+  const text = buildShareText(q) + (Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon))
+    ? "\nPeta titik gempa: https://www.openstreetmap.org/?mlat=" + encodeURIComponent(q.lat) + "&mlon=" + encodeURIComponent(q.lon) + "#map=7/" + encodeURIComponent(q.lat) + "/" + encodeURIComponent(q.lon)
+    : "");
+  // On browsers that support file sharing, share the same map card used by Save PNG.
+  if (navigator.share && navigator.canShare && typeof html2canvas === "function") {
+    let exportEl = null;
+    try {
+      exportEl = buildExportCard(q);
+      const imgs = [...exportEl.querySelectorAll("img")];
+      await Promise.all(imgs.map(img => new Promise(resolve => {
+        if (img.complete && img.naturalWidth > 0) return resolve();
+        img.onload = resolve; img.onerror = resolve; setTimeout(resolve, 3500);
+      })));
+      const canvas = await html2canvas(exportEl, {
+        backgroundColor: "#f8fafc", scale: 2, useCORS: true, allowTaint: false,
+        logging: false, width: exportEl.offsetWidth, height: exportEl.scrollHeight
+      });
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      if (blob) {
+        const file = new File([blob], "info-gempa-M" + Number(q.magnitude).toFixed(1) + ".png", { type: "image/png" });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ title: "Info Gempa M" + Number(q.magnitude).toFixed(1), text, files: [file] });
+          return;
+        }
+      }
+    } catch (err) {
+      // Sharing may be cancelled or file sharing may not be supported; continue with text fallback.
+      if (err?.name === "AbortError") return;
+      console.warn("Share gambar tidak tersedia, beralih ke teks", err);
+    } finally {
+      exportEl?.remove();
+    }
+  }
+  if (navigator.share) {
+    try { await navigator.share({ title: "Gempa M" + Number(q.magnitude).toFixed(1), text }); return; }
+    catch (err) { if (err?.name === "AbortError") return; }
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    alert("Info gempa dan tautan peta episenter disalin.");
+  } catch {
+    prompt("Salin info gempa dan tautan peta episenter ini:", text);
+  }
+}
+
+/**
+ * Bangun kartu ekspor terang (mirip BMKG) supaya PNG tidak gelap/buram.
+ */
+function buildExportCard(q, page = 0, pageCount = 1, pageLabel = "Ringkasan") {
+  const wrap = document.createElement("div");
+  wrap.id = "exportCard";
+  wrap.style.cssText = "position:fixed;left:-9999px;top:0;width:390px;height:693px;box-sizing:border-box;background:#f8fafc;color:#0f172a;font-family:Arial,Segoe UI,sans-serif;overflow:hidden;z-index:99999;";
+  const mag = Number(q.magnitude); const magStr = Number.isFinite(mag) ? mag.toFixed(1) : "—";
+  const when = q.date && q.timeLocal ? q.date + " " + q.timeLocal : (typeof fmtTime === "function" ? fmtTime(q) : String(q.time || "—"));
+  const isTs = !!(q.isTsunamiWarning || isTsunamiPotential(q.potential) || /tsunami/i.test(q.subject || ""));
+  const title = isTs ? (q.subject || "INFORMASI TSUNAMI") : (q.felt ? "INFO GEMPA DIRASAKAN" : (mag >= 5 ? "INFO GEMPA M≥5" : "INFO GEMPA"));
+  const esc = v => String(v == null ? "—" : v).replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
+  const maps = []; if(q.shakemap) maps.push({label:"ShakeMap BMKG / MMI",url:q.shakemap}); if(q.sshmap) maps.push({label:"SSHmax · Tinggi muka laut",url:q.sshmap}); if(q.wzmap) maps.push({label:"Warning Zone",url:q.wzmap}); if(q.ttmap) maps.push({label:"Estimasi waktu tiba tsunami",url:q.ttmap});
+  const hasCoords = Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon)); const lat=Number(q.lat), lon=Number(q.lon);
+  const satUrl = hasCoords ? "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox="+encodeURIComponent((lon-5)+","+(lat-2.25)+","+(lon+5)+","+(lat+2.25))+"&bboxSR=4326&imageSR=4326&size=976,440&format=jpg&f=image" : "";
+  const box = (h,body) => '<section style="margin-top:8px;padding:9px 10px;background:#fff;border:1px solid #dbe3ee;border-radius:8px"><div style="font-size:10px;font-weight:800;color:#475569;margin-bottom:5px">' + h + '</div>' + body + '</section>';
+  const sat = hasCoords ? '<div style="position:relative;height:190px;overflow:hidden;border-radius:8px;background:#dbeafe"><img src="' + satUrl + '" crossorigin="anonymous" alt="Peta satelit episenter" style="width:100%;height:190px;object-fit:cover;display:block"><span style="position:absolute;left:50%;top:50%;width:15px;height:15px;transform:translate(-50%,-50%);border:3px solid white;border-radius:50%;background:#ef4444;box-shadow:0 0 0 5px #ef444466"></span><b style="position:absolute;right:6px;bottom:6px;background:#07111fdd;color:white;padding:4px 6px;border-radius:4px;font-size:10px">WRS Gempa</b></div><div style="font-size:9px;color:#64748b;margin-top:4px">Titik merah = episenter · Citra satelit © Esri dan penyedia datanya</div>' : '<div style="font-size:11px">Koordinat episenter tidak tersedia.</div>';
+  const rows = [["Lokasi",q.place],["Waktu",when],["Magnitudo","M "+magStr],["Koordinat",typeof fmtCoord==="function"?fmtCoord(q):(q.lat+", "+q.lon)],["Kedalaman",(q.depth||"—")+" km"],["Sumber",q.source||"BMKG / InaTEWS"]].map(r=>'<div style="display:flex;gap:7px;padding:5px 0;border-bottom:1px solid #e2e8f0"><b style="width:92px;flex-shrink:0;font-size:10px;color:#64748b">' + esc(r[0]) + '</b><span style="font-size:10px;font-weight:700;overflow-wrap:anywhere">' + esc(r[1]) + '</span></div>').join("");
+  const zones = isTs && typeof parseTsunamiZones==="function" ? parseTsunamiZones(q) : [];
+  const defs = [{page:0,label:"Ringkasan"},{page:1,label:"Dampak dan ShakeMap"}];
+  if(isTs){defs.push({page:2,label:"Arahan keselamatan"});for(let i=0;i<Math.max(1,Math.ceil(zones.length/8));i++)defs.push({page:3+i,label:"Wilayah tsunami "+(i+1)});defs.push({page:3+Math.max(1,Math.ceil(zones.length/8)),label:"Peta tsunami"});}
+  let body = "";
+  if(page===0){ body=box("RINGKASAN KEJADIAN",rows)+box("PETA SATELIT & TITIK EPISENTER",sat)+box(isTs?"STATUS INFORMASI TSUNAMI":"STATUS POTENSI",'<div style="font-size:10px;line-height:1.45;font-weight:700">' + esc(q.headline||q.potential||q.subject||"Tidak ada pernyataan potensi pada data ini.") + '</div>'); }
+  else if(page===1){ const felt=esc(q.felt||"Data wilayah yang merasakan belum tersedia pada feed ini."); const sm=q.shakemap?'<img src="' + esc(q.shakemap) + '" crossorigin="anonymous" alt="ShakeMap BMKG" style="width:100%;max-height:330px;object-fit:contain;display:block;background:#fff;border-radius:6px">' : '<div style="font-size:10px;line-height:1.5">ShakeMap resmi tidak tersedia pada data kejadian ini; peta tidak dibuat-buat.</div>'; body=box("WILAYAH YANG MERASAKAN",'<div style="font-size:10px;line-height:1.5">' + felt + '</div>')+box("SHAKEMAP / INTENSITAS GUNCANGAN",sm)+box("CATATAN",'<div style="font-size:10px;line-height:1.5">Dampak lokal dapat berbeda dari magnitudo. Informasi hanya ditampilkan jika disediakan sumber.</div>'); }
+  else if(isTs && page===2){ const instr=[q.instruction,q.instruction1,q.instruction2,q.instruction3].filter(Boolean).join("\n")||"Pantau buletin resmi BMKG/InaTEWS. Jika merasakan gempa kuat atau lama di wilayah pesisir, segera menjauh dari pantai menuju tempat lebih tinggi dan ikuti petugas. Jangan menunggu sirene."; body=box("ARAHAN / INSTRUKSI KESELAMATAN",'<div style="font-size:10px;line-height:1.55;white-space:pre-line">' + esc(instr) + '</div>')+box("LANGKAH AMAN",'<div style="font-size:10px;line-height:1.6">• Ikuti arahan BPBD dan petugas setempat.<br>• Jangan mendekati pantai untuk melihat kondisi laut.<br>• Bila peringatan aktif, bergerak ke tempat tinggi/jauh dari pantai tanpa menunggu.</div>'); }
+  else if(isTs && page===3){ const chunk=zones; const list=chunk.map(z=>'<div style="display:flex;gap:7px;padding:7px 0;border-bottom:1px solid #e2e8f0"><b style="font-size:9px;padding:3px 4px;border-radius:4px;min-width:50px;text-align:center;background:'+(z.level==="awas"?"#fee2e2":z.level==="siaga"?"#ffedd5":"#fef9c3")+'">' + esc(String(z.level||"waspada").toUpperCase()) + '</b><div style="flex:1;font-size:10px;font-weight:700;overflow-wrap:anywhere">' + esc(z.name) + '<div style="font-size:9px;font-weight:400;color:#64748b">ETA: ' + esc(z.eta||"—") + ' · Tinggi: ' + (z.height==null?"belum tersedia":Number(z.height).toFixed(2)+" m") + '</div></div></div>').join(""); body=box("DAFTAR WILAYAH PERINGATAN TSUNAMI",'<div style="font-size:9px;line-height:1.4;margin-bottom:6px">Daftar sesuai buletin sumber. Level/ETA/tinggi tidak diada-adakan.</div>'+(list||'<div style="font-size:10px;line-height:1.5">Daftar wilayah terstruktur tidak tersedia pada buletin ini. Periksa peta zona dan buletin resmi terbaru.</div>'))+box("PENTING",'<div style="font-size:9px;line-height:1.45">Zona dan status dapat berubah pada buletin berikutnya. Ikuti arahan resmi.</div>'); }
+  else if(isTs && page===4){
+    // Halaman kelima khusus peta tinggi gelombang dan estimasi waktu tiba.
+    // ShakeMap tidak diulang di halaman ini; peta dijaga utuh agar tidak terpotong.
+    const tsunamiMaps = [
+      {label:"Ketinggian gelombang / SSHmax",url:q.sshmap},
+      {label:"Estimasi waktu tiba tsunami",url:q.ttmap}
+    ].filter(m=>m.url);
+    const imgs = tsunamiMaps.map(m =>
+      '<section style="margin:7px 0;padding:7px;background:#fff;border:1px solid #dbe3ee;border-radius:7px;break-inside:avoid">' +
+      '<b style="font-size:10px;display:block;margin-bottom:5px;color:#334155">' + esc(m.label) + '</b>' +
+      '<div style="width:100%;height:205px;display:flex;align-items:center;justify-content:center;background:#f8fafc;overflow:visible">' +
+      '<img src="' + esc(m.url) + '" crossorigin="anonymous" alt="' + esc(m.label) + '" style="display:block;width:100%;height:205px;object-fit:contain;object-position:center;background:#fff">' +
+      '</div></section>'
+    ).join("");
+    body = box("PETA TSUNAMI · TINGGI GELOMBANG & WAKTU TIBA",
+      imgs || '<div style="font-size:10px;line-height:1.5">Peta tinggi gelombang (SSHmax) dan/atau estimasi waktu tiba tidak tersedia pada buletin yang diterima. Tidak ada peta yang dibuat-buat.</div>') +
+      box("CATATAN",'<div style="font-size:9px;line-height:1.45">Peta ditampilkan sesuai rasio aslinya agar isi peta tetap utuh. Ikuti buletin resmi terbaru.</div>');
+  }
+  else { const imgs=maps.map(m=>'<div style="margin:7px 0"><b style="font-size:10px;display:block;margin-bottom:3px">' + esc(m.label) + '</b><img src="' + esc(m.url) + '" crossorigin="anonymous" alt="' + esc(m.label) + '" style="width:100%;max-height:155px;object-fit:contain;display:block;background:#fff;border:1px solid #dbe3ee;border-radius:5px"></div>').join(""); body=box("PETA & PRODUK TSUNAMI DARI BULETIN",imgs||'<div style="font-size:10px;line-height:1.5">Peta SSHmax, Warning Zone, atau estimasi waktu tiba tidak disertakan dalam buletin yang diterima.</div>')+box("ARAHAN BMKG",'<div style="font-size:10px;line-height:1.5">Ikuti buletin resmi terbaru dan arahan petugas setempat.</div>'); }
+  wrap.innerHTML = '<div style="height:76px;box-sizing:border-box;padding:10px 12px;background:'+(isTs?"linear-gradient(110deg,#7f1d1d,#dc2626)":"linear-gradient(110deg,#0f2742,#155e75)")+' ;color:#fff;display:flex;align-items:center;gap:9px"><div style="width:49px;height:49px;border:2px solid #ffffff88;border-radius:7px;display:grid;place-items:center;font-size:19px;font-weight:900;flex-shrink:0">' + magStr + '</div><div style="min-width:0;flex:1"><div style="font-size:11px;font-weight:900;line-height:1.2">' + esc(title) + '</div><div style="font-size:9px;margin-top:5px;line-height:1.35">' + esc(q.place||"Lokasi belum tersedia") + '<br>' + esc(when) + '</div></div><div style="font-size:9px;font-weight:900;text-align:center;border:1px solid #ffffff80;padding:5px;border-radius:6px">WRS<br>GEMPA</div></div><div style="height:575px;box-sizing:border-box;padding:0 12px;overflow:hidden">' + body + '</div><div style="height:42px;box-sizing:border-box;padding:7px 8px;background:#0f172a;color:#cbd5e1;text-align:center;font-size:8px;line-height:1.4">Sumber data: BMKG / InaTEWS / USGS · WRS Gempa merupakan pemantauan independen, bukan kanal resmi BMKG · ' + (page+1) + '/' + pageCount + '</div>';
+  document.body.appendChild(wrap); return wrap;
+}
+function buildExportPages(q){ const isTs=!!(q.isTsunamiWarning||isTsunamiPotential(q.potential)||/tsunami/i.test(q.subject||"")); const zones=isTs&&typeof parseTsunamiZones==="function"?parseTsunamiZones(q):[]; const defs=[{page:0,label:"ringkasan"},{page:1,label:"dampak-shakemap"}]; if(isTs){defs.push({page:2,label:"arahan-keselamatan"});defs.push({page:3,label:"wilayah-tsunami"});defs.push({page:4,label:"peta-tsunami"});}return defs.map(d=>({...d,count:defs.length}));}
+/**
+ * Simpan sebagai PNG tajam (kartu terang) + watermark
+ */
+async function saveModalAsImage(_cardEl, filename) {
+  const q = window._modalQuake;
+  if (!q) return;
+  if (typeof html2canvas !== "function") {
+    alert("Library gambar belum termuat. Coba refresh halaman.");
+    return;
+  }
+  const defs = buildExportPages(q);
+  const base = (filename || "info-gempa.png").replace(/\.png$/i, "");
+  let saved = 0;
+  const nativeGallery = !!(window.AndroidWrs && typeof window.AndroidWrs.saveImage === "function");
+  showLoading("Membuat " + defs.length + " gambar PNG…");
+  try {
+    for (let i = 0; i < defs.length; i++) {
+      const def = defs[i];
+      const el = buildExportCard(q, def.page, def.count, def.label);
+      try {
+        const imgs = [...el.querySelectorAll("img")];
+        await Promise.all(imgs.map(img => new Promise(resolve => {
+          if (img.complete && img.naturalWidth > 0) return resolve();
+          img.onload = resolve; img.onerror = resolve; setTimeout(resolve, 5000);
+        })));
+        await new Promise(resolve => setTimeout(resolve, 150));
+        const canvas = await html2canvas(el, {
+          backgroundColor: "#f8fafc", scale: 2, useCORS: true, allowTaint: false,
+          logging: false, scrollX: 0, scrollY: 0, width: 390, height: 693,
+          windowWidth: 390, windowHeight: 693
+        });
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+        if (!blob) throw new Error("Gagal membuat gambar halaman " + (i + 1));
+        const pageName = base + "_" + String(i + 1).padStart(2, "0") + "_" + def.label + ".png";
+        if (nativeGallery) {
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ""));
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          const result = window.AndroidWrs.saveImage(pageName, dataUrl.split(",")[1] || "");
+          if (result !== "OK") throw new Error(result || "Gagal menyimpan ke galeri");
+        } else {
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url; link.download = pageName;
+          document.body.appendChild(link); link.click(); link.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 30000);
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        saved++;
+        showLoading("Menyimpan PNG " + saved + " dari " + defs.length + "…");
+      } finally { el.remove(); }
+    }
+    if (nativeGallery) alert("Berhasil! " + saved + " gambar PNG tersimpan di Galeri > Album WRS GEMPA.");
+    else alert("Berhasil menyiapkan " + saved + " gambar PNG satu per satu. Jika browser meminta izin unduhan, izinkan.");
+  } catch (err) {
+    console.warn("Penyimpanan gambar PNG gagal:", err);
+    alert("Gagal menyimpan gambar. " + saved + " dari " + defs.length + " berhasil. " + (err?.message || "Coba refresh halaman lalu ulangi."));
+  } finally { hideLoading(); }
+}
+$("#btnShare")?.addEventListener("click", () => shareQuake(window._modalQuake));
+$("#btnShareTsunami")?.addEventListener("click", () => shareQuake(window._modalQuake));
+
+$("#btnSave")?.addEventListener("click", () => {
+  const q = window._modalQuake;
+  if (!q) return;
+  const card = $("#modalDetail")?.querySelector(".modal-card");
+  const name = `gempa_M${q.magnitude.toFixed(1)}_${String(q.time).slice(0, 10)}.png`;
+  saveModalAsImage(card, name);
+});
+
+$("#btnSaveTsunami")?.addEventListener("click", () => {
+  const q = window._modalQuake;
+  if (!q) return;
+  const card = $("#tsunamiCard");
+  const name = `tsunami_M${q.magnitude.toFixed(1)}_${String(q.time).slice(0, 10)}.png`;
+  saveModalAsImage(card, name);
+});
+
+/* Toolbar */
+$("#tbBasemap").onclick = () => {
+  $("#basemapMenu").classList.toggle("hidden");
+};
+document.querySelectorAll(".bm-opt").forEach((btn) => {
+  btn.onclick = () => {
+    setBasemap(btn.dataset.bm);
+    $("#basemapMenu").classList.add("hidden");
+  };
+});
+$("#tbFullscreen").onclick = async () => {
+  try {
+    if (!document.fullscreenElement) {
+      await document.documentElement.requestFullscreen?.();
+      document.body.classList.add("monitoring-mode");
+      $("#tbFullscreen").setAttribute("aria-pressed", "true");
+      $("#tbFullscreen").title = "Keluar dari mode monitoring";
+    } else {
+      await document.exitFullscreen?.();
+    }
+  } catch (error) {
+    // Fullscreen may be blocked by the browser; retain a useful CSS-only mode.
+    document.body.classList.toggle("monitoring-mode");
+  }
+};
+document.addEventListener("fullscreenchange", () => {
+  const active = Boolean(document.fullscreenElement);
+  document.body.classList.toggle("monitoring-mode", active);
+  $("#tbFullscreen")?.setAttribute("aria-pressed", String(active));
+  if (!active && $("#tbFullscreen")) $("#tbFullscreen").title = "Layar penuh";
+  setTimeout(() => {
+    try { map?.invalidateSize({ animate: false }); miniMap?.invalidateSize({ animate: false }); }
+    catch (error) { console.warn("Map resize after fullscreen change failed", error); }
+  }, 150);
+});
+$("#tbRefresh").onclick = () => {
+  $("#liveText").textContent = "REFRESH…";
+  load(true);
+};
+$("#tbHistory").onclick = () => openHistory("all");
+$("#tbLocation")?.addEventListener("click", () => activateLocation(true));
+$("#btnLocation")?.addEventListener("click", () => activateLocation(true));
+document.querySelectorAll(".stat-btn").forEach((btn) => {
+  btn.addEventListener("click", () => openHistory(btn.dataset.stat || "all"));
+});
+// Restore location cache on load
+try {
+  const cached = JSON.parse(localStorage.getItem("wrsUserLoc") || "null");
+  if (cached?.lat) {
+    userLocation = cached;
+    setLocStatus(true, `Lokasi · ${cached.lat.toFixed(3)}°, ${cached.lon.toFixed(3)}°`);
+    setTimeout(() => updateUserMarker(false), 800);
+  }
+} catch {}
+$("#tbFaults").onclick = () => {
+  faultsVisible = !faultsVisible;
+  if (faultsVisible) {
+    map.addLayer(faultLayer);
+    $("#tbFaults").dataset.on = "1";
+  } else {
+    map.removeLayer(faultLayer);
+    $("#tbFaults").dataset.on = "0";
+  }
+};
+
+/* Advanced monitoring filter */
+function syncFilterUI() {
+  $("#filterMag").value = String(filterState.mag);
+  $("#filterAge").value = String(filterState.age);
+  $("#filterSource").value = filterState.source;
+  $("#filterDepth").value = filterState.depth;
+}
+$("#tbFilter")?.addEventListener("click", () => {
+  syncFilterUI();
+  $("#filterModal")?.classList.remove("hidden");
+});
+$("#filterClose")?.addEventListener("click", () => $("#filterModal")?.classList.add("hidden"));
+$("#filterModal")?.addEventListener("click", (e) => { if (e.target === $("#filterModal")) $("#filterModal").classList.add("hidden"); });
+$("#filterReset")?.addEventListener("click", () => {
+  filterState = { mag: 1.5, age: 168, source: "ALL", depth: "ALL" };
+  localStorage.setItem("wrsFilterV1", JSON.stringify(filterState));
+  syncFilterUI(); drawMarkers(true);
+});
+$("#filterApply")?.addEventListener("click", () => {
+  filterState = {
+    mag: Number($("#filterMag").value), age: Number($("#filterAge").value),
+    source: $("#filterSource").value, depth: $("#filterDepth").value
+  };
+  localStorage.setItem("wrsFilterV1", JSON.stringify(filterState));
+  drawMarkers(true);
+  $("#filterModal").classList.add("hidden");
+});
+
+/* Push */
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+async function setupPush() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    $("#pushStatus").textContent = "Browser ini tidak mendukung notifikasi latar belakang";
+    $("#btnPush").disabled = true;
+    return;
+  }
+  try {
+    const reg = await navigator.serviceWorker.register("/sw.js");
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) {
+      $("#btnPush")?.classList.add("on");
+      $("#pushStatus").textContent = "Langganan perangkat ditemukan · pengiriman server belum diverifikasi";
+    }
+  } catch (e) {
+    console.error("SW register gagal", e);
+  }
+}
+
+window.onNativeWrsAlertsEnabled = (enabled) => {
+  const button = $("#btnPush");
+  const status = $("#pushStatus");
+  if (button) button.classList.toggle("on", !!enabled);
+  if (status) status.textContent = enabled
+    ? "Notif · aktif (Android/FCM)"
+    : "Izin notifikasi belum diberikan — cek Setelan Android";
+  if (enabled) localStorage.setItem("wrsPushEnabled", "1");
+  else localStorage.removeItem("wrsPushEnabled");
+};
+
+$("#btnPush").onclick = async () => {
+  // In the Android wrapper, use native FCM instead of Web Push/Netlify.
+  // The web deployment is on Cloudflare Pages, so a Netlify subscription
+  // endpoint may not exist on this origin.
+  if (window.AndroidWrs && typeof window.AndroidWrs.enableAlerts === "function") {
+    $("#pushStatus").textContent = "Meminta izin notifikasi Android…";
+    try {
+      window.AndroidWrs.enableAlerts();
+    } catch (error) {
+      console.error("Native alert setup failed", error);
+      $("#pushStatus").textContent = "Gagal mengaktifkan notifikasi Android";
+      $("#btnPush")?.classList.remove("on");
+    }
+    return;
+  }
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    $("#pushStatus").textContent = "Browser ini tidak mendukung Push API";
+    return;
+  }
+  try {
+    // 1) Izin notifikasi
+    let perm = Notification.permission;
+    if (perm !== "granted") {
+      perm = await Notification.requestPermission();
+    }
+    if (perm !== "granted") {
+      $("#pushStatus").textContent = "Izin notifikasi ditolak — buka Setelan browser → Izinkan notifikasi untuk situs ini";
+      return;
+    }
+
+    // 2) Service worker
+    let reg;
+    try {
+      reg = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+    } catch (swErr) {
+      console.error(swErr);
+      $("#pushStatus").textContent = "Service Worker gagal. Periksa izin browser dan coba lagi; layanan push server belum diverifikasi.";
+      return;
+    }
+
+    // 3) Subscribe push
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      try {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+      } catch (subErr) {
+        console.error(subErr);
+        $("#pushStatus").textContent =
+          "Gagal subscribe push — coba refresh, pastikan izin notifikasi ON, dan domain HTTPS.";
+        return;
+      }
+    }
+
+    // 4) Kirim ke server (Netlify Function + Blobs)
+    let serverOk = false;
+    try {
+      const res = await fetch(SUBSCRIBE_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: sub }),
+      });
+      if (res.ok) {
+        serverOk = true;
+      } else {
+        const t = await res.text().catch(() => "");
+        console.warn("subscribe status", res.status, t);
+        $("#pushStatus").textContent =
+          res.status === 500
+            ? "Server error — endpoint push belum dikonfigurasi di deployment ini"
+            : `Gagal simpan subscription (HTTP ${res.status}). Periksa konfigurasi layanan push untuk situs ini.`;
+      }
+    } catch (netErr) {
+      console.warn(netErr);
+      $("#pushStatus").textContent =
+        "Endpoint langganan push belum terhubung di situs ini.";
+    }
+
+    // 5) Notifikasi lokal tetap diuji (meski server gagal)
+    try {
+      await reg.showNotification("Notifikasi aktif", {
+        body: serverOk
+          ? "Langganan push tersimpan. Pengiriman latar belakang tetap menunggu konfirmasi server."
+          : "Izin perangkat aktif, tetapi langganan push belum tersimpan di server.",
+        icon: "/icons/icon-192.png",
+        tag: "wrs-test",
+      });
+    } catch {
+      try {
+        new Notification("Notifikasi aktif", {
+          body: "Izin notifikasi OK di browser ini.",
+          icon: "/icons/icon-192.png",
+        });
+      } catch {}
+    }
+
+    if (serverOk) {
+      $("#btnPush")?.classList.add("on");
+      $("#pushStatus").textContent = "Push tersimpan · pengiriman belum diuji";
+    } else {
+      $("#btnPush")?.classList.add("on");
+      // pesan server sudah diisi di atas jika gagal
+      if (!$("#pushStatus").textContent.startsWith("Notif") && !$("#pushStatus").textContent.includes("Server") && !$("#pushStatus").textContent.includes("Gagal") && !$("#pushStatus").textContent.includes("Functions")) {
+        $("#pushStatus").textContent = "Izin lokal OK · push server belum siap";
+      }
+    }
+  } catch (e) {
+    console.error("Push subscribe gagal", e);
+    const msg = String(e?.message || e);
+    if (/vapid|applicationServerKey/i.test(msg)) {
+      $("#pushStatus").textContent = "VAPID key tidak cocok — periksa pasangan VAPID public/private key pada layanan push.";
+    } else {
+      $("#pushStatus").textContent = "Gagal: " + msg.slice(0, 120);
+    }
+  }
+};
+
+/* External links: show brief loading feedback */
+document.querySelectorAll("a.ext-link").forEach((a) => {
+  a.addEventListener("click", () => {
+    a.classList.add("ext-loading");
+    showLoading("Membuka tautan…");
+    setTimeout(() => {
+      hideLoading();
+      a.classList.remove("ext-loading");
+    }, 900);
+  });
+});
+
+setupPush();
+initMap();
+load(true);
+function scheduleRefresh() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(async () => {
+    await load(false);
+    scheduleRefresh();
+  }, currentInterval());
+}
+scheduleRefresh();
+setInterval(() => {
+  $("#clock").textContent = new Date().toLocaleString("id-ID", {
+    timeZone: "Asia/Jakarta",
+    day: "numeric", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+  if (quakes[0]) $("#rtAgo").textContent = timeAgo(quakes[0]);
+}, 1000);
+
+if ("speechSynthesis" in window) {
+  speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+}
+
+// Unlock audio on first user gesture (mobile) — keep listening a few times
+function unlockAudioOnce() {
+  ensureAudio().catch(() => {});
+  if ("speechSynthesis" in window) {
+    try {
+      const u = new SpeechSynthesisUtterance(" ");
+      u.volume = 0;
+      speechSynthesis.speak(u);
+    } catch {}
+  }
+}
+["click", "touchstart", "pointerdown"].forEach((ev) => {
+  document.addEventListener(ev, unlockAudioOnce, { passive: true, once: true });
+});
+
+/* ===== Mobile bottom sheet: nyaman di HP ===== */
+function isMobileLayout() {
+  return window.matchMedia && window.matchMedia("(max-width:900px)").matches;
+}
+
+function setSheetCollapsed(collapsed) {
+  const panel = $("#rightPanel");
+  if (!panel) return;
+  panel.classList.toggle("sheet-collapsed", !!collapsed);
+  document.body.classList.toggle("sheet-collapsed", !!collapsed);
+  document.body.classList.toggle("sheet-open", !collapsed);
+  setTimeout(() => {
+    try {
+      map?.invalidateSize({ animate: false });
+    } catch {}
+  }, 320);
+}
+
+function initMobileSheet() {
+  const panel = $("#rightPanel");
+  const handle = $("#rpSheetToggle");
+  if (!panel) return;
+
+  // Default di HP: sheet collaps biar peta lega
+  if (isMobileLayout()) setSheetCollapsed(true);
+  else {
+    panel.classList.remove("sheet-collapsed");
+    document.body.classList.remove("sheet-collapsed", "sheet-open");
+  }
+
+  handle?.addEventListener("click", () => {
+    if (!isMobileLayout()) return;
+    setSheetCollapsed(!panel.classList.contains("sheet-collapsed"));
+  });
+
+  // Tap bar magnitudo juga toggle di HP
+  panel.querySelector(".rp-mag-bar")?.addEventListener("click", (e) => {
+    if (!isMobileLayout()) return;
+    if (e.target.closest("a,button,input,label")) return;
+    setSheetCollapsed(!panel.classList.contains("sheet-collapsed"));
+  });
+
+  window.addEventListener(
+    "resize",
+    () => {
+      if (!isMobileLayout()) {
+        panel.classList.remove("sheet-collapsed");
+        document.body.classList.remove("sheet-collapsed", "sheet-open");
+      }
+      try {
+        map?.invalidateSize({ animate: false });
+      } catch {}
+    },
+    { passive: true }
+  );
+
+  // Jeda polling saat tab tidak terlihat agar browser tidak bekerja di belakang layar.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      clearTimeout(refreshTimer);
+    } else {
+      load(false);
+      scheduleRefresh();
+      try {
+        map?.invalidateSize({ animate: false });
+      } catch {}
+    }
+  });
+}
+
+initMobileSheet();
+
+// Mobile page visibility can change Leaflet container dimensions. Recalculate both maps
+// after navigation so the mini earthquake map does not render as an empty rectangle.
+window.addEventListener("wrs:mobile-page-shown", () => {
+  window.setTimeout(() => {
+    try {
+      if (map) map.invalidateSize({ animate: false });
+      if (miniMap) {
+        miniMap.invalidateSize({ animate: false });
+        if (currentOfficial && Number.isFinite(currentOfficial.lat) && Number.isFinite(currentOfficial.lon)) {
+          miniMap.setView([currentOfficial.lat, currentOfficial.lon], 6, { animate: false });
+        }
+      }
+    } catch (error) {
+      console.warn("Map resize after mobile navigation failed", error);
+    }
+  }, 180);
+});
