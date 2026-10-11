@@ -718,8 +718,16 @@ function renderOfficial(q) {
   if (Number.isFinite(q.lat) && Number.isFinite(q.lon)) {
     miniMap.setView([q.lat, q.lon], 6);
     if (miniMarker) miniMap.removeLayer(miniMarker);
-    miniMarker = L.circleMarker([q.lat, q.lon], {
-      radius: 9, color: "#fbbf24", fillColor: "#ef4444", fillOpacity: 1, weight: 2,
+    const miniSize = Math.max(12, Math.min(18, Math.round(9 + Number(q.magnitude || 0))));
+    miniMarker = L.marker([q.lat, q.lon], {
+      icon: L.divIcon({
+        className: "quake-marker-wrap",
+        html: '<span class="quake-diamond is-latest" style="--quake-fill:' + magColor(q.magnitude) + ';--quake-edge:' + depthColor(q.depth) + ';--quake-size:' + miniSize + 'px" aria-hidden="true"></span>',
+        iconSize: [miniSize + 8, miniSize + 8],
+        iconAnchor: [(miniSize + 8) / 2, (miniSize + 8) / 2]
+      }),
+      keyboard: false,
+      interactive: false
     }).addTo(miniMap);
   }
 }
@@ -1859,8 +1867,8 @@ $("#btnPush").onclick = async () => {
     try {
       await reg.showNotification("Notifikasi aktif", {
         body: serverOk
-          ? "WRS Gempa siap mengirim alert latar belakang."
-          : "Izin OK di perangkat ini. Notif latar penuh butuh Netlify Blobs + VAPID_PRIVATE_KEY.",
+          ? "Langganan push tersimpan. Pengiriman latar belakang tetap menunggu konfirmasi server."
+          : "Izin perangkat aktif, tetapi langganan push belum tersimpan di server.",
         icon: "/icons/icon-192.png",
         tag: "wrs-test",
       });
