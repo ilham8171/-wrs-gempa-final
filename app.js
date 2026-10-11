@@ -1683,6 +1683,7 @@ function applySimulationMode() {
   const filter = $("#rtFilter");
   if (filter) filter.textContent = "MODE TES · DATA SIMULASI SAJA — BUKAN GEMPA NYATA";
   renderRealtime(sample);
+  renderOfficial(sample);
   status(true, "MODE TES / SIMULASI");
   const healthText = $("#wrsHealthText");
   const healthTime = $("#wrsLastUpdated");
@@ -1704,11 +1705,22 @@ function runSimulationQuakeTest() {
   const q = currentRealtime;
   logSimulationTest("Uji kejadian gempa: M" + q.magnitude.toFixed(1) + " · " + q.place.replace("SIMULASI · ", ""), "warning");
 }
-function runCommunicationTest() {
+async function runCommunicationTest() {
   if (wrsMode !== "simulation") return;
-  logSimulationTest("Tes komunikasi lokal berhasil. Tidak ada pesan dikirim ke BMKG.", "success");
   const statusText = $("#wrsTestStatus");
-  if (statusText) statusText.textContent = "TES KOMUNIKASI BERHASIL · lokal saja";
+  if (statusText) statusText.textContent = "MENGUJI KONEKSI API WRS GEMPA…";
+  logSimulationTest("Memulai tes koneksi ke API aplikasi.", "info");
+  try {
+    const response = await fetch(API + "?test=" + Date.now(), { cache: "no-store" });
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    const data = await response.json();
+    if (data?.ok !== true) throw new Error("Respons API tidak valid");
+    logSimulationTest("Koneksi API aplikasi berhasil (HTTP " + response.status + "). Tidak ada data uji yang dikirim ke BMKG.", "success");
+    if (statusText) statusText.textContent = "KONEKSI API APLIKASI BERHASIL · bukan tes server BMKG";
+  } catch (error) {
+    logSimulationTest("Koneksi API aplikasi gagal: " + String(error?.message || error).slice(0, 90), "warning");
+    if (statusText) statusText.textContent = "TES KONEKSI GAGAL · periksa jaringan/API";
+  }
 }
 function resetSimulationTests() {
   if (wrsMode !== "simulation") return;
