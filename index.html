@@ -424,10 +424,11 @@
   const nav = document.createElement('nav');
   nav.className = 'mobile-bottom-nav';
   nav.setAttribute('aria-label','Navigasi utama');
-  nav.innerHTML = '<button type="button" data-page="map" class="active"><span class="nav-symbol">⌖</span><span>Peta</span></button><button type="button" data-page="info"><span class="nav-symbol">▤</span><span>Info Gempa</span></button><button type="button" data-page="legend"><span class="nav-symbol">◎</span><span>Legenda</span></button>';
+  nav.innerHTML = '<button type="button" data-page="map" class="active"><span class="nav-symbol" aria-hidden="true">⌖</span><span>Peta</span></button><button type="button" data-page="info"><span class="nav-symbol" aria-hidden="true">▤</span><span>Gempa</span></button><button type="button" data-page="alerts"><span class="nav-symbol" aria-hidden="true">!</span><span>Peringatan</span></button><button type="button" data-page="more"><span class="nav-symbol" aria-hidden="true">•••</span><span>Lainnya</span></button>';
   body.appendChild(nav);
   function showPage(name) {
-    [mapPage,infoPage,legendPage].forEach((p,i)=>p.classList.toggle('active',['map','info','legend'][i]===name));
+    const screen = name === 'alerts' ? 'info' : name === 'more' ? 'legend' : name;
+    [mapPage,infoPage,legendPage].forEach((p,i)=>p.classList.toggle('active',['map','info','legend'][i]===screen));
     nav.querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.page===name));
     body.dataset.mobilePage=name;
     if (panel) {
@@ -435,7 +436,29 @@
       panel.style.height=''; panel.style.maxHeight='';
       panel.scrollTop=0;
     }
-    if (name==='map') setTimeout(()=>{try{window.dispatchEvent(new Event('resize'));}catch{}},100);
+    if (name === 'alerts') {
+      setTimeout(() => {
+        const target = panel && (panel.querySelector('.rp-quick') || panel.querySelector('#btnPush') || panel.querySelector('#pushStatus'));
+        if (target) target.scrollIntoView({block:'center',behavior:'smooth'});
+        refreshMapSizes();
+      }, 120);
+    } else if (name === 'more') {
+      const legendTitle = legendPage.querySelector('.mobile-page-title');
+      if (legendTitle) legendTitle.innerHTML = '<span>LAINNYA</span><small>Legenda, panduan, dan sumber data</small>';
+      legendPage.scrollTop=0;
+    }
+    setTimeout(refreshMapSizes, 140);
+  }
+  function refreshMapSizes() {
+    try {
+      if (window.map && typeof window.map.invalidateSize === 'function') window.map.invalidateSize({animate:false});
+      window.dispatchEvent(new Event('resize'));
+      const mini = document.getElementById('miniFocus');
+      if (mini && mini._leaflet_id && window.L) {
+        // Leaflet's map instance is managed in app.js; dispatch resize for all visible maps.
+        window.dispatchEvent(new Event('wrs:mobile-page-shown'));
+      }
+    } catch (e) { console.warn('Mobile map resize failed', e); }
   }
   nav.addEventListener('click',e=>{const b=e.target.closest('button[data-page]');if(b)showPage(b.dataset.page);});
   window.addEventListener('resize',()=>{ if(window.matchMedia('(min-width: 901px)').matches) location.reload(); },{passive:true});
