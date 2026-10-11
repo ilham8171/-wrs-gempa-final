@@ -211,9 +211,38 @@ async function fetchClientSide() {
     }
   } catch { /* skip */ }
 
+  // Global USGS feed: keep Indonesia-first BMKG/InaTEWS data, plus worldwide M5+
+  // events and events flagged by USGS as tsunami-related.
+  let usgs = [];
+  try {
+    const r = await fetch("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson?t=" + Date.now(), { headers: UA, cache: "no-store" });
+    if (r.ok) {
+      const j = await r.json();
+      usgs = (j.features || []).flatMap((f) => {
+        const p = f.properties || {};
+        const coords = f.geometry?.coordinates || [];
+        const magnitude = num(p.mag), lon = num(coords[0]), lat = num(coords[1]);
+        const tsunami = Number(p.tsunami) === 1;
+        if ((!Number.isFinite(magnitude) || magnitude < 5) && !tsunami) return [];
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
+        const time = p.time ? new Date(p.time).toISOString() : "";
+        return [{
+          key: "usgs|" + String(f.id || p.code || (time + "|" + lat + "|" + lon)),
+          eventid: String(f.id || p.code || ""),
+          magnitude: Number.isFinite(magnitude) ? Math.round(magnitude * 10) / 10 : 0,
+          lat, lon, place: String(p.place || "Gempa global"),
+          depth: Number.isFinite(num(coords[2])) ? String(num(coords[2])) : "—",
+          time, potential: tsunami ? "USGS menandai event terkait tsunami — periksa bulletin resmi" : "—",
+          felt: "", status: "USGS", source: "USGS", official: false,
+          isTsunamiWarning: false, usgsTsunamiFlag: tsunami, detailUrl: String(p.url || "")
+        }];
+      });
+    }
+  } catch { /* USGS is supplemental; retain BMKG/InaTEWS data */ }
+
   const byKey = new Map();
   const sig = new Set();
-  const all = [...pub, ...ql].sort((a, b) => new Date(b.time) - new Date(a.time));
+  const all = [...pub, ...ql, ...usgs].sort((a, b) => new Date(b.time) - new Date(a.time));
   for (const q of all) {
     if (byKey.has(q.key)) continue;
     const s = `${q.magnitude.toFixed(1)}|${(q.place || "").slice(0, 30)}|${String(q.time).slice(0, 16)}`;
