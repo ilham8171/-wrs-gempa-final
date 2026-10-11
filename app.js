@@ -1378,7 +1378,21 @@ async function load(showSpin) {
       d = await fetchClientSide();
     }
 
-    const incoming = d.recent || [];
+    const incoming = Array.isArray(d.recent) ? d.recent : [];
+    if (!incoming.length) {
+      const hasPreviousData = quakes.length > 0;
+      status(false, hasPreviousData ? "MEMAKAI DATA TERAKHIR" : "MENUNGGU DATA");
+      const healthText = $("#wrsHealthText");
+      const healthTime = $("#wrsLastUpdated");
+      const health = $("#wrsHealth");
+      if (healthText) healthText.textContent = hasPreviousData ? "MENUNGGU PEMBARUAN" : "SUMBER BELUM TERSEDIA";
+      if (healthTime) healthTime.textContent = hasPreviousData ? "Data sebelumnya dipertahankan" : "Coba muat ulang sebentar lagi";
+      if (health) {
+        health.classList.add("is-error");
+        health.title = "Belum ada katalog gempa yang diterima; data yang sudah tampil tidak dihapus.";
+      }
+      return;
+    }
     const oldFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
     quakes = incoming;
     if (Array.isArray(d.tsunamiHistory)) tsunamiHistory = d.tsunamiHistory;
@@ -2003,7 +2017,7 @@ async function setupPush() {
     const existing = await reg.pushManager.getSubscription();
     if (existing) {
       $("#btnPush")?.classList.add("on");
-      $("#pushStatus").textContent = "Push tersimpan · pengiriman belum diuji";
+      $("#pushStatus").textContent = "Langganan perangkat ditemukan · pengiriman server belum diverifikasi";
     }
   } catch (e) {
     console.error("SW register gagal", e);
@@ -2033,7 +2047,7 @@ $("#btnPush").onclick = async () => {
       await navigator.serviceWorker.ready;
     } catch (swErr) {
       console.error(swErr);
-      $("#pushStatus").textContent = "Service Worker gagal (butuh HTTPS). Layanan push server belum tersedia di deployment ini. Notifikasi latar belakang belum dapat dijamin.";
+      $("#pushStatus").textContent = "Service Worker gagal. Periksa izin browser dan coba lagi; layanan push server belum diverifikasi.";
       return;
     }
 
@@ -2223,7 +2237,7 @@ function initMobileSheet() {
     { passive: true }
   );
 
-  // Pause polling saat tab di background (hemat baterai HP)
+  // Jeda polling saat tab tidak terlihat agar browser tidak bekerja di belakang layar.
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       clearTimeout(refreshTimer);
