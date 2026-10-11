@@ -233,7 +233,7 @@ async function fetchClientSide() {
           depth: Number.isFinite(num(coords[2])) ? String(num(coords[2])) : "—",
           time, potential: tsunami ? "USGS menandai event terkait tsunami — periksa bulletin resmi" : "—",
           felt: "", status: "USGS", source: "USGS", official: false,
-          isTsunamiWarning: false, usgsTsunamiFlag: tsunami, detailUrl: String(p.url || "")
+          isTsunamiWarning: false, usgsTsunamiFlag: tsunami, detailUrl: String(p.url || ""), detailApiUrl: String(p.detail || ""), usgsEventId: String(f.id || p.code || "")
         }];
       });
     }
@@ -778,6 +778,102 @@ function renderOfficial(q) {
   }
 }
 
+
+// ===== Detail produk USGS / ShakeMap =====
+function ensureUsgsProductsBox() {
+  let box = document.getElementById("usgsProductsBox");
+  if (box) return box;
+  const smBox = document.getElementById("modalShakemapBox");
+  if (!smBox?.parentElement) return null;
+  box = document.createElement("section");
+  box.id = "usgsProductsBox";
+  box.className = "usgs-products-box";
+  box.style.cssText = "margin-top:14px;padding:14px;border:1px solid #cbd5e1;border-radius:12px;background:rgba(148,163,184,.08);color:inherit";
+  smBox.insertAdjacentElement("afterend", box);
+  return box;
+}
+function usgsProductLabel(type) {
+  return ({
+    shakemap: "ShakeMap · intensitas dan gerakan tanah",
+    dyfi: "Did You Feel It? · laporan dirasakan",
+    losspager: "PAGER · estimasi dampak",
+    "moment-tensor": "Moment Tensor · mekanisme sumber",
+    "focal-mechanism": "Focal Mechanism · mekanisme patahan",
+    "finite-fault": "Finite Fault · model patahan",
+    "ground-failure": "Ground Failure · estimasi longsor / likuefaksi",
+    "phase-data": "Phase Data · pengamatan seismik",
+    origin: "Origin · parameter sumber gempa"
+  })[type] || type.replace(/-/g, " ");
+}
+function getPreferredUsgsProduct(products) {
+  if (!Array.isArray(products) || !products.length) return null;
+  return [...products].sort((a,b) =>
+    Number(b.preferredWeight || 0) - Number(a.preferredWeight || 0) ||
+    Number(b.updateTime || 0) - Number(a.updateTime || 0)
+  )[0];
+}
+async function loadUsgsProducts(q) {
+  if (q?.source !== "USGS" && !String(q?.key || "").startsWith("usgs|")) return;
+  const box = ensureUsgsProductsBox();
+  if (!box) return;
+  const eventId = q.usgsEventId || q.eventid || String(q.key || "").replace(/^usgs\|/, "");
+  const endpoint = q.detailApiUrl || (eventId ? "https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/" + encodeURIComponent(eventId) + ".geojson" : "");
+  box.innerHTML = '<div style="font-weight:800;margin-bottom:5px">Produk detail USGS & ShakeMap</div><div style="font-size:13px;opacity:.8">Mengambil produk resmi untuk kejadian ini…</div>';
+  if (!endpoint) {
+    box.innerHTML = '<b>Produk detail USGS</b><p>URL detail tidak tersedia pada feed gempa ini.</p>';
+    return;
+  }
+  try {
+    const response = await fetch(endpoint, { cache: "no-store" });
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    const feature = await response.json();
+    if (document.getElementById("modalDetail")?.classList.contains("hidden") || window._modalQuake?.key !== q.key) return;
+    const p = feature?.properties || {};
+    const products = p.products || {};
+    const shake = getPreferredUsgsProduct(products.shakemap);
+    const links = [];
+    const mapCandidates = [];
+    const addContents = (product, kind) => {
+      for (const [path, item] of Object.entries(product?.contents || {})) {
+        if (!item?.url) continue;
+        const low = path.toLowerCase();
+        if (kind === "shakemap" && /(intensity|mmi).*(\.jpg|\.jpeg|\.png)$/.test(low)) mapCandidates.push({url:item.url,path});
+        if (kind === "shakemap" && /(pga|pgv).*(\.jpg|\.jpeg|\.png)$/.test(low)) links.push({label:path.split("/").pop(),url:item.url});
+        if (/(\.pdf$|\.zip$|\.kmz$|\.kml$|grid\.xml$|info\.json$|\.geojson$)/.test(low)) links.push({label:path.split("/").pop(),url:item.url});
+      }
+    };
+    if (shake) addContents(shake, "shakemap");
+    const productTypes = Object.keys(products).filter(type => type !== "shakemap");
+    const productRows = productTypes.map(type => {
+      const prod = getPreferredUsgsProduct(products[type]);
+      if (!prod) return "";
+      addContents(prod, type);
+      return '<li style="margin:4px 0">' + usgsProductLabel(type) + (prod.updateTime ? ' <span style="opacity:.7">· diperbarui ' + new Date(prod.updateTime).toLocaleString("id-ID") + '</span>' : "") + '</li>';
+    }).filter(Boolean);
+    const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    const seen = new Set();
+    const uniqueLinks = links.filter(item => { if (seen.has(item.url)) return false; seen.add(item.url); return true; }).slice(0, 18);
+    const shakeMapUrl = mapCandidates[0]?.url || "";
+    let html = '<div style="font-weight:900;font-size:16px;margin-bottom:7px">Produk detail USGS & ShakeMap</div>';
+    html += '<div style="font-size:13px;line-height:1.5;margin-bottom:9px">Event ID: ' + safe(feature?.id || eventId) + ' · Sumber: USGS ComCat. Produk hanya ditampilkan jika memang disediakan untuk kejadian ini.</div>';
+    if (shakeMapUrl) {
+      html += '<div style="font-weight:800;margin:10px 0 6px">ShakeMap · peta intensitas guncangan</div><a href="' + safe(shakeMapUrl) + '" target="_blank" rel="noopener noreferrer" title="Buka atau unduh ShakeMap"><img src="' + safe(shakeMapUrl) + '" alt="ShakeMap intensitas guncangan USGS" loading="lazy" style="display:block;width:100%;max-height:420px;object-fit:contain;background:#fff;border-radius:8px;border:1px solid #cbd5e1"></a>';
+    } else {
+      html += '<div style="padding:10px;border-radius:8px;background:rgba(148,163,184,.12);font-size:13px">ShakeMap resmi belum tersedia untuk event ini. Ini normal untuk sebagian kejadian; peta tidak dibuat-buat.</div>';
+    }
+    if (productRows.length) html += '<div style="font-weight:800;margin:12px 0 5px">Produk lain yang tersedia</div><ul style="padding-left:20px;margin:0 0 8px">' + productRows.join("") + '</ul>';
+    if (uniqueLinks.length) html += '<div style="font-weight:800;margin:12px 0 6px">Unduh produk resmi</div><div style="display:flex;flex-wrap:wrap;gap:7px">' + uniqueLinks.map(item => '<a href="' + safe(item.url) + '" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:7px 10px;border-radius:7px;background:#0f766e;color:white;text-decoration:none;font-size:12px;font-weight:700">' + safe(item.label) + ' ↗</a>').join("") + '</div>';
+    const eventUrl = p.url || q.detailUrl;
+    if (eventUrl) html += '<p style="margin:12px 0 0"><a href="' + safe(eventUrl) + '" target="_blank" rel="noopener noreferrer">Buka halaman resmi event USGS ↗</a></p>';
+    html += '<div style="font-size:11px;opacity:.75;margin-top:10px">Catatan: ShakeMap dan estimasi dampak bukan pengukuran pasti di setiap lokasi. Ikuti otoritas setempat.</div>';
+    box.innerHTML = html;
+  } catch (error) {
+    if (window._modalQuake?.key !== q.key) return;
+    box.innerHTML = '<b>Produk detail USGS & ShakeMap</b><p style="font-size:13px">Belum berhasil mengambil produk dari USGS. Periksa koneksi lalu buka kembali detail gempa.</p><a href="https://earthquake.usgs.gov/data/shakemap/" target="_blank" rel="noopener noreferrer">Tentang ShakeMap USGS ↗</a>';
+    console.warn("Gagal memuat produk detail USGS", error);
+  }
+}
+
 function openModal(q) {
   if (!q) return;
   // Jika potensi tsunami → buka modal tsunami khusus
@@ -833,6 +929,7 @@ function openModal(q) {
 
   window._modalQuake = q;
   $("#modalDetail").classList.remove("hidden");
+  loadUsgsProducts(q);
 }
 
 function classifyAreaLevel(scale) {
