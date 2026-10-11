@@ -1753,148 +1753,48 @@ async function shareQuake(q) {
 /**
  * Bangun kartu ekspor terang (mirip BMKG) supaya PNG tidak gelap/buram.
  */
-function buildExportCard(q) {
+function buildExportCard(q, page = 0, pageCount = 1, pageLabel = "Ringkasan") {
   const wrap = document.createElement("div");
   wrap.id = "exportCard";
-  wrap.style.cssText =
-    "position:fixed;left:-9999px;top:0;width:520px;background:#f8fafc;color:#0f172a;" +
-    "font-family:Segoe UI,system-ui,sans-serif;border-radius:12px;overflow:hidden;" +
-    "box-shadow:0 8px 32px rgba(0,0,0,.2);z-index:99999;";
-
-  const mag = Number(q.magnitude);
-  const magStr = Number.isFinite(mag) ? mag.toFixed(1) : "—";
-  const when =
-    q.date && q.timeLocal
-      ? `${q.date} ${q.timeLocal}`
-      : typeof fmtTime === "function"
-      ? fmtTime(q)
-      : String(q.time || "—");
-  const isTs = q.isTsunamiWarning || isTsunamiPotential(q.potential) || /tsunami/i.test(q.subject || "");
-  const title = isTs
-    ? q.subject || "INFO PERINGATAN TSUNAMI"
-    : q.felt
-    ? "INFO GEMPA DIRASAKAN"
-    : mag >= 5
-    ? "INFO GEMPA M≥5"
-    : "INFO GEMPA";
-
-  const maps = [];
-  if (q.shakemap) maps.push({ label: "ShakeMap BMKG", url: q.shakemap });
-  if (q.sshmap) maps.push({ label: "SSHmax (tinggi muka laut)", url: q.sshmap });
-  if (q.wzmap) maps.push({ label: "Warning Zone", url: q.wzmap });
-  if (q.ttmap) maps.push({ label: "Estimasi tiba tsunami", url: q.ttmap });
-
-  const hasCoords = Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon));
-  const mapLat = Number(q.lat);
-  const mapLon = Number(q.lon);
-  const epicenterMapUrl = hasCoords
-    ? "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=" +
-      encodeURIComponent((mapLon - 5) + "," + (mapLat - 2.25) + "," + (mapLon + 5) + "," + (mapLat + 2.25)) +
-      "&bboxSR=4326&imageSR=4326&size=976,440&format=jpg&f=image"
-    : "";
-  const epicenterMapHtml = hasCoords
-    ? '<div style="margin:12px 0 14px;border:1px solid #cbd5e1;border-radius:9px;overflow:hidden;background:#0b1726">' +
-      '<div style="padding:8px 10px;background:#e2e8f0;color:#334155;font-size:11px;font-weight:800">PETA SATELIT · TITIK EPISENTER</div>' +
-      '<div style="position:relative;background:#0b1726;line-height:0">' +
-      '<img src="' + epicenterMapUrl + '" crossorigin="anonymous" alt="Citra satelit di sekitar episenter gempa" style="width:100%;height:220px;object-fit:cover;display:block;background:#0b1726" />' +
-      '<span aria-label="Titik episenter" style="position:absolute;left:50%;top:50%;width:16px;height:16px;transform:translate(-50%,-50%);border:3px solid #fff;border-radius:50%;background:#ef4444;box-shadow:0 0 0 5px rgba(239,68,68,.28),0 2px 8px #111;z-index:2"></span>' +
-      '<span style="position:absolute;right:8px;bottom:8px;padding:4px 7px;background:rgba(7,17,31,.82);color:#fff;border-radius:5px;font:700 10px Segoe UI,system-ui,sans-serif;line-height:1.3">© Ilham</span>' +
-      '</div><div style="padding:6px 10px;background:#f8fafc;color:#475569;font-size:10px">Titik merah = episenter · Citra satelit © Esri dan penyedia datanya</div></div>'
-    : '<div style="margin:12px 0;padding:10px;background:#fff7ed;color:#9a3412;border-radius:8px;font-size:11px">Peta episenter tidak tersedia karena koordinat tidak ada pada data.</div>';
-
-  const mapsHtml = maps
-    .map(
-      (m) =>
-        `<div style="margin:10px 0"><div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:4px">${m.label}</div>` +
-        `<img src="${m.url}" crossorigin="anonymous" style="width:100%;height:auto;display:block;border:1px solid #cbd5e1;border-radius:8px;background:#fff"/></div>`
-    )
-    .join("");
-
-  wrap.innerHTML = `
-    <div style="display:flex;background:linear-gradient(90deg,#b91c1c 28%,#eab308 28%);color:#0f172a;padding:16px;align-items:center;gap:14px">
-      <div style="width:88px;height:88px;background:#7f1d1d;color:#fecaca;border:2px solid #fecaca;display:grid;place-items:center;font-size:32px;font-weight:900;flex-shrink:0">${magStr}</div>
-      <div style="flex:1">
-        <div style="font-size:14px;font-weight:900;color:#7f1d1d">${title}</div>
-        <div style="font-size:12px;font-weight:700;margin-top:4px">WAKTU: ${when}</div>
-        <div style="font-size:11px;color:#92400e;margin-top:2px">${q.timesent ? "Kirim: " + q.timesent : ""}</div>
-      </div>
-      <div style="width:54px;height:54px;border-radius:50%;background:#07111f;border:2px solid #67e8f9;display:grid;place-items:center;text-align:center;font-size:10px;line-height:1.15;font-weight:900;color:#a5f3fc">WRS<br>ILHAM</div>
-    </div>
-    <div style="padding:14px 16px;font-size:13px;line-height:1.55;color:#1e293b">
-      ${epicenterMapHtml}
-      <div style="margin:6px 0"><b>Lokasi:</b> ${q.place || "—"}</div>
-      <div style="margin:6px 0"><b>Koordinat:</b> ${typeof fmtCoord === "function" ? fmtCoord(q) : (q.lat + ", " + q.lon)}</div>
-      <div style="margin:6px 0"><b>Kedalaman:</b> ${q.depth} km</div>
-      <div style="margin:6px 0"><b>Sumber:</b> ${q.source || "BMKG / InaTEWS"}</div>
-      <div style="margin:10px 0;padding:10px 12px;background:${isTs ? "#fef2f2" : "#f0fdf4"};border:1px solid ${isTs ? "#fca5a5" : "#86efac"};border-radius:8px;font-weight:600;color:${isTs ? "#991b1b" : "#166534"}">
-        ${q.headline || q.potential || q.subject || "—"}
-      </div>
-      ${q.felt ? `<div style="margin:8px 0"><b>Dirasakan:</b> ${q.felt}</div>` : ""}
-      ${q.instruction || q.instruction1 ? `<div style="margin:10px 0;padding:10px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px"><b>Arahan BMKG:</b><br>${[q.instruction, q.instruction1, q.instruction2, q.instruction3].filter(Boolean).join("<br>")}</div>` : ""}
-      ${mapsHtml}
-    </div>
-    <div style="padding:10px 14px;background:#0f172a;color:#94a3b8;font-size:10px;text-align:center;font-weight:600">
-      © 2026 ILHAM · WRS GEMPA · Pemantauan independen · Sumber: BMKG / InaTEWS / USGS · Bukan sistem resmi BMKG
-    </div>
-  `;
-  document.body.appendChild(wrap);
-  return wrap;
+  wrap.style.cssText = "position:fixed;left:-9999px;top:0;width:390px;height:693px;box-sizing:border-box;background:#f8fafc;color:#0f172a;font-family:Arial,Segoe UI,sans-serif;overflow:hidden;z-index:99999;";
+  const mag = Number(q.magnitude); const magStr = Number.isFinite(mag) ? mag.toFixed(1) : "—";
+  const when = q.date && q.timeLocal ? q.date + " " + q.timeLocal : (typeof fmtTime === "function" ? fmtTime(q) : String(q.time || "—"));
+  const isTs = !!(q.isTsunamiWarning || isTsunamiPotential(q.potential) || /tsunami/i.test(q.subject || ""));
+  const title = isTs ? (q.subject || "INFORMASI TSUNAMI") : (q.felt ? "INFO GEMPA DIRASAKAN" : (mag >= 5 ? "INFO GEMPA M≥5" : "INFO GEMPA"));
+  const esc = v => String(v == null ? "—" : v).replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
+  const maps = []; if(q.shakemap) maps.push({label:"ShakeMap BMKG / MMI",url:q.shakemap}); if(q.sshmap) maps.push({label:"SSHmax · Tinggi muka laut",url:q.sshmap}); if(q.wzmap) maps.push({label:"Warning Zone",url:q.wzmap}); if(q.ttmap) maps.push({label:"Estimasi waktu tiba tsunami",url:q.ttmap});
+  const hasCoords = Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon)); const lat=Number(q.lat), lon=Number(q.lon);
+  const satUrl = hasCoords ? "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox="+encodeURIComponent((lon-5)+","+(lat-2.25)+","+(lon+5)+","+(lat+2.25))+"&bboxSR=4326&imageSR=4326&size=976,440&format=jpg&f=image" : "";
+  const box = (h,body) => '<section style="margin-top:8px;padding:9px 10px;background:#fff;border:1px solid #dbe3ee;border-radius:8px"><div style="font-size:10px;font-weight:800;color:#475569;margin-bottom:5px">' + h + '</div>' + body + '</section>';
+  const sat = hasCoords ? '<div style="position:relative;height:190px;overflow:hidden;border-radius:8px;background:#dbeafe"><img src="' + satUrl + '" crossorigin="anonymous" alt="Peta satelit episenter" style="width:100%;height:190px;object-fit:cover;display:block"><span style="position:absolute;left:50%;top:50%;width:15px;height:15px;transform:translate(-50%,-50%);border:3px solid white;border-radius:50%;background:#ef4444;box-shadow:0 0 0 5px #ef444466"></span><b style="position:absolute;right:6px;bottom:6px;background:#07111fdd;color:white;padding:4px 6px;border-radius:4px;font-size:10px">© Ilham</b></div><div style="font-size:9px;color:#64748b;margin-top:4px">Titik merah = episenter · Citra satelit © Esri dan penyedia datanya</div>' : '<div style="font-size:11px">Koordinat episenter tidak tersedia.</div>';
+  const rows = [["Lokasi",q.place],["Waktu",when],["Magnitudo","M "+magStr],["Koordinat",typeof fmtCoord==="function"?fmtCoord(q):(q.lat+", "+q.lon)],["Kedalaman",(q.depth||"—")+" km"],["Sumber",q.source||"BMKG / InaTEWS"]].map(r=>'<div style="display:flex;gap:7px;padding:5px 0;border-bottom:1px solid #e2e8f0"><b style="width:92px;flex-shrink:0;font-size:10px;color:#64748b">' + esc(r[0]) + '</b><span style="font-size:10px;font-weight:700;overflow-wrap:anywhere">' + esc(r[1]) + '</span></div>').join("");
+  const zones = isTs && typeof parseTsunamiZones==="function" ? parseTsunamiZones(q) : [];
+  const defs = [{page:0,label:"Ringkasan"},{page:1,label:"Dampak dan ShakeMap"}];
+  if(isTs){defs.push({page:2,label:"Arahan keselamatan"});for(let i=0;i<Math.max(1,Math.ceil(zones.length/8));i++)defs.push({page:3+i,label:"Wilayah tsunami "+(i+1)});defs.push({page:3+Math.max(1,Math.ceil(zones.length/8)),label:"Peta tsunami"});}
+  let body = "";
+  if(page===0){ body=box("RINGKASAN KEJADIAN",rows)+box("PETA SATELIT & TITIK EPISENTER",sat)+box(isTs?"STATUS INFORMASI TSUNAMI":"STATUS POTENSI",'<div style="font-size:10px;line-height:1.45;font-weight:700">' + esc(q.headline||q.potential||q.subject||"Tidak ada pernyataan potensi pada data ini.") + '</div>'); }
+  else if(page===1){ const felt=esc(q.felt||"Data wilayah yang merasakan belum tersedia pada feed ini."); const sm=q.shakemap?'<img src="' + esc(q.shakemap) + '" crossorigin="anonymous" alt="ShakeMap BMKG" style="width:100%;max-height:260px;object-fit:contain;display:block;background:#fff">' : '<div style="font-size:10px;line-height:1.5">ShakeMap resmi tidak tersedia pada data kejadian ini; peta tidak dibuat-buat.</div>'; body=box("WILAYAH YANG MERASAKAN",'<div style="font-size:10px;line-height:1.5">' + felt + '</div>')+box("SHAKEMAP / INTENSITAS GUNCANGAN",sm)+box("CATATAN",'<div style="font-size:10px;line-height:1.5">Dampak lokal dapat berbeda dari magnitudo. Informasi hanya ditampilkan jika disediakan sumber.</div>'); }
+  else if(isTs && page===2){ const instr=[q.instruction,q.instruction1,q.instruction2,q.instruction3].filter(Boolean).join("\n")||"Pantau buletin resmi BMKG/InaTEWS. Jika merasakan gempa kuat atau lama di wilayah pesisir, segera menjauh dari pantai menuju tempat lebih tinggi dan ikuti petugas. Jangan menunggu sirene."; body=box("ARAHAN / INSTRUKSI KESELAMATAN",'<div style="font-size:10px;line-height:1.55;white-space:pre-line">' + esc(instr) + '</div>')+box("LANGKAH AMAN",'<div style="font-size:10px;line-height:1.6">• Ikuti arahan BPBD dan petugas setempat.<br>• Jangan mendekati pantai untuk melihat kondisi laut.<br>• Bila peringatan aktif, bergerak ke tempat tinggi/jauh dari pantai tanpa menunggu.</div>'); }
+  else if(isTs && page>=3 && page<3+Math.max(1,Math.ceil(zones.length/8))){ const chunk=zones.slice((page-3)*8,(page-3)*8+8); const list=chunk.map(z=>'<div style="display:flex;gap:7px;padding:7px 0;border-bottom:1px solid #e2e8f0"><b style="font-size:9px;padding:3px 4px;border-radius:4px;min-width:50px;text-align:center;background:'+(z.level==="awas"?"#fee2e2":z.level==="siaga"?"#ffedd5":"#fef9c3")+'">' + esc(String(z.level||"waspada").toUpperCase()) + '</b><div style="flex:1;font-size:10px;font-weight:700;overflow-wrap:anywhere">' + esc(z.name) + '<div style="font-size:9px;font-weight:400;color:#64748b">ETA: ' + esc(z.eta||"—") + ' · Tinggi: ' + (z.height==null?"belum tersedia":Number(z.height).toFixed(2)+" m") + '</div></div></div>').join(""); body=box("DAFTAR WILAYAH PERINGATAN TSUNAMI",'<div style="font-size:9px;line-height:1.4;margin-bottom:6px">Daftar sesuai buletin sumber. Level/ETA/tinggi tidak diada-adakan.</div>'+(list||'<div style="font-size:10px;line-height:1.5">Daftar wilayah terstruktur tidak tersedia pada buletin ini. Periksa peta zona dan buletin resmi terbaru.</div>'))+box("PENTING",'<div style="font-size:9px;line-height:1.45">Zona dan status dapat berubah pada buletin berikutnya. Ikuti arahan resmi.</div>'); }
+  else { const imgs=maps.map(m=>'<div style="margin:7px 0"><b style="font-size:10px;display:block;margin-bottom:3px">' + esc(m.label) + '</b><img src="' + esc(m.url) + '" crossorigin="anonymous" alt="' + esc(m.label) + '" style="width:100%;max-height:155px;object-fit:contain;display:block;background:#fff;border:1px solid #dbe3ee;border-radius:5px"></div>').join(""); body=box("PETA & PRODUK TSUNAMI DARI BULETIN",imgs||'<div style="font-size:10px;line-height:1.5">Peta SSHmax, Warning Zone, atau estimasi waktu tiba tidak disertakan dalam buletin yang diterima.</div>')+box("ARAHAN BMKG",'<div style="font-size:10px;line-height:1.5">Ikuti buletin resmi terbaru dan arahan petugas setempat.</div>'); }
+  wrap.innerHTML = '<div style="height:76px;box-sizing:border-box;padding:10px 12px;background:'+(isTs?"linear-gradient(110deg,#7f1d1d,#dc2626)":"linear-gradient(110deg,#0f2742,#155e75)")+' ;color:#fff;display:flex;align-items:center;gap:9px"><div style="width:49px;height:49px;border:2px solid #ffffff88;border-radius:7px;display:grid;place-items:center;font-size:19px;font-weight:900;flex-shrink:0">' + magStr + '</div><div style="min-width:0;flex:1"><div style="font-size:11px;font-weight:900;line-height:1.2">' + esc(title) + '</div><div style="font-size:9px;margin-top:5px;line-height:1.35">' + esc(q.place||"Lokasi belum tersedia") + '<br>' + esc(when) + '</div></div><div style="font-size:9px;font-weight:900;text-align:center;border:1px solid #ffffff80;padding:5px;border-radius:6px">WRS<br>ILHAM</div></div><div style="height:575px;box-sizing:border-box;padding:0 12px;overflow:hidden">' + body + '</div><div style="height:42px;box-sizing:border-box;padding:7px 8px;background:#0f172a;color:#cbd5e1;text-align:center;font-size:8px;line-height:1.4">© 2026 ILHAM · WRS GEMPA · Pemantauan independen<br>Sumber: BMKG / InaTEWS / USGS · Bukan sistem resmi BMKG · ' + (page+1) + '/' + pageCount + '</div>';
+  document.body.appendChild(wrap); return wrap;
 }
-
+function buildExportPages(q){ const isTs=!!(q.isTsunamiWarning||isTsunamiPotential(q.potential)||/tsunami/i.test(q.subject||"")); const zones=isTs&&typeof parseTsunamiZones==="function"?parseTsunamiZones(q):[]; const defs=[{page:0,label:"ringkasan"},{page:1,label:"dampak-shakemap"}]; if(isTs){defs.push({page:2,label:"arahan-keselamatan"});for(let i=0;i<Math.max(1,Math.ceil(zones.length/8));i++)defs.push({page:3+i,label:"wilayah-tsunami-"+(i+1)});defs.push({page:3+Math.max(1,Math.ceil(zones.length/8)),label:"peta-tsunami"});}return defs.map(d=>({...d,count:defs.length}));}
 /**
  * Simpan sebagai PNG tajam (kartu terang) + watermark
  */
 async function saveModalAsImage(_cardEl, filename) {
-  const q = window._modalQuake;
-  if (!q) return;
-  if (typeof html2canvas !== "function") {
-    alert("Library html2canvas belum termuat. Coba refresh halaman.");
-    return;
-  }
-  showLoading("Menyimpan gambar…");
-  const exportEl = buildExportCard(q);
-  try {
-    const imgs = [...exportEl.querySelectorAll("img")];
-    await Promise.all(
-      imgs.map(
-        (img) =>
-          new Promise((res) => {
-            if (img.complete && img.naturalWidth > 0) return res();
-            img.onload = res;
-            img.onerror = res;
-            setTimeout(res, 4000);
-          })
-      )
-    );
-    await new Promise((r) => setTimeout(r, 150));
-
-    const canvas = await html2canvas(exportEl, {
-      backgroundColor: "#f8fafc",
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      scrollX: 0,
-      scrollY: 0,
-      width: exportEl.offsetWidth,
-      height: exportEl.scrollHeight,
-      windowWidth: exportEl.offsetWidth,
-      windowHeight: exportEl.scrollHeight,
-    });
-
-    const a = document.createElement("a");
-    a.href = canvas.toDataURL("image/png");
-    a.download = filename || "gempa.png";
-    a.click();
-  } catch (err) {
-    console.warn("Save image gagal:", err);
-    alert("Gagal menyimpan gambar. Coba lagi atau gunakan Bagikan.");
-  } finally {
-    exportEl.remove();
-    hideLoading();
-  }
+  const q=window._modalQuake; if(!q)return;
+  if(typeof html2canvas!=="function"){alert("Library gambar belum termuat. Coba refresh halaman.");return;}
+  showLoading("Menyiapkan paket gambar 9:16…"); const defs=buildExportPages(q); const base=(filename||"info-gempa.png").replace(/\.png$/i,""); let saved=0;
+  try { for(let i=0;i<defs.length;i++){ const def=defs[i]; const el=buildExportCard(q,def.page,def.count,def.label); try {
+    const imgs=[...el.querySelectorAll("img")]; await Promise.all(imgs.map(img=>new Promise(resolve=>{if(img.complete&&img.naturalWidth>0)return resolve();img.onload=resolve;img.onerror=resolve;setTimeout(resolve,3500);})));
+    await new Promise(resolve=>setTimeout(resolve,100)); const canvas=await html2canvas(el,{backgroundColor:"#f8fafc",scale:2,useCORS:true,allowTaint:false,logging:false,scrollX:0,scrollY:0,width:390,height:693,windowWidth:390,windowHeight:693});
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/png"));if(!blob)throw new Error("Gagal membuat gambar "+(i+1));const url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download=defs.length===1?base+".png":base+"_"+String(i+1).padStart(2,"0")+"_"+def.label+".png";document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);saved++;await new Promise(resolve=>setTimeout(resolve,350));
+  } finally {el.remove();}} alert("Selesai: "+saved+" gambar format 9:16 disiapkan. Jika browser meminta izin beberapa unduhan, pilih Izinkan.");
+  } catch(err){console.warn("Paket gambar gagal:",err);alert("Paket gambar tersimpan "+saved+" dari "+defs.length+". Coba lagi; browser mungkin membatasi unduhan beruntun.");} finally{hideLoading();}
 }
-
 $("#btnShare")?.addEventListener("click", () => shareQuake(window._modalQuake));
 $("#btnShareTsunami")?.addEventListener("click", () => shareQuake(window._modalQuake));
 
