@@ -210,15 +210,26 @@ async function getText(url) {
   return res.text();
 }
 
-async function getJson(url) {
-  const res=await fetch(url,{headers:{accept:"application/json"},cf:{cacheTtl:10,cacheEverything:true}});
-  if(!res.ok) throw new Error("upstream HTTP "+res.status);
+async function getJson(url, live = false) {
+  const requestUrl = live ? url + (url.includes("?") ? "&" : "?") + "_wrs_ts=" + Date.now() : url;
+  const res = await fetch(requestUrl, {
+    headers: { accept: "application/json", ...(live ? { "cache-control": "no-cache" } : {}) },
+    ...(live ? { cf: { cacheTtl: 0, cacheEverything: false } } : { cf: { cacheTtl: 10, cacheEverything: true } })
+  });
+  if (!res.ok) throw new Error("upstream HTTP " + res.status);
   return res.json();
+}
+function qlFeatures(value) {
+  if (Array.isArray(value?.features)) return value.features;
+  if (value?.type === "Feature") return [value];
+  if (Array.isArray(value)) return value;
+  return [];
 }
 export async function onRequestGet() {
   const errors=[];
   const results=await Promise.allSettled([
     ...BMKG_URLS.map(url=>getJson(url)),
+    getJson(GCS+"/lastQL.json", true),
     getJson(GCS+"/gempaQL.json"),
     getJson(USGS),
     getJson(usgsIndonesiaUrl()),
@@ -231,13 +242,21 @@ export async function onRequestGet() {
     const g=r.value?.Infogempa?.gempa;
     (Array.isArray(g)?g:g?[g]:[]).forEach(x=>{const q=mapPublic(x);if(q)list.push(q);});
   });
+  // lastQL.json adalah feed realtime terbaru; gempaQL.json adalah katalog/riwayat.
   const ql=results[3];
-  if(ql.status==="fulfilled") (ql.value.features||[]).forEach(f=>{const q=mapQL(f);if(q){qlEvents.push(q);list.push(q);}});
-  else errors.push("InaTEWS QL");
-  const usgs=results[4];
+  const historyQL=results[4];
+  const liveQL = ql.status === "fulfilled" ? qlFeatures(ql.value).map(mapQL).filter(Boolean) : [];
+  if (ql.status !== "fulfilled") errors.push("InaTEWS lastQL");
+  const historyEvents = historyQL.status === "fulfilled" ? qlFeatures(historyQL.value).map(mapQL).filter(Boolean) : [];
+  if (historyQL.status !== "fulfilled") errors.push("InaTEWS gempaQL");
+  liveQL.forEach(q => { q.source = "InaTEWS WRS"; q.wrsRealtime = true; list.push(q); });
+  historyEvents.forEach(q => { q.source = "InaTEWS"; q.wrsRealtime = true; list.push(q); });
+  qlEvents.push(...liveQL, ...historyEvents);
+  if (!liveQL.length && historyEvents.length) liveQL.push(historyEvents.slice().sort((a,b)=>new Date(b.time)-new Date(a.time))[0]);
+  const usgs=results[5];
   if(usgs.status==="fulfilled") (usgs.value.features||[]).forEach(f=>{const q=mapUSGS(f, 5);if(q)list.push(q);});
   else errors.push("USGS global");
-  const usgsIndonesia=results[5];
+  const usgsIndonesia=results[6];
   if(usgsIndonesia.status==="fulfilled") (usgsIndonesia.value.features||[]).forEach(f=>{const q=mapUSGS(f, 2);if(q)list.push(q);});
   else errors.push("USGS Indonesia");
   await attachUSGSShakemaps(list);
@@ -254,7 +273,7 @@ export async function onRequestGet() {
       officialEvent.shakemapSource = "USGS ShakeMap (fallback)";
     }
   }
-  const tsunami=results[6];
+  const tsunami=results[7];
   const tsunamiHistory=tsunami.status==="fulfilled" ? parseTsunamiCapXml(tsunami.value) : [];
   if(tsunami.status!=="fulfilled") errors.push("InaTEWS tsunami");
   const eventPriority = q => q.source === "BMKG" && q.official ? 3 : q.source === "InaTEWS" ? 2 : q.source === "USGS" ? 1 : 0;
@@ -306,7 +325,11 @@ export async function onRequestGet() {
   // The catalog deduplicates records and prefers BMKG; it must not replace the WRS event.
   const realtimeEvents=qlEvents
     .filter(q=>Number.isFinite(validTime(q)) && inIndonesia(q))
+    .sort((a,b)=>validTime(b)-validTime(a))
+    .filter((q,index,all)=>all.findIndex(item=>item.key===q.key)===index);
+  const liveEvents=liveQL
+    .filter(q=>Number.isFinite(validTime(q)) && inIndonesia(q))
     .sort((a,b)=>validTime(b)-validTime(a));
-  const realtime=realtimeEvents[0] || null;
-  return new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:15,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:ql.status==="fulfilled"&&Array.isArray(ql.value.features)?ql.value.features.length:0,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS QL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:ql.status==="fulfilled"?(ql.value.features||[]).length:0,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
+  const realtime=liveEvents[0] || null;
+  return new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:15,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
 }
