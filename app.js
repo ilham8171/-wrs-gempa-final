@@ -908,25 +908,48 @@ async function loadUsgsProducts(q, forceFallback = false) {
       Object.entries(product?.contents || {}).filter(([, item]) => item?.url)
     );
     // Utamakan gambar intensity.jpg (MMI), lalu nama MMI lain, baru thumbnail.
-    const mmiEntry = shakeEntries.find(([path]) => /(?:^|\/)intensity\.(?:jpg|jpeg|png)$/i.test(path))
-      || shakeEntries.find(([path]) => /(?:^|\/)(?:mmi|intensity_overlay)\.(?:jpg|jpeg|png)$/i.test(path))
-      || shakeEntries.find(([path]) => /(?:^|\/)(?:ii_thumbnail|pin-thumbnail)\.(?:jpg|jpeg|png)$/i.test(path));
+    // Tampilkan satu peta saja: MMI/intensity. Jika gambar utama gagal dimuat,
+    // coba alternatif MMI yang tersedia; jangan menampilkan PGA/PGV/PSA sebagai MMI.
+    const mmiCandidates = shakeEntries.filter(([path, item]) =>
+      item?.url && /\.(?:jpg|jpeg|png)$/i.test(path) &&
+      /(?:^|\/)(?:intensity|mmi|intensity_overlay|ii_thumbnail|pin-thumbnail)\.(?:jpg|jpeg|png)$/i.test(path)
+    ).sort((a,b) => {
+      const rank = path => /(?:^|\/)intensity\.(?:jpg|jpeg|png)$/i.test(path) ? 0
+        : /(?:^|\/)mmi\.(?:jpg|jpeg|png)$/i.test(path) ? 1
+        : /intensity_overlay/i.test(path) ? 2
+        : /ii_thumbnail/i.test(path) ? 3 : 4;
+      return rank(a[0]) - rank(b[0]);
+    });
     let html = '<div style="font-weight:900;font-size:16px;margin-bottom:8px">PETA INTENSITAS GUNCANGAN (MMI)</div>';
-    if (mmiEntry) {
-      const imageUrl = mmiEntry[1].url;
-      const sourceName = isUsgsEvent ? "USGS ShakeMap" : "USGS ShakeMap (sumber cadangan; peta BMKG tidak tersedia)";
-      html += '<figure style="margin:0"><a href="' + safe(imageUrl) + '" target="_blank" rel="noopener noreferrer"><img src="' + safe(imageUrl) + '" alt="Peta intensitas guncangan MMI" loading="lazy" style="display:block;width:100%;height:auto;max-height:520px;object-fit:contain;background:#fff;border-radius:8px" onerror="this.closest(\'figure\')?.classList.add(\'hidden\')"></a></figure>';
+    if (mmiCandidates.length) {
+      const sourceName = isUsgsEvent ? "USGS ShakeMap" : "USGS ShakeMap (cadangan; peta MMI BMKG tidak tersedia)";
+      const urls = mmiCandidates.map(([path,item]) => ({ path, url: item.url }));
+      html += '<figure style="margin:0"><img id="wrsMmiFallbackImage" src="' + safe(urls[0].url) + '" alt="Peta intensitas guncangan MMI" loading="eager" style="display:block;width:100%;height:auto;max-height:520px;object-fit:contain;background:#fff;border-radius:8px"></figure>';
       html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:7px">Sumber peta: ' + sourceName + '. Peta merupakan estimasi ilmiah, bukan pengukuran pasti di setiap lokasi.</div>';
+      html += '<div style="font-size:11px;line-height:1.45;opacity:.72">Parameter, status, dan saran untuk gempa global mengikuti metadata USGS; untuk peringatan darurat ikuti otoritas resmi setempat.</div>';
+      html += '<a href="' + safe(p.url || ("https://earthquake.usgs.gov/earthquakes/eventpage/" + encodeURIComponent(feature?.id || eventId))) + '" target="_blank" rel="noopener noreferrer" style="font-size:11px;opacity:.7">Sumber resmi peta ↗</a>';
+      html += '<script type="application/json" id="wrsMmiFallbackCandidates">' + JSON.stringify(urls).replace(/</g,"\\u003c") + '</script>';
     } else {
       html += '<div style="padding:10px;border:1px solid var(--border,#cbd5e1);border-radius:9px;font-size:13px">Peta intensitas MMI belum tersedia untuk kejadian ini.</div>';
     }
-    // Jangan ulangi koordinat/magnitudo atau daftar tautan produk. Satu tautan sumber
-    // ditempatkan tersembunyi di bagian catatan ringkas.
-    if (feature) {
-      const eventUrl = p.url || ("https://earthquake.usgs.gov/earthquakes/eventpage/" + encodeURIComponent(feature.id || eventId));
-      html += '<details style="margin-top:8px;font-size:11px;opacity:.78"><summary style="cursor:pointer">Sumber peta dan detail lainnya</summary><p>Gambar MMI dari USGS ShakeMap untuk kejadian yang dicocokkan berdasarkan waktu dan lokasi.</p><a href="' + safe(eventUrl) + '" target="_blank" rel="noopener noreferrer">Sumber USGS ↗</a></details>';
-    }
     box.innerHTML = html;
+    const mmiImage = box.querySelector("#wrsMmiFallbackImage");
+    const candidateNode = box.querySelector("#wrsMmiFallbackCandidates");
+    if (mmiImage && candidateNode) {
+      let candidates = [];
+      try { candidates = JSON.parse(candidateNode.textContent || "[]"); } catch {}
+      let next = 1;
+      mmiImage.onerror = () => {
+        if (next < candidates.length) mmiImage.src = candidates[next++].url;
+        else {
+          mmiImage.style.display = "none";
+          const note = document.createElement("div");
+          note.style.cssText = "padding:10px;border:1px solid var(--border,#cbd5e1);border-radius:9px;font-size:13px";
+          note.textContent = "Gambar peta MMI gagal dimuat. Coba lagi nanti.";
+          mmiImage.closest("figure")?.appendChild(note);
+        }
+      };
+    }
   } catch (error) {
     if (window._modalQuake?.key !== q.key) return;
     box.innerHTML = '<div style="font-weight:900;font-size:16px;margin-bottom:8px">PETA INTENSITAS GUNCANGAN (MMI)</div><p style="font-size:13px">Peta MMI belum tersedia atau sumber cadangan sedang tidak dapat diakses.</p>';
