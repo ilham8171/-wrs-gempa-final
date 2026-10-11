@@ -464,7 +464,9 @@ function drawMarkers(force = false) {
   // Kembalikan marker gempa ke bentuk lingkaran berwarna berdasarkan magnitudo.
   // Event terbaru tetap diberi bintang merah berdenyut dan cincin pulse.
   const preferredLatest = filterState.source === "ALL" ? primaryRealtimeQuake() : list[0];
-  const latestKey = preferredLatest?.key || list[0]?.key;
+  const latestKey = preferredLatest && list.some(q => q.key === preferredLatest.key)
+    ? preferredLatest.key
+    : list[0]?.key;
   list.slice(0, 800).forEach((q) => {
     const latest = q.key === latestKey;
     const fill = magColor(q.magnitude);
