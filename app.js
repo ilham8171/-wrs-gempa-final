@@ -1,4 +1,4 @@
-const API = "/.netlify/functions/earthquakes";
+const API = "/api/earthquakes";
 const SUBSCRIBE_API = "/.netlify/functions/subscribe";
 const VAPID_PUBLIC_KEY =
   "BMMLWEJGdS_HeyHwUWt9z6iswzec3RzLIXGWIrLmLa7xptYq4oLYFLiYlR-g0XE7rZJ4PFieSK9NRf-tOtKRmAA";
@@ -1539,8 +1539,8 @@ function openHistory(mode = "all") {
   if (head) {
     head.innerHTML =
       mode === "tsunami"
-        ? "<th>M</th><th>Waktu</th><th>Peringatan / Wilayah</th><th>Kedalaman</th>"
-        : "<th>M</th><th>Waktu</th><th>Wilayah</th><th>Kedalaman</th>";
+        ? "<th>M</th><th>Waktu</th><th>Peringatan / Wilayah</th><th>Kedalaman</th><th>Aksi</th>"
+        : "<th>M</th><th>Waktu</th><th>Wilayah</th><th>Kedalaman</th><th>Aksi</th>";
   }
 
   list.forEach((q) => {
@@ -1577,11 +1577,25 @@ function openHistory(mode = "all") {
         }
       };
     }
+    const actions = document.createElement("td");
+    actions.className = "hist-actions";
+    actions.innerHTML = '<button type="button" class="hist-action-download">Unduh</button><button type="button" class="hist-action-share">Bagikan</button>';
+    actions.querySelector(".hist-action-download").addEventListener("click", (event) => {
+      event.stopPropagation();
+      window._modalQuake = q;
+      const date = String(q.time || q.date || new Date().toISOString()).slice(0, 10);
+      saveModalAsImage(null, "gempa_M" + Number(q.magnitude || 0).toFixed(1) + "_" + date + ".png");
+    });
+    actions.querySelector(".hist-action-share").addEventListener("click", (event) => {
+      event.stopPropagation();
+      shareQuake(q);
+    });
+    tr.appendChild(actions);
     body.appendChild(tr);
   });
 
   if (!list.length) {
-    body.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:20px;color:#94a3b8">${
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;color:#94a3b8">${
       mode === "tsunami"
         ? "Belum ada data buletin tsunami. Pastikan Functions Netlify ter-deploy."
         : "Tidak ada data untuk kategori ini."
