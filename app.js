@@ -33,6 +33,11 @@ try {
   paramCache = {};
 }
 let lastRevisionInfo = null;
+let revisionHistory = [];
+try {
+  const savedRevisionHistory = JSON.parse(localStorage.getItem("wrsRevisionHistoryV1") || "[]");
+  if (Array.isArray(savedRevisionHistory)) revisionHistory = savedRevisionHistory.slice(0, 30);
+} catch { revisionHistory = []; }
 
 const BASEMAPS = {
   light: {
@@ -613,26 +618,40 @@ function saveParamCache() {
   } catch {}
 }
 
-function showRealtimeUpdate(info) {
+function showRealtimeUpdate(info, append = false) {
   const el = $("#rtUpdate");
   if (!el) return;
-  if (!info || !info.parts?.length) {
+  if (info?.parts?.length && append) {
+    const fingerprint = [info.id, info.next?.magnitude, info.next?.depth, info.next?.lat, info.next?.lon, info.parts.join("|")].join("::");
+    if (!revisionHistory.some(item => item.fingerprint === fingerprint)) {
+      revisionHistory.unshift({
+        fingerprint,
+        id: info.id,
+        place: String(info.place || "Lokasi tidak diketahui"),
+        parts: info.parts.slice(),
+        significant: !!info.significant,
+        magnitude: Number(info.next?.magnitude),
+        depth: info.next?.depth,
+        time: new Date().toISOString()
+      });
+      revisionHistory = revisionHistory.slice(0, 30);
+      try { localStorage.setItem("wrsRevisionHistoryV1", JSON.stringify(revisionHistory)); } catch {}
+    }
+    lastRevisionInfo = info;
+  }
+  if (!revisionHistory.length) {
     el.classList.add("hidden");
     el.innerHTML = "";
     return;
   }
-  const tag = info.significant ? "REVISI BESAR" : "PEMUTAKHIRAN";
   el.classList.remove("hidden");
-  el.classList.toggle("rev-big", !!info.significant);
-  el.innerHTML =
-    `<span class="rt-upd-tag">${tag}</span> ` +
-    `<span class="rt-upd-txt">${info.place ? info.place + " · " : ""}${info.parts.join(" · ")}</span>`;
-  lastRevisionInfo = info;
-  // Auto-sembunyikan label lembut setelah 2 menit (data tetap di cache)
-  clearTimeout(showRealtimeUpdate._t);
-  showRealtimeUpdate._t = setTimeout(() => {
-    if (!info.significant) el.classList.add("hidden");
-  }, 120000);
+  el.classList.toggle("rev-big", revisionHistory.some(item => item.significant));
+  const rows = revisionHistory.map((item) => {
+    const tag = item.significant ? "REVISI BESAR" : "PEMUTAKHIRAN";
+    const stamp = new Date(item.time).toLocaleTimeString("id-ID", {hour:"2-digit",minute:"2-digit",second:"2-digit"});
+    return `<div class="rt-upd-row"><span class="rt-upd-tag">${tag}</span><span class="rt-upd-txt">${esc(item.place)} · ${item.parts.map(esc).join(" · ")}</span><time class="rt-upd-time">${stamp}</time></div>`;
+  }).join("");
+  el.innerHTML = `<div class="rt-upd-heading">RIWAYAT PEMUTAKHIRAN PARAMETER · ${revisionHistory.length}</div>${rows}`;
 }
 
 function primaryRealtimeQuake() {
@@ -655,15 +674,9 @@ function renderRealtime(q) {
   $("#rtCoord").textContent = `◎ ${fmtCoord(q)} · ${q.depth} Km`;
   $("#rtPlace").textContent = q.place;
   $("#rtSrc").textContent = `Sumber: ${q.source || "BMKG"}`;
-  // Tampilkan badge revisi jika event yang sama baru di-update
-  if (lastRevisionInfo) {
-    // Keep the latest update visible even when it concerns another event in the
-    // seven-day WRS realtime list; the banner includes that event's location.
-    showRealtimeUpdate(lastRevisionInfo);
-  } else {
-    const elUp = $("#rtUpdate");
-    if (elUp) elUp.classList.add("hidden");
-  }
+  // Riwayat pemutakhiran tetap tampil di kotak katalog realtime walau
+  // revisi terjadi pada event lain dalam daftar WRS tujuh hari.
+  showRealtimeUpdate(null, false);
   updateRealtimeDistance();
 }
 
@@ -1533,10 +1546,12 @@ function processNew() {
     }
   }
   if (revisions.length) {
-    const rev = revisions.sort((a,b) => Number(b.significant)-Number(a.significant))[0];
-    showRealtimeUpdate(rev);
+    // Simpan dan tampilkan SEMUA revisi yang terdeteksi pada siklus polling ini.
+    revisions.sort((a,b) => Number(b.significant)-Number(a.significant));
+    revisions.forEach(rev => showRealtimeUpdate(rev, true));
+    const rev = revisions.find(item => item.significant) || revisions[0];
     const primary = primaryRealtimeQuake();
-    if (primary && rev.id === stableEventId(primary)) renderRealtime(primary);
+    if (primary) renderRealtime(primary);
     saveParamCache();
 
     if (rev.significant && alarmOn) {
@@ -1672,13 +1687,18 @@ async function load(showSpin) {
       }
     }
     const newFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
-    status(true, d.sources?.client ? "LIVE · client" : "LIVE");
+    const wrsFeedOk = realtimeEvents.length > 0 && !(d.sources?.errors || []).includes("InaTEWS QL");
+    const usingFallback = !wrsFeedOk;
+    status(true, wrsFeedOk ? "WRS LIVE" : "CADANGAN · WRS OFFLINE");
     const healthText = $("#wrsHealthText");
     const healthTime = $("#wrsLastUpdated");
     const health = $("#wrsHealth");
-    if (healthText) healthText.textContent = d.sources?.client ? "SUMBER CADANGAN" : (d.sources?.errors?.length ? "TERHUBUNG · DATA PARSIAL" : "TERHUBUNG");
-    if (healthTime) healthTime.textContent = "Diperbarui " + new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    if (health) { health.classList.remove("is-error"); health.title = "Pembaruan data berhasil"; }
+    if (healthText) healthText.textContent = wrsFeedOk ? ((d.sources?.errors?.length) ? "WRS TERHUBUNG · DATA PARSIAL" : "WRS REALTIME TERHUBUNG") : (quakes.length ? "WRS OFFLINE · DATA CADANGAN" : "WRS OFFLINE · DATA TIDAK TERSEDIA");
+    if (healthTime) healthTime.textContent = (wrsFeedOk ? "WRS diperbarui " : "Pemeriksaan terakhir ") + new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    if (health) {
+      health.classList.toggle("is-error", usingFallback || !!d.sources?.errors?.length);
+      health.title = wrsFeedOk ? "Feed realtime InaTEWS/WRS diterima" : "Feed realtime InaTEWS/WRS tidak tersedia; katalog cadangan tetap ditampilkan jika ada.";
+    }
     const s = d.sources || {};
     const sourceSummary = [`${d.count ?? quakes.length} event`];
     if (s.public != null) sourceSummary.push(`BMKG ${s.public}/3`);
