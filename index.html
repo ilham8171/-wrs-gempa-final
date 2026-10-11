@@ -126,10 +126,31 @@
     </div>
     <section id="wrsTestTools" class="wrs-test-tools" hidden aria-label="Kontrol simulasi WRS">
       <div id="wrsTestStatus" class="wrs-test-status" role="status">Mode Tes aktif · data uji saja</div>
+      <div class="wrs-test-form">
+        <label for="wrsTestMagnitude">Magnitudo simulasi</label>
+        <select id="wrsTestMagnitude">
+          <option value="5.0">M5.0 · Sedang</option>
+          <option value="5.6" selected>M5.6 · Kuat</option>
+          <option value="6.0">M6.0 · Kuat</option>
+          <option value="7.0">M7.0 · Besar</option>
+          <option value="8.0">M8.0 · Sangat besar</option>
+          <option value="9.0">M9.0 · Ekstrem</option>
+        </select>
+        <label for="wrsTestLocation">Lokasi skenario</label>
+        <select id="wrsTestLocation">
+          <option value="lombok">Lombok, NTB</option>
+          <option value="sulawesi" selected>Sulawesi Tengah</option>
+          <option value="sumatra">Barat Daya Sumatra</option>
+          <option value="ntt">Laut selatan NTT</option>
+          <option value="maluku">Laut Seram, Maluku</option>
+          <option value="jawa">Samudra Hindia selatan Jawa</option>
+        </select>
+        <label class="wrs-test-check"><input type="checkbox" id="wrsTestTsunami"> Sertakan peringatan tsunami simulasi</label>
+      </div>
       <div class="wrs-test-actions">
-        <button type="button" id="btnWrsTestQuake">Uji kejadian</button>
-        <button type="button" id="btnWrsTestComm">Tes komunikasi</button>
-        <button type="button" id="btnWrsTestReset">Reset</button>
+        <button type="button" id="btnWrsTestQuake">▶ Jalankan skenario</button>
+        <button type="button" id="btnWrsTestComm">Tes komunikasi API</button>
+        <button type="button" id="btnWrsTestReset">Reset skenario</button>
       </div>
       <div id="wrsTestLog" class="wrs-test-log" aria-live="polite"></div>
       <p class="wrs-test-note">Simulasi lokal. Tidak mengirim peringatan ke BMKG dan bukan data gempa nyata.</p>
