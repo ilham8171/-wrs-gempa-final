@@ -882,7 +882,6 @@ async function loadUsgsProducts(q) {
     }
     html += '<div style="font-weight:900;border-bottom:1px solid var(--border,#cbd5e1);padding-bottom:7px;margin:16px 0 8px">INFORMASI TSUNAMI</div>';
     html += '<div style="font-size:13px;line-height:1.55;padding:11px;border-radius:9px;background:rgba(148,163,184,.10)">Status tsunami harus diperiksa melalui otoritas resmi untuk lokasi kejadian. Magnitudo saja tidak cukup untuk menyatakan ada atau tidaknya ancaman tsunami.</div>';
-    html += '<details style="margin-top:10px;font-size:12px"><summary style="cursor:pointer">Detail produk tambahan</summary><p>Produk tambahan hanya tersedia jika disediakan oleh sumber resmi untuk kejadian ini.</p><a href="' + safe(eventUrl) + '" target="_blank" rel="noopener noreferrer">Buka detail resmi USGS ↗</a></details>';
     html += '<div style="font-size:11px;opacity:.7;margin-top:7px">Peta guncangan merupakan estimasi ilmiah, bukan pengukuran pasti di setiap lokasi.</div>';
     box.innerHTML = html;
   } catch (error) {
