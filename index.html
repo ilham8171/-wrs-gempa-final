@@ -20,6 +20,10 @@
 <div id="map"></div>
 <div class="map-overlay"></div>
 <div class="wrs-health" id="wrsHealth" role="status" aria-live="polite"><span class="health-led"></span><span class="health-brand">WRS</span><span class="health-divider" aria-hidden="true"></span><span id="wrsHealthText">MENYIAPKAN PEMANTAUAN</span><time id="wrsLastUpdated">Menunggu pembaruan</time></div>
+<div class="wrs-mode-switch" role="group" aria-label="Mode pemantauan WRS">
+  <button type="button" data-wrs-mode="operational" aria-pressed="true">● Operasional</button>
+  <button type="button" data-wrs-mode="simulation" aria-pressed="false">▧ Simulasi / Tes</button>
+</div>
 <div class="map-stats glass-panel" id="mapStats">
   <button type="button" class="stat-btn" data-stat="all" title="Daftar semua event"><b id="statTotal">0</b><span>EVENT</span></button>
   <button type="button" class="stat-btn" data-stat="strong" title="Daftar M≥4"><b id="statStrong">0</b><span>M≥4</span></button>
