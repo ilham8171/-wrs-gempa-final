@@ -243,9 +243,28 @@ function initMap() {
   const saved = localStorage.getItem("wrsBasemap") || "dark";
   setBasemap(saved);
 
-  markers = L.layerGroup().addTo(map);
-  // SVG renderer agar animasi CSS radius ring (expand/fade) bekerja seperti WRS BMKG
-  radiusLayer = L.layerGroup({ renderer: L.svg({ padding: 0.5 }) }).addTo(map);
+  const clusterOptions = {
+    chunkedLoading: true,
+    showCoverageOnHover: false,
+    spiderfyOnMaxZoom: true,
+    zoomToBoundsOnClick: true,
+    maxClusterRadius: 42,
+    iconCreateFunction(cluster) {
+      const count = cluster.getChildCount();
+      const level = count >= 100 ? "xl" : count >= 25 ? "lg" : "md";
+      return L.divIcon({
+        className: "quake-cluster-wrap",
+        html: '<span class="quake-cluster ' + level + '">' + (count > 999 ? "999+" : count) + '</span>',
+        iconSize: [38, 38],
+        iconAnchor: [19, 19]
+      });
+    }
+  };
+  markers = (typeof L.markerClusterGroup === "function"
+    ? L.markerClusterGroup(clusterOptions)
+    : L.layerGroup()).addTo(map);
+  // Radius/pulse rings are intentionally disabled for a cleaner, low-distraction map.
+  radiusLayer = L.layerGroup().addTo(map);
 
   faultLayer = L.geoJSON(FAULTS_GEOJSON, {
     style: {
@@ -365,39 +384,9 @@ function isTsunamiPotential(pot) {
   return /tsunami|berpotensi|awas|siaga|waspada/i.test(s) && !/tidak\s*(ada\s*)?berpotensi|tidak\s*ada\s*potensi|tidak ada potensi/i.test(s);
 }
 
-/* Radius rings around latest quake — expand + fade like WRS BMKG */
-function drawRadiusRings(q) {
-  radiusLayer.clearLayers();
-  if (!q || !Number.isFinite(q.lat) || !Number.isFinite(q.lon)) return;
-  const rings = [
-    { km: 50, color: "#ef4444", weight: 2.4, opacity: 0.85, fillOpacity: 0.12, delay: "0s" },
-    { km: 120, color: "#f97316", weight: 2.0, opacity: 0.7, fillOpacity: 0.08, delay: "0.35s" },
-    { km: 250, color: "#eab308", weight: 1.6, opacity: 0.5, fillOpacity: 0.045, delay: "0.7s" },
-    { km: 450, color: "#fbbf24", weight: 1.2, opacity: 0.35, fillOpacity: 0.025, delay: "1.05s" },
-  ];
-  rings.forEach((r) => {
-    const c = L.circle([q.lat, q.lon], {
-      radius: r.km * 1000,
-      color: r.color,
-      weight: r.weight,
-      opacity: r.opacity,
-      fillColor: r.color,
-      fillOpacity: r.fillOpacity,
-      interactive: false,
-      className: "eq-radius-ring",
-      renderer: L.svg(),
-    }).addTo(radiusLayer);
-    // Apply CSS expand/fade animation on SVG path
-    const applyAnim = () => {
-      const path = c._path || (c.getElement && c.getElement());
-      if (path) {
-        path.classList.add("eq-radius-ring");
-        path.style.animationDelay = r.delay;
-      }
-    };
-    applyAnim();
-    setTimeout(applyAnim, 50);
-  });
+/* Kept as a compatibility hook; decorative radius rings are intentionally disabled. */
+function drawRadiusRings() {
+  if (radiusLayer) radiusLayer.clearLayers();
 }
 
 function getFilteredQuakes() {
@@ -445,39 +434,32 @@ function drawMarkers(force = false) {
   lastRenderFingerprint = fp;
   markers.clearLayers();
 
-  // Canvas CircleMarkers are dramatically cheaper than hundreds of DOM divIcons.
+  // Crisp diamond markers: magnitude controls size/color; depth controls border color.
+  // Cluster nearby events to keep dense areas readable on mobile.
   const latestKey = list[0]?.key;
   list.slice(0, 800).forEach((q) => {
     const latest = q.key === latestKey;
-    const r = radius(q.magnitude);
-    // Isi = magnitudo (legenda warna M), tepi = kedalaman (legenda kedalaman)
     const fill = magColor(q.magnitude);
     const edge = depthColor(q.depth);
-    if (latest) {
-      const star = L.marker([q.lat, q.lon], {
-        icon: L.divIcon({ className: "eq-star-marker", html: "<span class=\"eq-star\">★</span>", iconSize: [34, 34], iconAnchor: [17, 17] }),
-        keyboard: true, title: `Gempa terbaru M${q.magnitude.toFixed(1)}`,
-        zIndexOffset: 1000,
-      }).addTo(markers);
-      star.bindTooltip(`★ M${q.magnitude.toFixed(1)} · ${q.depth} km`, { direction: "top", opacity: 0.95 });
-      star.on("click", () => openModal(q));
-      drawRadiusRings(q);
-    } else {
-      const m = L.circleMarker([q.lat, q.lon], {
-        radius: r,
-        color: edge,
-        weight: q.magnitude >= 5 ? 2.2 : 1.4,
-        opacity: 0.95,
-        fillColor: fill,
-        fillOpacity: q.magnitude >= 4 ? 0.88 : 0.72,
-        interactive: true,
-      }).addTo(markers);
-      m.bindTooltip(
-        `<b>M${q.magnitude.toFixed(1)}</b> · kedalaman ${q.depth} km<br><span style="opacity:.85">${q.place || ""}</span>`,
-        { sticky: true, opacity: 0.92 }
-      );
-      m.on("click", () => openModal(q));
-    }
+    const size = latest ? 18 : Math.max(9, Math.min(16, Math.round(7 + Number(q.magnitude || 0) * 1.25)));
+    const icon = L.divIcon({
+      className: "quake-marker-wrap",
+      html: '<span class="quake-diamond' + (latest ? ' is-latest' : '') + '" style="--quake-fill:' + fill + ';--quake-edge:' + edge + ';--quake-size:' + size + 'px" aria-hidden="true"></span>',
+      iconSize: [size + 8, size + 8],
+      iconAnchor: [(size + 8) / 2, (size + 8) / 2]
+    });
+    const marker = L.marker([q.lat, q.lon], {
+      icon,
+      keyboard: true,
+      title: (latest ? "Gempa terbaru · " : "Gempa · ") + "M" + Number(q.magnitude).toFixed(1),
+      zIndexOffset: latest ? 1000 : 0
+    });
+    marker.bindTooltip(
+      '<b>M' + Number(q.magnitude).toFixed(1) + '</b> · kedalaman ' + q.depth + ' km<br><span style="opacity:.85">' + (q.place || "") + '</span>',
+      { sticky: true, opacity: 0.96 }
+    );
+    marker.on("click", () => openModal(q));
+    marker.addTo(markers);
   });
   // Pin lokasi user tetap di atas layer marker
   if (userLocation) updateUserMarker(false);
