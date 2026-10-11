@@ -252,7 +252,7 @@ export async function onRequestGet() {
   liveQL.forEach(q => { q.source = "InaTEWS WRS"; q.wrsRealtime = true; list.push(q); });
   historyEvents.forEach(q => { q.source = "InaTEWS"; q.wrsRealtime = true; list.push(q); });
   qlEvents.push(...liveQL, ...historyEvents);
-  if (!liveQL.length && historyEvents.length) liveQL.push(historyEvents.slice().sort((a,b)=>new Date(b.time)-new Date(a.time))[0]);
+  // Jangan pernah menyamarkan katalog historis sebagai feed realtime bila lastQL gagal/kosong.
   const usgs=results[5];
   if(usgs.status==="fulfilled") (usgs.value.features||[]).forEach(f=>{const q=mapUSGS(f, 5);if(q)list.push(q);});
   else errors.push("USGS global");
