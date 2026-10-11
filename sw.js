@@ -5,7 +5,7 @@
  * - Network-first untuk HTML/JS/CSS agar data dan kode tetap mudah diperbarui
  */
 
-const CACHE_NAME = "pantau-gempa-shell-v7-1-4";
+const CACHE_NAME = "pantau-gempa-shell-v7-1-5";
 const APP_SHELL = [
   "/",
   "/index.html",
