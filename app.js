@@ -1995,7 +1995,32 @@ async function setupPush() {
   }
 }
 
+window.onNativeWrsAlertsEnabled = (enabled) => {
+  const button = $("#btnPush");
+  const status = $("#pushStatus");
+  if (button) button.classList.toggle("on", !!enabled);
+  if (status) status.textContent = enabled
+    ? "Notif · aktif (Android/FCM)"
+    : "Izin notifikasi belum diberikan — cek Setelan Android";
+  if (enabled) localStorage.setItem("wrsPushEnabled", "1");
+  else localStorage.removeItem("wrsPushEnabled");
+};
+
 $("#btnPush").onclick = async () => {
+  // In the Android wrapper, use native FCM instead of Web Push/Netlify.
+  // The web deployment is on Cloudflare Pages, so a Netlify subscription
+  // endpoint may not exist on this origin.
+  if (window.AndroidWrs && typeof window.AndroidWrs.enableAlerts === "function") {
+    $("#pushStatus").textContent = "Meminta izin notifikasi Android…";
+    try {
+      window.AndroidWrs.enableAlerts();
+    } catch (error) {
+      console.error("Native alert setup failed", error);
+      $("#pushStatus").textContent = "Gagal mengaktifkan notifikasi Android";
+      $("#btnPush")?.classList.remove("on");
+    }
+    return;
+  }
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
     $("#pushStatus").textContent = "Browser ini tidak mendukung Push API";
     return;
