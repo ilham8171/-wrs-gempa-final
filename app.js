@@ -1785,15 +1785,77 @@ function buildExportPages(q){ const isTs=!!(q.isTsunamiWarning||isTsunamiPotenti
  * Simpan sebagai PNG tajam (kartu terang) + watermark
  */
 async function saveModalAsImage(_cardEl, filename) {
-  const q=window._modalQuake; if(!q)return;
-  if(typeof html2canvas!=="function"){alert("Library gambar belum termuat. Coba refresh halaman.");return;}
-  showLoading("Menyiapkan paket gambar 9:16…"); const defs=buildExportPages(q); const base=(filename||"info-gempa.png").replace(/\.png$/i,""); let saved=0;
-  try { for(let i=0;i<defs.length;i++){ const def=defs[i]; const el=buildExportCard(q,def.page,def.count,def.label); try {
-    const imgs=[...el.querySelectorAll("img")]; await Promise.all(imgs.map(img=>new Promise(resolve=>{if(img.complete&&img.naturalWidth>0)return resolve();img.onload=resolve;img.onerror=resolve;setTimeout(resolve,3500);})));
-    await new Promise(resolve=>setTimeout(resolve,100)); const canvas=await html2canvas(el,{backgroundColor:"#f8fafc",scale:2,useCORS:true,allowTaint:false,logging:false,scrollX:0,scrollY:0,width:390,height:693,windowWidth:390,windowHeight:693});
-    const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/png"));if(!blob)throw new Error("Gagal membuat gambar "+(i+1));const url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download=defs.length===1?base+".png":base+"_"+String(i+1).padStart(2,"0")+"_"+def.label+".png";document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);saved++;await new Promise(resolve=>setTimeout(resolve,350));
-  } finally {el.remove();}} alert("Selesai: "+saved+" gambar format 9:16 disiapkan. Jika browser meminta izin beberapa unduhan, pilih Izinkan.");
-  } catch(err){console.warn("Paket gambar gagal:",err);alert("Paket gambar tersimpan "+saved+" dari "+defs.length+". Coba lagi; browser mungkin membatasi unduhan beruntun.");} finally{hideLoading();}
+  const q = window._modalQuake;
+  if (!q) return;
+  if (typeof html2canvas !== "function") {
+    alert("Library gambar belum termuat. Coba refresh halaman.");
+    return;
+  }
+  if (typeof JSZip !== "function") {
+    alert("Fitur ZIP belum termuat. Coba refresh halaman lalu unduh lagi.");
+    return;
+  }
+
+  const defs = buildExportPages(q);
+  const base = (filename || "info-gempa.png").replace(/\.png$/i, "");
+  const zip = new JSZip();
+  let saved = 0;
+  showLoading("Membuat ZIP berisi " + defs.length + " gambar 9:16…");
+
+  try {
+    for (let i = 0; i < defs.length; i++) {
+      const def = defs[i];
+      const el = buildExportCard(q, def.page, def.count, def.label);
+      try {
+        const imgs = [...el.querySelectorAll("img")];
+        await Promise.all(imgs.map(img => new Promise(resolve => {
+          if (img.complete && img.naturalWidth > 0) return resolve();
+          img.onload = resolve;
+          img.onerror = resolve;
+          setTimeout(resolve, 5000);
+        })));
+        await new Promise(resolve => setTimeout(resolve, 150));
+        const canvas = await html2canvas(el, {
+          backgroundColor: "#f8fafc",
+          scale: 2,
+          useCORS: true,
+          allowTaint: false,
+          logging: false,
+          scrollX: 0,
+          scrollY: 0,
+          width: 390,
+          height: 693,
+          windowWidth: 390,
+          windowHeight: 693
+        });
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+        if (!blob) throw new Error("Gagal membuat gambar halaman " + (i + 1));
+        const pageName = base + "_" + String(i + 1).padStart(2, "0") + "_" + def.label + ".png";
+        zip.file(pageName, blob);
+        saved++;
+        showLoading("Memproses gambar " + saved + " dari " + defs.length + "…");
+      } finally {
+        el.remove();
+      }
+    }
+
+    showLoading("Mengemas " + saved + " gambar ke ZIP…");
+    const zipBlob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 4 } });
+    const url = URL.createObjectURL(zipBlob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = base + "_semua-halaman.zip";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+    alert("Berhasil! " + saved + " gambar 9:16 dimasukkan ke satu file ZIP. Ekstrak ZIP untuk melihat semua halaman.");
+  } catch (err) {
+    console.warn("Pembuatan ZIP gambar gagal:", err);
+    alert("ZIP belum berhasil dibuat. " + saved + " dari " + defs.length + " gambar sempat diproses. Coba refresh lalu ulangi.");
+  } finally {
+    hideLoading();
+  }
 }
 $("#btnShare")?.addEventListener("click", () => shareQuake(window._modalQuake));
 $("#btnShareTsunami")?.addEventListener("click", () => shareQuake(window._modalQuake));
