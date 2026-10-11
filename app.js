@@ -819,9 +819,9 @@ async function loadUsgsProducts(q) {
   if (!box) return;
   const eventId = q.usgsEventId || q.eventid || String(q.key || "").replace(/^usgs\\|/, "");
   const endpoint = q.detailApiUrl || (eventId ? "https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/" + encodeURIComponent(eventId) + ".geojson" : "");
-  box.innerHTML = '<div style="font-weight:900;font-size:16px">INFORMASI GEMPABUMI</div><p style="font-size:13px;opacity:.75">Memuat peta guncangan…</p>';
+  box.innerHTML = '<div style="font-weight:900;font-size:15px;margin-bottom:8px">PETA GUNCANGAN</div><p style="font-size:13px;opacity:.7">Memuat gambar peta…</p>';
   if (!endpoint) {
-    box.innerHTML = '<b>INFORMASI GEMPABUMI</b><p>Peta guncangan belum tersedia untuk kejadian ini.</p>';
+    box.innerHTML = '<div style="font-weight:900;font-size:15px;margin-bottom:8px">PETA GUNCANGAN</div><p style="font-size:13px">Peta belum tersedia untuk kejadian ini.</p>';
     return;
   }
   try {
@@ -829,21 +829,12 @@ async function loadUsgsProducts(q) {
     if (!response.ok) throw new Error("HTTP " + response.status);
     const feature = await response.json();
     if (document.getElementById("modalDetail")?.classList.contains("hidden") || window._modalQuake?.key !== q.key) return;
-    const p = feature?.properties || {};
-    const products = p.products || {};
+    const products = feature?.properties?.products || {};
     const shake = getPreferredUsgsProduct(products.shakemap);
     const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-    const coords = feature?.geometry?.coordinates || [];
-    const mag = Number(p.mag ?? q.magnitude);
-    const depth = Number.isFinite(Number(coords[2])) ? Number(coords[2]) : q.depth;
-    const lat = Number.isFinite(Number(coords[1])) ? Number(coords[1]) : q.lat;
-    const lon = Number.isFinite(Number(coords[0])) ? Number(coords[0]) : q.lon;
-    const fmt = n => Number.isFinite(Number(n)) ? Number(n).toLocaleString("id-ID",{maximumFractionDigits:2}) : "—";
-    const location = p.place || q.place || q.location || "Lokasi belum tersedia";
     const contents = shake?.contents || {};
-    // Prioritaskan peta intensitas MMI. Bila nama berkas berbeda pada versi produk,
-    // cari gambar peta lain yang tersedia; jangan tampilkan tautan unduhan mentah.
-    const entries = Object.entries(contents).filter(([,item]) => item?.url);
+    const entries = Object.entries(contents).filter(([, item]) => item?.url);
+    // Pilih peta intensitas terlebih dahulu, lalu gambar ShakeMap lain yang tersedia.
     const preferred = [
       /download\\/(intensity|mmi)(\\.(jpg|jpeg|png))?$/i,
       /download\\/(ii_thumbnail|pin-thumbnail)(\\.(jpg|jpeg|png))?$/i,
@@ -852,55 +843,36 @@ async function loadUsgsProducts(q) {
     ];
     const imageItems = [];
     for (const pattern of preferred) {
-      const found = entries.find(([path,item]) => pattern.test(path) && /\\.(jpg|jpeg|png)$/i.test(path) && !imageItems.some(x => x.url === item.url));
+      const found = entries.find(([path, item]) => pattern.test(path) && /\\.(jpg|jpeg|png)$/i.test(path) && !imageItems.some(x => x.url === item.url));
       if (found) imageItems.push({ path: found[0], url: found[1].url });
     }
-    // Include any additional image products (for example regression plots) in a
-    // compact gallery so the actual images render inline instead of as download links.
-    for (const [path,item] of entries) {
-      if (/\\.(jpg|jpeg|png)$/i.test(path) && !imageItems.some(x => x.url === item.url)) {
-        imageItems.push({ path, url: item.url });
-      }
+    for (const [path, item] of entries) {
+      if (/\\.(jpg|jpeg|png)$/i.test(path) && !imageItems.some(x => x.url === item.url)) imageItems.push({ path, url: item.url });
     }
-    const eventUrl = p.url || q.detailUrl || ("https://earthquake.usgs.gov/earthquakes/eventpage/" + encodeURIComponent(feature?.id || eventId));
-    const time = Number(p.time);
-    const timeText = Number.isFinite(time) ? new Date(time).toLocaleString("id-ID",{timeZone:"Asia/Jakarta",dateStyle:"medium",timeStyle:"medium"}) + " WIB" : "—";
-    let html = '<div style="font-size:11px;letter-spacing:.12em;font-weight:900;opacity:.7">WRS GEMPA · LAPORAN GEMPA GLOBAL</div>';
-    html += '<div style="font-size:30px;line-height:1.1;font-weight:950;margin:7px 0;color:var(--accent,#0f766e)">MAGNITUDO ' + fmt(mag) + '</div>';
-    html += '<div style="font-size:15px;font-weight:750;margin-bottom:14px">' + safe(location) + '</div>';
-    html += '<div style="font-weight:900;border-bottom:1px solid var(--border,#cbd5e1);padding-bottom:7px;margin:12px 0 8px">PARAMETER GEMPABUMI</div>';
-    html += '<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px">';
-    const param = (label,value) => '<div style="padding:10px;border:1px solid var(--border,#cbd5e1);border-radius:9px"><div style="font-size:11px;opacity:.7;margin-bottom:4px">' + label + '</div><div style="font-size:14px;font-weight:800;overflow-wrap:anywhere">' + value + '</div></div>';
-    html += param("Waktu kejadian",safe(timeText)) + param("Kedalaman",safe(fmt(depth)) + " km");
-    html += param("Lintang",safe(fmt(lat)) + (Number(lat)>=0?"° LU":"° LS")) + param("Bujur",safe(fmt(lon)) + (Number(lon)>=0?"° BT":"° BB"));
-    html += '</div>';
-    html += '<div style="font-weight:900;border-bottom:1px solid var(--border,#cbd5e1);padding-bottom:7px;margin:16px 0 8px">PETA GUNCANGAN</div>';
+    let html = '<div style="font-weight:900;font-size:15px;margin-bottom:8px">PETA GUNCANGAN</div>';
     if (imageItems.length) {
       html += '<div style="display:grid;grid-template-columns:minmax(0,1fr);gap:12px">';
-      imageItems.forEach((item,index) => {
+      imageItems.forEach(item => {
         const label = /intensity|mmi/i.test(item.path) ? "Peta intensitas guncangan (MMI)" :
-          /ii_thumbnail|pin-thumbnail/i.test(item.path) ? "Ringkasan peta guncangan" :
+          /ii_thumbnail|pin-thumbnail/i.test(item.path) ? "Peta ringkasan guncangan" :
           /pga/i.test(item.path) ? "Peta percepatan tanah (PGA)" :
           /pgv/i.test(item.path) ? "Peta kecepatan tanah (PGV)" :
-          /psa/i.test(item.path) ? "Peta spektral (PSA)" : "Produk gambar ShakeMap";
-        html += '<figure style="margin:0;padding:9px;border:1px solid var(--border,#cbd5e1);border-radius:10px;background:var(--surface-2,rgba(148,163,184,.06))">';
+          /psa/i.test(item.path) ? "Peta spektral (PSA)" : "Peta ShakeMap";
+        html += '<figure style="margin:0;padding:8px;border:1px solid var(--border,#cbd5e1);border-radius:10px">';
         html += '<figcaption style="font-size:12px;font-weight:800;margin-bottom:7px">' + label + '</figcaption>';
         html += '<a href="' + safe(item.url) + '" target="_blank" rel="noopener noreferrer"><img src="' + safe(item.url) + '" alt="' + label + '" loading="lazy" style="display:block;width:100%;height:auto;max-height:440px;object-fit:contain;background:#fff;border-radius:7px" onerror="this.closest(\'figure\')?.remove()"></a>';
         html += '</figure>';
       });
       html += '</div>';
-      html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:7px">Sumber peta ShakeMap dan produk gambar: USGS. Peta dan nilai merupakan estimasi ilmiah.</div>';
+      html += '<p style="font-size:11px;line-height:1.45;opacity:.72;margin:8px 0 0">Sumber peta dan produk detail: USGS ShakeMap. Gambar dapat diketuk untuk dibuka atau disimpan. Peta merupakan estimasi ilmiah.</p>';
     } else {
-      html += '<div style="padding:12px;border:1px solid var(--border,#cbd5e1);border-radius:9px;font-size:13px;line-height:1.5">Peta guncangan belum tersedia untuk kejadian ini.</div>';
+      html += '<p style="font-size:13px;line-height:1.5">Peta guncangan belum tersedia dari USGS untuk kejadian ini.</p>';
     }
-    html += '<div style="font-weight:900;border-bottom:1px solid var(--border,#cbd5e1);padding-bottom:7px;margin:16px 0 8px">INFORMASI TSUNAMI</div>';
-    html += '<div style="font-size:13px;line-height:1.55;padding:11px;border-radius:9px;background:rgba(148,163,184,.10)">Untuk gempa di luar Indonesia, ikuti informasi tsunami dari otoritas resmi setempat. Magnitudo saja tidak cukup untuk memastikan ancaman tsunami.</div>';
-    html += '<div style="font-size:11px;opacity:.7;margin-top:7px">Sumber parameter dan detail kejadian: USGS ComCat.</div>';
     box.innerHTML = html;
   } catch (error) {
     if (window._modalQuake?.key !== q.key) return;
-    box.innerHTML = '<div style="font-weight:900">INFORMASI GEMPABUMI</div><p style="font-size:13px">Peta guncangan belum berhasil dimuat. Coba periksa koneksi atau buka kembali detail gempa.</p>';
-    console.warn("Gagal memuat produk detail USGS", error);
+    box.innerHTML = '<div style="font-weight:900;font-size:15px;margin-bottom:8px">PETA GUNCANGAN</div><p style="font-size:13px">Gambar peta belum berhasil dimuat. Coba buka kembali detail gempa.</p>';
+    console.warn("Gagal memuat gambar ShakeMap USGS", error);
   }
 }
 function openModal(q) {
