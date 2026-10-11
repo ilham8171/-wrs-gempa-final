@@ -840,26 +840,15 @@ async function loadUsgsProducts(q) {
     const lon = Number.isFinite(Number(coords[0])) ? Number(coords[0]) : q.lon;
     const fmt = n => Number.isFinite(Number(n)) ? Number(n).toLocaleString("id-ID",{maximumFractionDigits:2}) : "—";
     const location = p.place || q.place || q.location || "Lokasi belum tersedia";
-    const links = [];
     const mapCandidates = [];
     const addContents = product => {
       for (const [path, item] of Object.entries(product?.contents || {})) {
         if (!item?.url) continue;
         const low = path.toLowerCase();
-        if (/(intensity|mmi).*(\.jpg|\.jpeg|\.png)$/.test(low)) mapCandidates.push({url:item.url,path});
-        if (/(\.pdf$|\.zip$|\.kmz$|\.kml$|grid\.xml$|info\.json$|\.geojson$|\.jpg$|\.png$)/.test(low)) {
-          links.push({label:path.split("/").pop(),url:item.url});
-        }
+        if (/(intensity|mmi).*(\\.(jpg|jpeg|png))$/.test(low)) mapCandidates.push({url:item.url,path});
       }
     };
     if (shake) addContents(shake);
-    const productTypes = Object.keys(products).filter(type => type !== "shakemap");
-    const productRows = productTypes.map(type => {
-      const prod = getPreferredUsgsProduct(products[type]);
-      if (!prod) return "";
-      return '<li>' + safe(usgsProductLabel(type)) + (prod.updateTime ? ' <span style="opacity:.7;font-size:12px">· ' + safe(new Date(prod.updateTime).toLocaleString("id-ID")) + '</span>' : "") + '</li>';
-    }).filter(Boolean);
-    const uniqueLinks = links.filter((item,index,arr) => arr.findIndex(x=>x.url===item.url)===index).slice(0,12);
     const shakeMapUrl = mapCandidates[0]?.url || "";
     const eventUrl = p.url || q.detailUrl || ("https://earthquake.usgs.gov/earthquakes/eventpage/" + encodeURIComponent(feature?.id || eventId));
     const time = Number(p.time);
@@ -872,17 +861,18 @@ async function loadUsgsProducts(q) {
     const param = (label,value) => '<div style="padding:10px;border:1px solid var(--border,#cbd5e1);border-radius:9px"><div style="font-size:11px;opacity:.7;margin-bottom:4px">' + label + '</div><div style="font-size:14px;font-weight:800;overflow-wrap:anywhere">' + value + '</div></div>';
     html += param("Waktu kejadian",safe(timeText)) + param("Kedalaman",safe(fmt(depth)) + " km");
     html += param("Lintang",safe(fmt(lat)) + (Number(lat)>=0?"° LU":"° LS")) + param("Bujur",safe(fmt(lon)) + (Number(lon)>=0?"° BT":"° BB"));
-    html += param("Sumber data","USGS ComCat") + param("ID kejadian",safe(feature?.id || eventId)) + '</div>';
+    html += '</div>';
     html += '<div style="font-weight:900;border-bottom:1px solid var(--border,#cbd5e1);padding-bottom:7px;margin:16px 0 8px">PETA GUNCANGAN</div>';
     if (shakeMapUrl) {
       html += '<a href="' + safe(shakeMapUrl) + '" target="_blank" rel="noopener noreferrer"><img src="' + safe(shakeMapUrl) + '" alt="Peta intensitas guncangan resmi USGS" loading="lazy" style="display:block;width:100%;max-height:390px;object-fit:contain;background:#fff;border-radius:9px;border:1px solid var(--border,#cbd5e1)"></a>';
-      html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:7px">Catatan: Sumber peta ShakeMap dan detail informasi gempa berasal dari USGS.</div>';
+      html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:7px">Sumber ShakeMap dan detail gempa: USGS.</div>';
     } else {
       html += '<div style="padding:12px;border:1px solid var(--border,#cbd5e1);border-radius:9px;font-size:13px;line-height:1.5">Peta guncangan belum tersedia untuk kejadian ini.</div>';
     }
     html += '<div style="font-weight:900;border-bottom:1px solid var(--border,#cbd5e1);padding-bottom:7px;margin:16px 0 8px">INFORMASI TSUNAMI</div>';
-    html += '<div style="font-size:13px;line-height:1.55;padding:11px;border-radius:9px;background:rgba(148,163,184,.10)">Status tsunami harus diperiksa melalui otoritas resmi untuk lokasi kejadian. Magnitudo saja tidak cukup untuk menyatakan ada atau tidaknya ancaman tsunami.</div>';
+    html += '<div style="font-size:13px;line-height:1.55;padding:11px;border-radius:9px;background:rgba(148,163,184,.10)">Untuk gempa di luar Indonesia, ikuti informasi tsunami dari otoritas resmi setempat. Magnitudo saja tidak cukup untuk memastikan ancaman tsunami.</div>';
     html += '<div style="font-size:11px;opacity:.7;margin-top:7px">Peta guncangan merupakan estimasi ilmiah, bukan pengukuran pasti di setiap lokasi.</div>';
+    html += '<div style="margin-top:10px"><a href="' + safe(eventUrl) + '" target="_blank" rel="noopener noreferrer" style="font-size:12px">Sumber data dan detail gempa ↗</a></div>';
     box.innerHTML = html;
   } catch (error) {
     if (window._modalQuake?.key !== q.key) return;
