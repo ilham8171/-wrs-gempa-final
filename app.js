@@ -1789,7 +1789,7 @@ async function setupPush() {
     const existing = await reg.pushManager.getSubscription();
     if (existing) {
       $("#btnPush")?.classList.add("on");
-      $("#pushStatus").textContent = "Notif · aktif (latar belakang)";
+      $("#pushStatus").textContent = "Push tersimpan · pengiriman belum diuji";
     }
   } catch (e) {
     console.error("SW register gagal", e);
@@ -1888,7 +1888,7 @@ $("#btnPush").onclick = async () => {
       $("#btnPush")?.classList.add("on");
       // pesan server sudah diisi di atas jika gagal
       if (!$("#pushStatus").textContent.startsWith("Notif") && !$("#pushStatus").textContent.includes("Server") && !$("#pushStatus").textContent.includes("Gagal") && !$("#pushStatus").textContent.includes("Functions")) {
-        $("#pushStatus").textContent = "Notif · lokal OK (server belum siap)";
+        $("#pushStatus").textContent = "Izin lokal OK · push server belum siap";
       }
     }
   } catch (e) {
