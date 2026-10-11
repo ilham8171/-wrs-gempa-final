@@ -668,3 +668,52 @@ body{height:100%;height:100dvh;overscroll-behavior:none}
     max-height: 14vh !important;
   }
 }
+
+
+/* WRS GEMPA mobile-first refresh: safer spacing, clearer hierarchy, no floating legend overlap. */
+:root { color-scheme: dark; --panel-border: rgba(133,166,215,.22); }
+button,a,input,select { -webkit-tap-highlight-color:transparent; }
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible { outline:2px solid #67e8f9; outline-offset:2px; }
+.glass-panel { border-color:var(--panel-border); }
+.panel-header { font-size:13px; letter-spacing:.06em; }
+.tb-btn { display:grid; place-items:center; font-size:19px; }
+.qicon { display:grid; place-items:center; width:25px; height:25px; font-size:21px; line-height:1; color:#7dd3fc; }
+.rp-quick .qbtn { min-height:68px; justify-content:center; }
+.rp-quick .qbtn span:last-child { font-size:11px; }
+.left-bottom { max-height:min(46vh,360px); overflow:auto; scrollbar-width:thin; }
+.left-bottom .leg-row { line-height:1.5; }
+@media (max-width:900px) {
+ .right-panel { width:100%; height:48dvh; max-height:68dvh; min-height:250px; top:auto; bottom:0; border-radius:20px 20px 0 0; border:1px solid rgba(125,170,225,.22); border-bottom:0; padding-bottom:calc(10px + env(safe-area-inset-bottom,0px)); background:rgba(7,12,23,.97); box-shadow:0 -14px 42px rgba(0,0,0,.45); overscroll-behavior:contain; }
+ .right-panel .rp-sheet-handle { position:sticky; top:0; z-index:4; flex-shrink:0; }
+ .left-bottom.legend-in-panel { position:relative; inset:auto; width:auto; max-width:none; max-height:none; overflow:visible; margin:8px 12px 12px; padding:12px; background:rgba(15,25,43,.88); border-radius:14px; box-shadow:none; font-size:12px; }
+ .legend-in-panel .disc { font-size:11px; }
+ .legend-in-panel .leg-h { font-size:12px; }
+ .legend-in-panel .leg-row { font-size:11px; gap:6px 8px; }
+ .legend-in-panel .m-dot { width:21px; height:21px; font-size:10px; }
+ .legend-in-panel .brand-row { margin-top:8px; }
+ #map { bottom:48dvh; }
+ .map-stats { bottom:calc(48dvh + 10px + env(safe-area-inset-bottom,0px)); max-width:calc(100vw - 20px); gap:4px; padding:5px; }
+ .map-stats .stat-btn { min-width:0; flex:1; padding:7px 5px; }
+ .map-stats b { font-size:14px; } .map-stats span { font-size:8px; }
+ .v-toolbar { right:8px; bottom:calc(48dvh + 58px); top:auto; gap:5px; }
+ .tb-btn { width:40px; height:40px; border-radius:13px; }
+ .basemap-menu { right:54px; bottom:calc(48dvh + 58px); top:auto; }
+ .left-top { top:8px; left:8px; width:min(270px,calc(100vw - 70px)); }
+ .rt-row { gap:9px; padding:10px 12px; } .rt-mag { width:54px; height:54px; font-size:22px; }
+ .rt-meta { font-size:12px; } .rt-coord,.rt-place,.rt-dist { font-size:11px; }
+}
+@media (max-width:560px) {
+ .right-panel { height:46dvh; }
+ #map { bottom:46dvh; }
+ .map-stats { bottom:calc(46dvh + 8px + env(safe-area-inset-bottom,0px)); }
+ .v-toolbar { bottom:calc(46dvh + 54px); } .basemap-menu { bottom:calc(46dvh + 54px); }
+ .left-top { width:min(260px,calc(100vw - 64px)); }
+ .panel-header { padding:10px 12px; } .rp-links { gap:5px; } .rp-links a { padding:7px 9px; }
+ .rp-quick { gap:6px; padding:8px 10px 4px; } .rp-quick-opts { padding:5px 12px; } .rp-live { padding:8px 12px; }
+ .legend-in-panel .leg-row { gap:6px; }
+}
+@media (max-height:650px) and (max-width:900px) {
+ .right-panel { height:43dvh; min-height:210px; } #map { bottom:43dvh; }
+ .map-stats { bottom:calc(43dvh + 8px); } .v-toolbar { bottom:calc(43dvh + 48px); } .basemap-menu { bottom:calc(43dvh + 48px); }
+}
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; animation-iteration-count:1!important; scroll-behavior:auto!important; } }
