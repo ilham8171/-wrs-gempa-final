@@ -395,7 +395,11 @@ function parseMmi(felt) {
 function isTsunamiPotential(pot) {
   if (!pot) return false;
   const s = String(pot).toLowerCase();
-  return /tsunami|berpotensi|awas|siaga|waspada/i.test(s) && !/tidak\s*(ada\s*)?berpotensi|tidak\s*ada\s*potensi|tidak ada potensi/i.test(s);
+  // USGS's tsunami flag indicates an event classification, not an active warning.
+  // Never turn that flag alone into a BMKG/InaTEWS warning or alarm.
+  if (/usgs\s*:/.test(s) && /bukan\s*otomatis\s*peringatan\s*aktif/.test(s)) return false;
+  return /tsunami|berpotensi|awas|siaga|waspada/i.test(s) &&
+    !/tidak\s*(ada\s*)?berpotensi|tidak\s*ada\s*potensi|tidak ada potensi|bukan\s*otomatis\s*peringatan\s*aktif/i.test(s);
 }
 
 /* Kept as a compatibility hook; decorative radius rings are intentionally disabled. */
