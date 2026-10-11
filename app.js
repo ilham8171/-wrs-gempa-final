@@ -646,10 +646,11 @@ function showRealtimeUpdate(info, append = false) {
   }
   el.classList.remove("hidden");
   el.classList.toggle("rev-big", revisionHistory.some(item => item.significant));
+  const escapeRealtimeText = value => String(value == null ? "—" : value).replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
   const rows = revisionHistory.map((item) => {
     const tag = item.significant ? "REVISI BESAR" : "PEMUTAKHIRAN";
     const stamp = new Date(item.time).toLocaleTimeString("id-ID", {hour:"2-digit",minute:"2-digit",second:"2-digit"});
-    return `<div class="rt-upd-row"><span class="rt-upd-tag">${tag}</span><span class="rt-upd-txt">${esc(item.place)} · ${item.parts.map(esc).join(" · ")}</span><time class="rt-upd-time">${stamp}</time></div>`;
+    return `<div class="rt-upd-row"><span class="rt-upd-tag">${tag}</span><span class="rt-upd-txt">${escapeRealtimeText(item.place)} · ${item.parts.map(escapeRealtimeText).join(" · ")}</span><time class="rt-upd-time">${stamp}</time></div>`;
   }).join("");
   el.innerHTML = `<div class="rt-upd-heading">RIWAYAT PEMUTAKHIRAN PARAMETER · ${revisionHistory.length}</div>${rows}`;
 }
