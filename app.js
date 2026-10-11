@@ -137,8 +137,17 @@ function normPublic(raw) {
   let lat = NaN, lon = NaN;
   const coord = raw.Coordinates ?? raw.coordinates;
   if (coord) {
-    const p = String(coord).split(",").map((x) => num(x.trim()));
-    if (p.length >= 2) { lat = p[0]; lon = p[1]; }
+    const text = String(coord).trim();
+    const p = text.split(",");
+    if (p.length >= 2) {
+      lat = parseLS(p[0]);
+      lon = parseBT(p[1]);
+    } else {
+      const latToken = text.match(/[+-]?\d+(?:[.,]\d+)?\s*(?:LS|LU|S|N)\b/i)?.[0];
+      const lonToken = text.match(/[+-]?\d+(?:[.,]\d+)?\s*(?:BT|BB|E|W)\b/i)?.[0];
+      if (latToken) lat = parseLS(latToken);
+      if (lonToken) lon = parseBT(lonToken);
+    }
   }
   if (!Number.isFinite(lat)) lat = parseLS(raw.Lintang);
   if (!Number.isFinite(lon)) lon = parseBT(raw.Bujur);
@@ -1610,6 +1619,15 @@ async function load(showSpin) {
     const oldFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
     quakes = incoming;
     if (Array.isArray(d.tsunamiHistory)) tsunamiHistory = d.tsunamiHistory;
+    // Saat pertama kali dibuka, pusatkan peta tepat pada marker event terbaru
+    // yang ditampilkan di daftar/peta. Jangan mengganggu posisi pengguna saat refresh berikutnya.
+    if (!window.__wrsInitialMapCentered && map) {
+      const focus = quakes.find(q => Number.isFinite(q.lat) && Number.isFinite(q.lon));
+      if (focus) {
+        map.setView([focus.lat, focus.lon], Math.max(map.getZoom(), 6), { animate: false });
+        window.__wrsInitialMapCentered = true;
+      }
+    }
     const newFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
     status(true, d.sources?.client ? "LIVE · client" : "LIVE");
     const healthText = $("#wrsHealthText");
