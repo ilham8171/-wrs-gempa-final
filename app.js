@@ -8,7 +8,7 @@ const currentInterval = () => batterySaver ? 60000 : NORMAL_INTERVAL;
 const SHAKEMAP_BASE = "https://bmkg-content-inatews.storage.googleapis.com/";
 const $ = (s) => document.querySelector(s);
 
-let map, markers, miniMap, miniMarker, faultLayer, radiusLayer, baseLayer, histMap;
+let map, markers, miniMap, miniMarker, faultLayer, radiusLayer, latestStarLayer, baseLayer, histMap;
 let userMarker = null;
 let quakes = [];
 /** Riwayat peringatan dini tsunami dari InaTEWS (last30tsunamievent.xml) */
@@ -296,6 +296,7 @@ function initMap() {
     : L.layerGroup()).addTo(map);
   // Radius/pulse rings are intentionally disabled for a cleaner, low-distraction map.
   radiusLayer = L.layerGroup().addTo(map);
+  latestStarLayer = L.layerGroup().addTo(map);
 
   faultLayer = L.geoJSON(FAULTS_GEOJSON, {
     style: {
@@ -463,6 +464,8 @@ function drawMarkers(force = false) {
   if (!force && fp === lastRenderFingerprint) return;
   lastRenderFingerprint = fp;
   markers.clearLayers();
+  if (radiusLayer) radiusLayer.clearLayers();
+  if (latestStarLayer) latestStarLayer.clearLayers();
 
   // Kembalikan marker gempa ke bentuk lingkaran berwarna berdasarkan magnitudo.
   // Event terbaru tetap diberi bintang merah berdenyut dan cincin pulse.
@@ -501,7 +504,7 @@ function drawMarkers(force = false) {
         keyboard: false,
         interactive: false,
         zIndexOffset: 3000,
-      }).addTo(markers);
+      }).addTo(latestStarLayer);
 
       // Pulse ring dibuat dengan SVG renderer agar animasinya berjalan stabil.
       [12000, 24000].forEach((meters, index) => {
