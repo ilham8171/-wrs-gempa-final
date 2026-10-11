@@ -70,7 +70,7 @@ function mapPublic(raw) {
 function mapQL(f) {
   const p=f?.properties||{}, c=f?.geometry?.coordinates||[], mag=num(p.mag ?? p.magnitude), lon=num(c[0]), lat=num(c[1]);
   if (!Number.isFinite(mag)||!Number.isFinite(lat)||!Number.isFinite(lon)||mag<1.5) return null;
-  return {key:"ql|"+String(p.id||p.time+"|"+lat+"|"+lon),magnitude:mag,lat,lon,place:String(p.place||"Indonesia"),depth:String(c[2]??p.depth??"—"),time:p.time?new Date(p.time).toISOString():"",potential:"—",felt:"",source:"InaTEWS",status:"M"};
+  return {key:"ql|"+String(p.id||p.time+"|"+lat+"|"+lon),eventid:String(p.id||p.time+"|"+lat+"|"+lon),magnitude:mag,lat,lon,place:String(p.place||"Indonesia"),depth:String(c[2]??p.depth??"—"),time:p.time?new Date(p.time).toISOString():"",potential:"—",felt:"",source:"InaTEWS",status:"M",wrsRealtime:true};
 }
 function mapUSGS(f, minimumMagnitude = 5) {
   const p=f?.properties||{}, c=f?.geometry?.coordinates||[], mag=num(p.mag), lon=num(c[0]), lat=num(c[1]), flag=Number(p.tsunami)===1;
@@ -200,13 +200,14 @@ export async function onRequestGet() {
     getText("https://cdn.bmkg.go.id/last30tsunamievent.xml")
   ]);
   const list=[];
+  const qlEvents=[];
   results.slice(0,3).forEach((r,i)=>{
     if(r.status!=="fulfilled"){errors.push("BMKG "+i);return;}
     const g=r.value?.Infogempa?.gempa;
     (Array.isArray(g)?g:g?[g]:[]).forEach(x=>{const q=mapPublic(x);if(q)list.push(q);});
   });
   const ql=results[3];
-  if(ql.status==="fulfilled") (ql.value.features||[]).forEach(f=>{const q=mapQL(f);if(q)list.push(q);});
+  if(ql.status==="fulfilled") (ql.value.features||[]).forEach(f=>{const q=mapQL(f);if(q){qlEvents.push(q);list.push(q);}});
   else errors.push("InaTEWS QL");
   const usgs=results[4];
   if(usgs.status==="fulfilled") (usgs.value.features||[]).forEach(f=>{const q=mapUSGS(f, 5);if(q)list.push(q);});
@@ -276,5 +277,11 @@ export async function onRequestGet() {
   const inIndonesia = q => q.lat >= -11 && q.lat <= 6.5 && q.lon >= 94 && q.lon <= 141.5;
   const official=recent.find(q=>q.source === "BMKG" && q.official && inIndonesia(q)) ||
     recent.find(q=>q.official) || null;
-  return new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:15,latest:official||recent[0]||null,official,recent,count:recent.length,tsunamiHistory,sources:{public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:ql.status==="fulfilled"?(ql.value.features||[]).length:0,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
+  // Keep the WRS/InaTEWS realtime stream separate from the merged catalog.
+  // The catalog deduplicates records and prefers BMKG; it must not replace the WRS event.
+  const realtimeEvents=qlEvents
+    .filter(q=>Number.isFinite(validTime(q)) && inIndonesia(q))
+    .sort((a,b)=>validTime(b)-validTime(a));
+  const realtime=realtimeEvents[0] || null;
+  return new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:15,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,sources:{public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:ql.status==="fulfilled"?(ql.value.features||[]).length:0,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
 }
