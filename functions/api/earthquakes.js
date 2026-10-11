@@ -7,17 +7,23 @@ const GCS = "https://bmkg-content-inatews.storage.googleapis.com";
 const USGS = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson";
 const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" };
 const num = v => { const n = Number(String(v ?? "").replace(/,/g, ".").trim()); return Number.isFinite(n) ? n : NaN; };
-function parseCoord(v, south, west) {
+function parseLat(v) {
   if (v == null) return NaN;
   const s = String(v).trim(), n = parseFloat(s.replace(/,/g, "."));
   if (!Number.isFinite(n)) return NaN;
-  return new RegExp(south + "|"+west, "i").test(s) ? -Math.abs(n) : n;
+  return /LS|S\\b/i.test(s) ? -Math.abs(n) : Math.abs(n);
+}
+function parseLon(v) {
+  if (v == null) return NaN;
+  const s = String(v).trim(), n = parseFloat(s.replace(/,/g, "."));
+  if (!Number.isFinite(n)) return NaN;
+  return /BB|W\\b/i.test(s) ? -Math.abs(n) : Math.abs(n);
 }
 function mapPublic(raw) {
   if (!raw) return null;
   const coords = String(raw.Coordinates ?? raw.coordinates ?? "").split(",");
-  const lat = coords.length > 1 ? num(coords[0]) : parseCoord(raw.Lintang, "LS|S\\b", "");
-  const lon = coords.length > 1 ? num(coords[1]) : parseCoord(raw.Bujur, "", "BB|W\\b");
+  const lat = coords.length > 1 ? num(coords[0]) : parseLat(raw.Lintang);
+  const lon = coords.length > 1 ? num(coords[1]) : parseLon(raw.Bujur);
   const mag = num(raw.Magnitude ?? raw.magnitude);
   if (!Number.isFinite(mag)) return null;
   const time = String(raw.DateTime || "");
