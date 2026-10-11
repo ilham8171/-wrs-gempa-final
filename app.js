@@ -1379,11 +1379,14 @@ async function load(showSpin) {
       if (r.ok) d = await r.json();
     } catch { /* function offline */ }
 
-    if (!d || !d.recent || !d.recent.length) {
-      d = await fetchClientSide();
+    // Cloudflare Pages API adalah satu-satunya jalur data aplikasi.
+    // Jangan diam-diam mengganti API dengan fetch browser karena hasilnya bisa
+    // membuat data cadangan terlihat seperti aliran utama.
+    if (!d || d.ok !== true || !Array.isArray(d.recent)) {
+      throw new Error("API gempa tidak mengembalikan respons yang valid");
     }
 
-    const incoming = Array.isArray(d.recent) ? d.recent : [];
+    const incoming = d.recent;
     if (!incoming.length) {
       const hasPreviousData = quakes.length > 0;
       status(false, hasPreviousData ? "MEMAKAI DATA TERAKHIR" : "MENUNGGU DATA");
