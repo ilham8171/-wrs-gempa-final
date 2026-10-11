@@ -1651,6 +1651,16 @@ function openHistory(mode = "all") {
 }
 
 /* Events */
+$("#optVoice")?.addEventListener("change", (event) => {
+  try {
+    if (window.AndroidWrs && typeof window.AndroidWrs.setVoiceEnabled === "function") {
+      window.AndroidWrs.setVoiceEnabled(!!event.target.checked);
+    }
+  } catch (error) {
+    console.warn("Could not sync Android voice preference", error);
+  }
+});
+
 $("#btnAlarm").onclick = async () => {
   try {
     await ensureAudio();
