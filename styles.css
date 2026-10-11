@@ -1019,3 +1019,37 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible { 
   .mobile-bottom-nav .nav-symbol { font-size:20px !important; line-height:1.1 !important; }
   #filterModal, #historyModal, #detailModal, #tsunamiModal, #loadingOverlay { z-index:1200 !important; }
 }
+
+
+/* Four-tab mobile navigation: consistent with the approved navy/cyan/red visual system. */
+@media (max-width:900px) {
+  .mobile-bottom-nav {
+    grid-template-columns:repeat(4,minmax(0,1fr)) !important;
+    gap:4px !important;
+    height:calc(68px + env(safe-area-inset-bottom,0px)) !important;
+    padding:5px 6px calc(5px + env(safe-area-inset-bottom,0px)) !important;
+  }
+  .mobile-bottom-nav button {
+    font-family:inherit !important;
+    font-size:10px !important;
+    letter-spacing:.01em !important;
+    gap:4px !important;
+  }
+  .mobile-bottom-nav button.active {
+    color:#78dcff !important;
+    background:linear-gradient(180deg,rgba(27,135,190,.24),rgba(18,75,115,.14)) !important;
+    box-shadow:inset 0 0 0 1px rgba(75,190,240,.12) !important;
+  }
+  .mobile-bottom-nav button[data-page="alerts"] .nav-symbol {
+    display:grid !important; place-items:center !important;
+    width:20px !important; height:20px !important;
+    border:1.5px solid currentColor !important; border-radius:50% !important;
+    font-size:14px !important; font-weight:800 !important;
+  }
+  #mobilePageMap .map-stats {
+    bottom:calc(76px + env(safe-area-inset-bottom,0px)) !important;
+  }
+  #mobilePageInfo, #mobilePageLegend {
+    padding-bottom:calc(92px + env(safe-area-inset-bottom,0px)) !important;
+  }
+}
