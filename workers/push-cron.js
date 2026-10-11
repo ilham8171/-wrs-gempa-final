@@ -33,8 +33,7 @@ async function hkdfExpand(prk, info, length) {
   }
   return output.slice(0, length);
 }
-async function vapidToken(endpoint, env) {
-  const privateJwk = JSON.parse(env.VAPID_PRIVATE_JWK);
+async function vapidToken(endpoint, privateJwk, subject) {
   const key = await crypto.subtle.importKey("jwk", privateJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
   const audience = new URL(endpoint).origin;
   const now = Math.floor(Date.now() / 1000);
@@ -42,7 +41,7 @@ async function vapidToken(endpoint, env) {
   const payload = b64u(enc.encode(JSON.stringify({
     aud: audience,
     exp: now + 12 * 60 * 60,
-    sub: env.VAPID_SUBJECT || SITE
+    sub: subject || SITE
   })));
   const unsigned = header + "." + payload;
   const signature = new Uint8Array(await crypto.subtle.sign(
@@ -71,14 +70,14 @@ async function encryptPayload(subscription, payload) {
   const rs = new Uint8Array([0, 0, 16, 0]); // record size 4096
   return concat(salt, rs, new Uint8Array([asPublic.length]), asPublic, cipher);
 }
-async function sendPush(subscription, payload, env) {
-  const token = await vapidToken(subscription.endpoint, env);
+async function sendPush(subscription, payload, privateJwk, publicKey, subject) {
+  const token = await vapidToken(subscription.endpoint, privateJwk, subject);
   const body = await encryptPayload(subscription, payload);
   const response = await fetch(subscription.endpoint, {
     method: "POST",
     headers: {
-      "Authorization": "vapid t=" + token + ", k=" + env.VAPID_PUBLIC_KEY,
-      "Crypto-Key": "p256ecdsa=" + env.VAPID_PUBLIC_KEY,
+      "Authorization": "vapid t=" + token + ", k=" + publicKey,
+      "Crypto-Key": "p256ecdsa=" + publicKey,
       "Content-Encoding": "aes128gcm",
       "Content-Type": "application/octet-stream",
       "TTL": "300",
@@ -151,10 +150,20 @@ async function listSubscriptions(kv) {
   return all;
 }
 async function runPush(env) {
-  if (!env.PUSH_SUBSCRIPTIONS || !env.VAPID_PRIVATE_JWK || !env.VAPID_PUBLIC_KEY) {
-    console.error("Push worker configuration is incomplete.");
+  if (!env.PUSH_SUBSCRIPTIONS) {
+    console.error("PUSH_SUBSCRIPTIONS KV binding is missing.");
     return;
   }
+  const [privateText, publicKey] = await Promise.all([
+    env.PUSH_SUBSCRIPTIONS.get("vapid:private"),
+    env.PUSH_SUBSCRIPTIONS.get("vapid:public")
+  ]);
+  if (!privateText || !publicKey) {
+    console.warn("VAPID key pair is not initialized yet. Open /api/push-key once.");
+    return;
+  }
+  const privateJwk = JSON.parse(privateText);
+  const subject = SITE;
   const res = await fetch(SITE + "/api/earthquakes?push=" + Date.now(), {
     headers: { "Accept": "application/json", "Cache-Control": "no-cache" }
   });
@@ -188,7 +197,7 @@ async function runPush(env) {
     for (const item of events) {
       if (sentSet.has(item.key)) continue;
       try {
-        await sendPush(sub, item, env);
+        await sendPush(sub, item, privateJwk, publicKey, subject);
         sentSet.add(item.key);
       } catch (error) {
         if (error.status === 404 || error.status === 410) {
