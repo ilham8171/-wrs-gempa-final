@@ -1053,3 +1053,50 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible { 
     padding-bottom:calc(92px + env(safe-area-inset-bottom,0px)) !important;
   }
 }
+
+
+/* Seismic modern map: no fading radius circles, no pulsing star, crisp diamond epicentres. */
+.eq-star-marker,.eq-marker-wrap,.quake-marker-wrap,.quake-cluster-wrap {
+  background:transparent !important;
+  border:0 !important;
+}
+.eq-star,.eq-radius-ring { animation:none !important; }
+.quake-diamond {
+  display:block;
+  width:var(--quake-size,12px);
+  height:var(--quake-size,12px);
+  background:var(--quake-fill,#43d6ff);
+  border:2px solid var(--quake-edge,#f4f8ff);
+  border-radius:2px;
+  transform:rotate(45deg);
+  box-shadow:0 1px 3px rgba(0,0,0,.7);
+  transition:transform .12s ease, filter .12s ease;
+}
+.quake-diamond.is-latest {
+  border-color:#ffffff;
+  box-shadow:0 0 0 2px rgba(76,213,255,.24),0 0 8px rgba(76,213,255,.45);
+}
+.quake-marker-wrap:hover .quake-diamond {
+  transform:rotate(45deg) scale(1.18);
+  filter:brightness(1.12);
+}
+.quake-cluster {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:36px;
+  height:36px;
+  border:1px solid rgba(105,218,255,.85);
+  border-radius:11px;
+  color:#e8f8ff;
+  background:linear-gradient(145deg,rgba(13,79,112,.97),rgba(8,24,44,.98));
+  box-shadow:0 3px 12px rgba(0,0,0,.45);
+  font:800 12px/1 system-ui,sans-serif;
+}
+.quake-cluster.md { border-color:rgba(105,218,255,.8); }
+.quake-cluster.lg { background:linear-gradient(145deg,rgba(126,76,18,.98),rgba(54,31,12,.98)); border-color:#f4b94b; }
+.quake-cluster.xl { background:linear-gradient(145deg,rgba(135,31,42,.98),rgba(55,13,20,.98)); border-color:#ff6b75; }
+#miniFocus .quake-diamond { box-shadow:none; }
+@media (prefers-reduced-motion:reduce) {
+  .quake-diamond { transition:none !important; }
+}
