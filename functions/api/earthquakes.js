@@ -231,25 +231,50 @@ export async function onRequestGet() {
   const tsunami=results[6];
   const tsunamiHistory=tsunami.status==="fulfilled" ? parseTsunamiCapXml(tsunami.value) : [];
   if(tsunami.status!=="fulfilled") errors.push("InaTEWS tsunami");
-  const byKey=new Map(), signatures=new Map();
-  list.sort((a,b)=>new Date(b.time||0)-new Date(a.time||0)).forEach(q=>{
-    const sig=[q.magnitude.toFixed(1),(q.place||"").slice(0,30),String(q.time).slice(0,16)].join("|");
-    if(byKey.has(q.key)) return;
-    const existingKey=signatures.get(sig);
-    if(!existingKey){
-      byKey.set(q.key,q);
-      signatures.set(sig,q.key);
+  const eventPriority = q => q.source === "BMKG" && q.official ? 3 : q.source === "InaTEWS" ? 2 : q.source === "USGS" ? 1 : 0;
+  const validTime = q => {
+    const t = new Date(q.time || 0).getTime();
+    return Number.isFinite(t) && t > 0 ? t : NaN;
+  };
+  const distanceKm = (a, b) => {
+    const rad = n => n * Math.PI / 180;
+    const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+    const x = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(Math.max(0, 1 - x)));
+  };
+  const sameEvent = (a, b) => {
+    if (a.key === b.key) return true;
+    if (!Number.isFinite(a.lat) || !Number.isFinite(a.lon) || !Number.isFinite(b.lat) || !Number.isFinite(b.lon)) return false;
+    const ta = validTime(a), tb = validTime(b);
+    if (!Number.isFinite(ta) || !Number.isFinite(tb)) return false;
+    const sameCatalog = a.source === b.source;
+    const timeWindow = sameCatalog && a.source === "BMKG" ? 90_000 : 6 * 60_000;
+    const distanceWindow = sameCatalog && a.source === "BMKG" ? 12 : 45;
+    const magnitudeWindow = sameCatalog && a.source === "BMKG" ? 0.3 : 0.8;
+    return Math.abs(ta - tb) <= timeWindow &&
+      distanceKm(a, b) <= distanceWindow &&
+      Math.abs(Number(a.magnitude) - Number(b.magnitude)) <= magnitudeWindow;
+  };
+  const unique = [];
+  list.sort((a,b)=>validTime(b)-validTime(a)).forEach(q => {
+    const matches = unique.map((item, index) => ({item, index})).filter(({item}) => sameEvent(item, q));
+    if (!matches.length) {
+      unique.push(q);
       return;
     }
-    // Prefer the official BMKG record over a near-duplicate USGS/InaTEWS catalogue entry.
-    const existing=byKey.get(existingKey);
-    if(q.official && !existing?.official){
-      byKey.delete(existingKey);
-      byKey.set(q.key,q);
-      signatures.set(sig,q.key);
+    // Keep one event per real earthquake. BMKG's official record wins in Indonesia;
+    // InaTEWS is next; USGS is retained only when no matching higher-priority record exists.
+    const best = matches.reduce((winner, candidate) =>
+      eventPriority(candidate.item) > eventPriority(winner.item) ? candidate : winner, matches[0]);
+    if (eventPriority(q) > eventPriority(best.item)) {
+      const indexes = matches.map(match => match.index).sort((a,b)=>b-a);
+      indexes.forEach(index => unique.splice(index, 1));
+      unique.push(q);
     }
   });
-  const recent=[...byKey.values()].sort((a,b)=>new Date(b.time||0)-new Date(a.time||0)).slice(0,800);
-  const official=recent.find(q=>q.official)||null;
-  return new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:15,latest:recent[0]||null,official,recent,count:recent.length,tsunamiHistory,sources:{public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:ql.status==="fulfilled"?(ql.value.features||[]).length:0,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
+  const recent=unique.sort((a,b)=>validTime(b)-validTime(a)).slice(0,800);
+  const inIndonesia = q => q.lat >= -11 && q.lat <= 6.5 && q.lon >= 94 && q.lon <= 141.5;
+  const official=recent.find(q=>q.source === "BMKG" && q.official && inIndonesia(q)) ||
+    recent.find(q=>q.official) || null;
+  return new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:15,latest:official||recent[0]||null,official,recent,count:recent.length,tsunamiHistory,sources:{public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:ql.status==="fulfilled"?(ql.value.features||[]).length:0,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
 }
