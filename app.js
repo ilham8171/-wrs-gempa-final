@@ -1655,6 +1655,10 @@ async function load(showSpin) {
     $("#srcCount").textContent = sourceSummary.join(" · ");
 
     const off = d.official || quakes.find((q) => q.official) || quakes[0];
+    // Store the server-selected BMKG-first event before updating the realtime UI,
+    // map star, and distance card. Without this assignment those widgets could
+    // keep following quakes[0] (often a newer USGS catalog entry).
+    currentOfficial = off || null;
     if (off) renderOfficial(off);
     const primary = primaryRealtimeQuake();
     if (primary) renderRealtime(primary);
