@@ -1651,13 +1651,24 @@ function openHistory(mode = "all") {
 }
 
 /* Events */
-$("#optVoice")?.addEventListener("change", (event) => {
+document.querySelectorAll("#optVoice, #prefVoice").forEach((element) => {
+  element.addEventListener("change", (event) => {
+    try {
+      if (window.AndroidWrs && typeof window.AndroidWrs.setVoiceEnabled === "function") {
+        window.AndroidWrs.setVoiceEnabled(!!event.target.checked);
+      }
+    } catch (error) {
+      console.warn("Could not sync Android voice preference", error);
+    }
+  });
+});
+$("#prefVibrate")?.addEventListener("change", (event) => {
   try {
-    if (window.AndroidWrs && typeof window.AndroidWrs.setVoiceEnabled === "function") {
-      window.AndroidWrs.setVoiceEnabled(!!event.target.checked);
+    if (window.AndroidWrs && typeof window.AndroidWrs.setVibrationEnabled === "function") {
+      window.AndroidWrs.setVibrationEnabled(!!event.target.checked);
     }
   } catch (error) {
-    console.warn("Could not sync Android voice preference", error);
+    console.warn("Could not sync Android vibration preference", error);
   }
 });
 
