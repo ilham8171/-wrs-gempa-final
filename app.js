@@ -933,8 +933,11 @@ function openModal(q) {
   if (isTsunamiPotential(pot)) tsEl.classList.remove("safe");
   else tsEl.classList.add("safe");
 
-  $("#modalInstrText").textContent =
-    q.instruction || "Waspadai kemungkinan gempa susulan.";
+  const isGlobalUsgs = q.source === "USGS" || String(q.key || "").startsWith("usgs|");
+  $("#modalInstrText").textContent = q.instruction ||
+    (isGlobalUsgs
+      ? "Informasi dan saran keselamatan mengacu pada USGS serta otoritas kebencanaan setempat. Waspadai gempa susulan dan ikuti instruksi resmi di wilayah terdampak."
+      : "Waspadai kemungkinan gempa susulan. Ikuti informasi dan arahan resmi BMKG.");
 
   const mmiItems = parseMmi(q.felt);
   const mmiList = $("#modalMmiList");
