@@ -24,7 +24,7 @@ async function handler() {
       body: `${latest.place || "Lokasi tidak diketahui"} · kedalaman ${latest.depth ?? "—"} km`,
       magnitude: latest.magnitude, place: latest.place, time: latest.time,
       key: latest.key, tsunami: Boolean(latest.tsunami),
-      url: `/?quake=${encodeURIComponent(latest.key)}`
+      url: `/?quake=${encodeURIComponent(latest.key)}&lat=${encodeURIComponent(latest.lat ?? "")}&lon=${encodeURIComponent(latest.lon ?? "")}&mag=${encodeURIComponent(latest.magnitude ?? "")}&time=${encodeURIComponent(latest.time ?? "")}`
     });
     let attempts = 0;
     let skipped = 0;
