@@ -1657,7 +1657,7 @@ function buildShareText(q) {
   return `Gempa M${q.magnitude.toFixed(1)} — ${q.place}\nWaktu: ${fmtTime(q)}\nKoordinat: ${fmtCoord(q)}\nKedalaman: ${q.depth} km\nPotensi: ${q.potential || "—"}\nSumber: ${q.source || "BMKG"}\n\nIndependent monitoring by ilham · data resmi BMKG/InaTEWS`;
 }
 
-async async function shareQuake(q) {
+async function shareQuake(q) {
   if (!q) return;
   const text = buildShareText(q) + (Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon))
     ? "\nPeta titik gempa: https://www.openstreetmap.org/?mlat=" + encodeURIComponent(q.lat) + "&mlon=" + encodeURIComponent(q.lon) + "#map=7/" + encodeURIComponent(q.lat) + "/" + encodeURIComponent(q.lon)
