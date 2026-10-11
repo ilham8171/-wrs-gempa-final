@@ -1055,12 +1055,14 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible { 
 }
 
 
-/* Seismic modern map: no fading radius circles, no pulsing star, crisp diamond epicentres. */
+/* Gempa: marker bulat berwarna, bintang merah berdenyut untuk event terbaru. */
 .eq-star-marker,.eq-marker-wrap,.quake-marker-wrap,.quake-cluster-wrap {
   background:transparent !important;
   border:0 !important;
 }
-.eq-star,.eq-radius-ring { animation:none !important; }
+.eq-star-marker { overflow:visible !important; }
+.eq-star { animation:starPulse 1.1s ease-in-out infinite !important; }
+.eq-radius-ring { animation:ringExpand 2.8s ease-out infinite !important; }
 .quake-diamond {
   display:block;
   width:var(--quake-size,12px);
