@@ -74,7 +74,8 @@ function mapQL(f) {
 }
 function mapUSGS(f, minimumMagnitude = 5) {
   const p=f?.properties||{}, c=f?.geometry?.coordinates||[], mag=num(p.mag), lon=num(c[0]), lat=num(c[1]), flag=Number(p.tsunami)===1;
-  if ((!Number.isFinite(mag)||mag<minimumMagnitude)&&!flag) return null;
+  // Global feed is strictly M5+; tsunami flag alone must not bypass the threshold.
+  if (!Number.isFinite(mag) || mag < minimumMagnitude) return null;
   if (!Number.isFinite(lat)||!Number.isFinite(lon)) return null;
   return {key:"usgs|"+String(f.id||p.code||p.time),eventid:String(f.id||""),magnitude:Number.isFinite(mag)?Math.round(mag*10)/10:0,lat,lon,place:String(p.place||"Gempa global"),depth:String(c[2]??"—"),time:p.time?new Date(p.time).toISOString():"",potential:flag?"USGS menandai event terkait tsunami — periksa buletin resmi":"—",felt:"",source:"USGS",status:"USGS",official:false,usgsTsunamiFlag:flag,eventUrl:String(p.url||""),detailUrl:String(p.detail||""),shakemap:null};
 }
