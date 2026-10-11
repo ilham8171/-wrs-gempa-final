@@ -875,6 +875,29 @@ async function loadUsgsProducts(q, forceFallback = false) {
     if (document.getElementById("modalDetail")?.classList.contains("hidden") || window._modalQuake?.key !== q.key) return;
     const p = feature?.properties || {};
     const products = p.products || {};
+    // Status dan saran untuk kejadian global bersumber dari metadata USGS,
+    // bukan teks default BMKG. Flag tsunami USGS bukan pengganti peringatan resmi.
+    const instr = document.getElementById("modalInstrText");
+    const tsunamiText = document.getElementById("modalTsunamiText");
+    const tsunamiBadge = document.getElementById("modalTsunami");
+    if (q.source === "USGS" || String(q.key || "").startsWith("usgs|")) {
+      if (instr) {
+        const alertLevel = String(p.alert || "").toUpperCase();
+        const alertCopy = alertLevel
+          ? " Tingkat peringatan dampak USGS: " + alertLevel + "."
+          : " USGS tidak menetapkan tingkat peringatan dampak untuk event ini.";
+        instr.textContent = "Saran keselamatan: waspadai gempa susulan dan ikuti arahan otoritas kebencanaan setempat." + alertCopy;
+      }
+      if (tsunamiText && tsunamiBadge) {
+        if (Number(p.tsunami) === 1) {
+          tsunamiText.textContent = "USGS menandai kejadian ini berpotensi tsunami. Periksa peringatan resmi dari otoritas tsunami setempat; tanda ini bukan konfirmasi bahwa peringatan sedang aktif.";
+          tsunamiBadge.classList.remove("safe");
+        } else {
+          tsunamiText.textContent = "USGS tidak menandai potensi tsunami pada data event ini. Tetap ikuti pengumuman resmi otoritas setempat.";
+          tsunamiBadge.classList.add("safe");
+        }
+      }
+    }
     const shake = getPreferredUsgsProduct(products.shakemap);
     const contents = shake?.contents || {};
     const entries = Object.entries(contents).filter(([, item]) => item?.url);
@@ -934,10 +957,11 @@ function openModal(q) {
   else tsEl.classList.add("safe");
 
   const isGlobalUsgs = q.source === "USGS" || String(q.key || "").startsWith("usgs|");
-  $("#modalInstrText").textContent = q.instruction ||
-    (isGlobalUsgs
-      ? "Informasi dan saran keselamatan mengacu pada USGS serta otoritas kebencanaan setempat. Waspadai gempa susulan dan ikuti instruksi resmi di wilayah terdampak."
-      : "Waspadai kemungkinan gempa susulan. Ikuti informasi dan arahan resmi BMKG.");
+  // Untuk kejadian global, jangan menampilkan saran/status BMKG seolah-olah
+  // berasal dari USGS. Status USGS akan diperbarui setelah detail event dimuat.
+  $("#modalInstrText").textContent = isGlobalUsgs
+    ? "Sumber informasi: USGS ComCat. Waspadai gempa susulan dan ikuti arahan otoritas kebencanaan setempat."
+    : (q.instruction || "Waspadai kemungkinan gempa susulan. Ikuti informasi dan arahan resmi BMKG.");
 
   const mmiItems = parseMmi(q.felt);
   const mmiList = $("#modalMmiList");
