@@ -11,21 +11,26 @@ function parseLat(v) {
   if (v == null) return NaN;
   const s = String(v).trim(), n = parseFloat(s.replace(/,/g, "."));
   if (!Number.isFinite(n)) return NaN;
-  return /LS|S\b/i.test(s) ? -Math.abs(n) : Math.abs(n);
+  if (/LS|S\b/i.test(s)) return -Math.abs(n);
+  if (/LU|N\b/i.test(s)) return Math.abs(n);
+  return n;
 }
 function parseLon(v) {
   if (v == null) return NaN;
   const s = String(v).trim(), n = parseFloat(s.replace(/,/g, "."));
   if (!Number.isFinite(n)) return NaN;
-  return /BB|W\b/i.test(s) ? -Math.abs(n) : Math.abs(n);
+  if (/BB|W\b/i.test(s)) return -Math.abs(n);
+  if (/BT|E\b/i.test(s)) return Math.abs(n);
+  return n;
 }
 function mapPublic(raw) {
   if (!raw) return null;
   const coords = String(raw.Coordinates ?? raw.coordinates ?? "").split(",");
-  const lat = coords.length > 1 ? num(coords[0]) : parseLat(raw.Lintang);
-  const lon = coords.length > 1 ? num(coords[1]) : parseLon(raw.Bujur);
+  const lat = coords.length > 1 ? parseLat(coords[0]) : parseLat(raw.Lintang);
+  const lon = coords.length > 1 ? parseLon(coords[1]) : parseLon(raw.Bujur);
   const mag = num(raw.Magnitude ?? raw.magnitude);
-  if (!Number.isFinite(mag)) return null;
+  if (!Number.isFinite(mag) || !Number.isFinite(lat) || !Number.isFinite(lon) ||
+      Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
   const time = String(raw.DateTime || "");
   let shakemap = raw.Shakemap ?? raw.shakemap ?? null;
   if (shakemap) {
@@ -50,7 +55,7 @@ function mapUSGS(f) {
   return {key:"usgs|"+String(f.id||p.code||p.time),eventid:String(f.id||""),magnitude:Number.isFinite(mag)?mag:0,lat,lon,place:String(p.place||"Gempa global"),depth:String(c[2]??"—"),time:p.time?new Date(p.time).toISOString():"",potential:flag?"USGS menandai event terkait tsunami — periksa buletin resmi":"—",felt:"",source:"USGS",status:"USGS",official:false,usgsTsunamiFlag:flag,detailUrl:String(p.url||"")};
 }
 async function getJson(url) {
-  const res=await fetch(url,{headers:{accept:"application/json"},cf:{cacheTtl:0}});
+  const res=await fetch(url,{headers:{accept:"application/json"},cf:{cacheTtl:10,cacheEverything:true}});
   if(!res.ok) throw new Error("upstream HTTP "+res.status);
   return res.json();
 }
@@ -69,8 +74,10 @@ export async function onRequestGet() {
   });
   const ql=results[3];
   if(ql.status==="fulfilled") (ql.value.features||[]).forEach(f=>{const q=mapQL(f);if(q)list.push(q);});
+  else errors.push("InaTEWS QL");
   const usgs=results[4];
   if(usgs.status==="fulfilled") (usgs.value.features||[]).forEach(f=>{const q=mapUSGS(f);if(q)list.push(q);});
+  else errors.push("USGS");
   const byKey=new Map(), signatures=new Set();
   list.sort((a,b)=>new Date(b.time||0)-new Date(a.time||0)).forEach(q=>{
     const sig=[q.magnitude.toFixed(1),(q.place||"").slice(0,30),String(q.time).slice(0,16)].join("|");
