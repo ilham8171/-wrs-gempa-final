@@ -1640,6 +1640,12 @@ const WRS_TEST_SCENARIOS = [
 ];
 let simulationScenarioIndex = 1;
 let simulationTestLog = [];
+let simulationSequence = [];
+let simulationSequenceIndex = 0;
+let simulationSequenceActive = false;
+let simulationSequencePaused = false;
+let simulationSequenceRepeat = false;
+let simulationSequenceTimer = null;
 
 function simulationMapSvg(kind, magnitude) {
   const isShake = kind === "shake";
@@ -1652,12 +1658,13 @@ function simulationMapSvg(kind, magnitude) {
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="360" height="240" viewBox="0 0 360 240"><rect width="360" height="240" fill="#0b1729"/><path d="M0 40H360M0 80H360M0 120H360M0 160H360M0 200H360M60 0V240M120 0V240M180 0V240M240 0V240M300 0V240" stroke="#64748b" stroke-opacity=".22"/><text x="14" y="22" fill="#f8fafc" font-size="12" font-weight="700">'+title+'</text>'+rings+'<circle cx="180" cy="120" r="5" fill="#fff" stroke="#111827" stroke-width="2"/><text x="191" y="114" fill="#fff" font-size="10">Episenter uji</text>'+extra+'<text x="14" y="234" fill="#fbbf24" font-size="10" font-weight="700">DATA FIKTIF UNTUK PENGUJIAN · M'+Number(magnitude).toFixed(1)+'</text></svg>';
   return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
 }
-function simulationQuake(scenarioIndex = simulationScenarioIndex) {
+function simulationQuake(scenarioIndex = simulationScenarioIndex, overrides = {}) {
   const preset = WRS_TEST_SCENARIOS[((scenarioIndex % WRS_TEST_SCENARIOS.length) + WRS_TEST_SCENARIOS.length) % WRS_TEST_SCENARIOS.length];
-  const magnitude = Math.max(5, Math.min(9, Number($("#wrsTestMagnitude")?.value || 5.6)));
+  const selectedMax = Math.max(5, Math.min(9, Number($("#wrsTestMagnitude")?.value || 5.6)));
+  const magnitude = Math.max(3.5, Math.min(selectedMax, Number(overrides.magnitude ?? selectedMax)));
   const selectedPlace = $("#wrsTestLocation")?.value || preset.id;
   const s = WRS_TEST_SCENARIOS.find(item => item.id === selectedPlace) || preset;
-  const tsunami = !!$("#wrsTestTsunami")?.checked;
+  const tsunami = overrides.tsunami === true; 
   const mag = magnitude.toFixed(1);
   const quake = {
     key: "simulation|wrs-demo-" + s.id + "-m" + mag + (tsunami ? "-tsunami" : ""),
@@ -1705,7 +1712,7 @@ function updateModeButtons() {
   if (tools) tools.hidden = wrsMode !== "simulation";
 }
 function applySimulationMode(options = {}) {
-  const sample = simulationQuake();
+  const sample = simulationQuake(simulationScenarioIndex, options);
   quakes = [sample];
   realtimeEvents = [sample];
   currentRealtime = sample;
@@ -1728,18 +1735,158 @@ function applySimulationMode(options = {}) {
   drawMarkers(true);
   updateStats(getFilteredQuakes());
   const statusText = $("#wrsTestStatus");
-  if (statusText) statusText.textContent = "SKENARIO AKTIF · M" + sample.magnitude.toFixed(1) + (sample.isTsunamiWarning ? " · TSUNAMI SIMULASI" : " · TANPA TSUNAMI");
+  const stage = options.stageLabel ? options.stageLabel + " · " : "";
+  if (statusText) statusText.textContent = stage + "M" + sample.magnitude.toFixed(1) + (sample.isTsunamiWarning ? " · TSUNAMI SIMULASI" : " · GEMPA SIMULASI") + " · BUKAN DATA RESMI";
   if (options.alert) {
     if (sample.isTsunamiWarning) openTsunamiModal(sample);
     else showPopup(sample);
     playAlarmSequence(sample).catch(error => console.warn("Alarm simulasi tidak tersedia", error));
-    logSimulationTest("Skenario berjalan: M" + sample.magnitude.toFixed(1) + (sample.isTsunamiWarning ? " · alarm tsunami uji" : " · alarm gempa uji"), "warning");
+    logSimulationTest(stage + "M" + sample.magnitude.toFixed(1) + " · " + sample.place + (sample.isTsunamiWarning ? " · notifikasi tsunami simulasi" : " · gempa simulasi"), "warning");
   }
   return sample;
 }
+function buildSimulationSequence() {
+  const max = Math.max(5, Math.min(9, Number($("#wrsTestMagnitude")?.value || 5.6)));
+  const type = $("#wrsTestScenarioType")?.value || "staged";
+  const after = value => Math.max(3.5, Math.min(max, Number(value.toFixed(1))));
+  if (type === "major") {
+    return [
+      { magnitude: 4.2, label: "Aktivitas awal" },
+      { magnitude: after(Math.min(5.4, max)), label: "Gempa pendahuluan" },
+      { magnitude: max, label: "GEMPA UTAMA" },
+      { magnitude: after(max - 1.2), label: "Gempa susulan" }
+    ];
+  }
+  if (type === "tsunami") {
+    return [
+      { magnitude: 4.3, label: "Aktivitas awal" },
+      { magnitude: after(Math.min(5.5, max)), label: "Gempa meningkat" },
+      { magnitude: max, label: "GEMPA UTAMA" },
+      { magnitude: max, tsunami: true, label: "PERINGATAN TSUNAMI SIMULASI" }
+    ];
+  }
+  if (type === "aftershocks") {
+    return [
+      { magnitude: max, label: "Gempa utama" },
+      { magnitude: after(max - 0.9), label: "Susulan 1" },
+      { magnitude: after(max - 1.4), label: "Susulan 2" },
+      { magnitude: after(max - 1.9), label: "Susulan 3" }
+    ];
+  }
+  return [
+    { magnitude: 3.8, label: "Tahap 1 · aktivitas awal" },
+    { magnitude: 4.3, label: "Tahap 2 · gempa kecil" },
+    { magnitude: 4.8, label: "Tahap 3 · mulai terasa" },
+    { magnitude: after(Math.min(5.3, max)), label: "Tahap 4 · aktivitas meningkat" },
+    { magnitude: after(Math.min(6.0, max)), label: "Tahap 5 · gempa kuat" },
+    { magnitude: max, label: "Tahap 6 · GEMPA UTAMA" },
+    { magnitude: after(max - 1.1), label: "Tahap 7 · gempa susulan" },
+    { magnitude: after(max - 1.6), label: "Tahap 8 · susulan lanjutan" }
+  ];
+}
+function clearSimulationTimer() {
+  if (simulationSequenceTimer !== null) {
+    clearTimeout(simulationSequenceTimer);
+    simulationSequenceTimer = null;
+  }
+}
+function updateSimulationControls() {
+  const pause = $("#btnWrsTestPause");
+  if (pause) {
+    pause.textContent = simulationSequencePaused ? "▶ Lanjutkan" : "Ⅱ Jeda";
+    pause.disabled = !simulationSequenceActive && !simulationSequencePaused;
+  }
+  const repeat = $("#btnWrsTestRepeat");
+  if (repeat) {
+    repeat.textContent = simulationSequenceRepeat ? "🔁 Ulang: ON" : "🔁 Ulang: OFF";
+    repeat.setAttribute("aria-pressed", simulationSequenceRepeat ? "true" : "false");
+  }
+}
+function finishSimulationSequence() {
+  clearSimulationTimer();
+  simulationSequenceActive = false;
+  simulationSequencePaused = false;
+  updateSimulationControls();
+  const statusText = $("#wrsTestStatus");
+  if (statusText) statusText.textContent = "SKENARIO SELESAI · seluruh kejadian adalah simulasi lokal";
+  logSimulationTest("Rangkaian simulasi selesai.", "success");
+}
+function showNextSimulationEvent() {
+  if (wrsMode !== "simulation" || !simulationSequence.length) return;
+  clearSimulationTimer();
+  if (simulationSequenceIndex >= simulationSequence.length) {
+    if (simulationSequenceRepeat) simulationSequenceIndex = 0;
+    else {
+      finishSimulationSequence();
+      return;
+    }
+  }
+  const step = simulationSequence[simulationSequenceIndex];
+  simulationSequenceIndex += 1;
+  applySimulationMode({ alert: true, magnitude: step.magnitude, tsunami: step.tsunami === true, stageLabel: step.label });
+  updateSimulationControls();
+  if (simulationSequenceIndex < simulationSequence.length || simulationSequenceRepeat) {
+    const speed = $("#wrsTestSpeed")?.value || "normal";
+    const delay = speed === "slow" ? 15000 : speed === "fast" ? 4000 : 8000;
+    simulationSequenceTimer = setTimeout(() => {
+      if (!simulationSequencePaused && simulationSequenceActive) showNextSimulationEvent();
+    }, delay);
+  } else {
+    simulationSequenceTimer = setTimeout(finishSimulationSequence, 1200);
+  }
+}
 function runSimulationQuakeTest() {
   if (wrsMode !== "simulation") return;
-  applySimulationMode({ alert: true });
+  clearSimulationTimer();
+  simulationSequence = buildSimulationSequence();
+  simulationSequenceIndex = 0;
+  simulationSequenceActive = true;
+  simulationSequencePaused = false;
+  logSimulationTest("Rangkaian dimulai · " + simulationSequence.length + " tahap · " + ($("#wrsTestScenarioType")?.selectedOptions?.[0]?.textContent || "Skenario bertahap"), "info");
+  showNextSimulationEvent();
+}
+function toggleSimulationPause() {
+  if (wrsMode !== "simulation") return;
+  if (!simulationSequenceActive && !simulationSequencePaused) return;
+  if (simulationSequencePaused) {
+    simulationSequencePaused = false;
+    simulationSequenceActive = true;
+    updateSimulationControls();
+    showNextSimulationEvent();
+    logSimulationTest("Simulasi dilanjutkan.", "info");
+  } else {
+    simulationSequencePaused = true;
+    clearSimulationTimer();
+    updateSimulationControls();
+    const statusText = $("#wrsTestStatus");
+    if (statusText) statusText.textContent = "SIMULASI DIJEDA · tekan Lanjutkan atau Berikutnya";
+    logSimulationTest("Simulasi dijeda.", "info");
+  }
+}
+function nextSimulationEvent() {
+  if (wrsMode !== "simulation") return;
+  if (!simulationSequence.length || (!simulationSequenceActive && !simulationSequencePaused)) {
+    runSimulationQuakeTest();
+    return;
+  }
+  simulationSequenceActive = true;
+  simulationSequencePaused = false;
+  showNextSimulationEvent();
+  logSimulationTest("Tahap berikutnya dijalankan manual.", "info");
+}
+function toggleSimulationRepeat() {
+  simulationSequenceRepeat = !simulationSequenceRepeat;
+  updateSimulationControls();
+  logSimulationTest(simulationSequenceRepeat ? "Pengulangan otomatis diaktifkan." : "Pengulangan otomatis dimatikan.", "info");
+}
+function stopSimulationSequence() {
+  clearSimulationTimer();
+  simulationSequenceActive = false;
+  simulationSequencePaused = false;
+  updateSimulationControls();
+  const statusText = $("#wrsTestStatus");
+  if (statusText) statusText.textContent = "SIMULASI DIHENTIKAN · data operasional tetap terpisah";
+  logSimulationTest("Rangkaian dihentikan oleh pengguna.", "info");
 }
 async function runCommunicationTest() {
   if (wrsMode !== "simulation") return;
@@ -1760,17 +1907,25 @@ async function runCommunicationTest() {
 }
 function resetSimulationTests() {
   if (wrsMode !== "simulation") return;
+  clearSimulationTimer();
+  simulationSequence = [];
+  simulationSequenceIndex = 0;
+  simulationSequenceActive = false;
+  simulationSequencePaused = false;
+  simulationSequenceRepeat = false;
   simulationScenarioIndex = 1;
   if ($("#wrsTestMagnitude")) $("#wrsTestMagnitude").value = "5.6";
   if ($("#wrsTestLocation")) $("#wrsTestLocation").value = "sulawesi";
-  if ($("#wrsTestTsunami")) $("#wrsTestTsunami").checked = false;
+  if ($("#wrsTestScenarioType")) $("#wrsTestScenarioType").value = "staged";
+  if ($("#wrsTestSpeed")) $("#wrsTestSpeed").value = "normal";
   simulationTestLog = [];
   const log = $("#wrsTestLog");
   if (log) log.replaceChildren();
   const statusText = $("#wrsTestStatus");
   if (statusText) statusText.textContent = "Mode Tes aktif · data uji saja";
+  updateSimulationControls();
   applySimulationMode();
-  logSimulationTest("Simulasi direset ke skenario awal.", "info");
+  logSimulationTest("Simulasi direset. Siap menjalankan skenario baru.", "info");
 }
 function setWrsMode(mode) {
   wrsMode = mode === "simulation" ? "simulation" : "operational";
@@ -1779,9 +1934,16 @@ function setWrsMode(mode) {
   if (wrsMode === "simulation") {
     const testStatus = $("#wrsTestStatus");
     if (testStatus) testStatus.textContent = "Mode Tes aktif · data uji saja";
-    applySimulationMode({ alert: true });
+    clearSimulationTimer();
+    simulationSequenceActive = false;
+    simulationSequencePaused = false;
+    updateSimulationControls();
+    applySimulationMode();
     return;
   }
+  clearSimulationTimer();
+  simulationSequenceActive = false;
+  simulationSequencePaused = false;
   const filter = $("#rtFilter");
   if (filter) filter.textContent = "Area Indonesia · Mag > 2 · 7 hari terakhir";
   status(false, "MENGHUBUNGKAN WRS");
@@ -1807,8 +1969,13 @@ document.querySelectorAll("[data-wrs-mode]").forEach(button => {
   button.addEventListener("click", () => setWrsMode(button.dataset.wrsMode));
 });
 $("#btnWrsTestQuake")?.addEventListener("click", runSimulationQuakeTest);
+$("#btnWrsTestPause")?.addEventListener("click", toggleSimulationPause);
+$("#btnWrsTestNext")?.addEventListener("click", nextSimulationEvent);
+$("#btnWrsTestRepeat")?.addEventListener("click", toggleSimulationRepeat);
+$("#btnWrsTestStop")?.addEventListener("click", stopSimulationSequence);
 $("#btnWrsTestComm")?.addEventListener("click", runCommunicationTest);
 $("#btnWrsTestReset")?.addEventListener("click", resetSimulationTests);
+updateSimulationControls();
 
 function showLoading(msg) {
   const el = $("#loadingOverlay");
