@@ -1730,8 +1730,8 @@ function applySimulationMode(options = {}) {
   const statusText = $("#wrsTestStatus");
   if (statusText) statusText.textContent = "SKENARIO AKTIF · M" + sample.magnitude.toFixed(1) + (sample.isTsunamiWarning ? " · TSUNAMI SIMULASI" : " · TANPA TSUNAMI");
   if (options.alert) {
-    showPopup(sample);
     if (sample.isTsunamiWarning) openTsunamiModal(sample);
+    else showPopup(sample);
     playAlarmSequence(sample).catch(error => console.warn("Alarm simulasi tidak tersedia", error));
     logSimulationTest("Skenario berjalan: M" + sample.magnitude.toFixed(1) + (sample.isTsunamiWarning ? " · alarm tsunami uji" : " · alarm gempa uji"), "warning");
   }
@@ -1779,7 +1779,7 @@ function setWrsMode(mode) {
   if (wrsMode === "simulation") {
     const testStatus = $("#wrsTestStatus");
     if (testStatus) testStatus.textContent = "Mode Tes aktif · data uji saja";
-    applySimulationMode();
+    applySimulationMode({ alert: true });
     return;
   }
   const filter = $("#rtFilter");
