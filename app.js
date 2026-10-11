@@ -817,10 +817,10 @@ async function loadUsgsProducts(q, forceFallback = false) {
   if (!q) return;
   // BMKG/InaTEWS tetap prioritas. USGS dicari hanya bila peta MMI resmi BMKG
   // tidak tersedia atau gambar BMKG gagal dimuat.
-  if (q.shakemap && !forceFallback) return;
+  const isUsgsEvent = q.source === "USGS" || String(q.key || "").startsWith("usgs|");
+  if (q.shakemap && !forceFallback && !isUsgsEvent) return;
   const box = ensureUsgsProductsBox();
   if (!box) return;
-  const isUsgsEvent = q.source === "USGS" || String(q.key || "").startsWith("usgs|");
   const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   box.innerHTML = '<div style="font-weight:900;font-size:16px;margin-bottom:8px">PETA INTENSITAS GUNCANGAN (MMI)</div><p style="font-size:13px;opacity:.75">Mencari peta MMI cadangan…</p>';
   try {
@@ -898,12 +898,19 @@ async function loadUsgsProducts(q, forceFallback = false) {
         }
       }
     }
-    const shake = getPreferredUsgsProduct(products.shakemap);
-    const contents = shake?.contents || {};
-    const entries = Object.entries(contents).filter(([, item]) => item?.url);
-    // Utamakan intensity.jpg/png (MMI); thumbnail hanya cadangan.
-    const mmiEntry = entries.find(([path]) => /(?:^|\/)(?:intensity|mmi)\.(?:jpg|jpeg|png)$/i.test(path))
-      || entries.find(([path]) => /(?:^|\/)(?:ii_thumbnail|pin-thumbnail)\.(?:jpg|jpeg|png)$/i.test(path));
+    // Cari semua versi ShakeMap, bukan hanya versi preferred; beberapa versi
+    // memiliki daftar contents berbeda walau event yang sama.
+    const shakeProducts = Array.isArray(products.shakemap) ? [...products.shakemap].sort((a,b) =>
+      Number(b.preferredWeight || 0) - Number(a.preferredWeight || 0) ||
+      Number(b.updateTime || 0) - Number(a.updateTime || 0)
+    ) : [];
+    const shakeEntries = shakeProducts.flatMap(product =>
+      Object.entries(product?.contents || {}).filter(([, item]) => item?.url)
+    );
+    // Utamakan gambar intensity.jpg (MMI), lalu nama MMI lain, baru thumbnail.
+    const mmiEntry = shakeEntries.find(([path]) => /(?:^|\/)intensity\.(?:jpg|jpeg|png)$/i.test(path))
+      || shakeEntries.find(([path]) => /(?:^|\/)(?:mmi|intensity_overlay)\.(?:jpg|jpeg|png)$/i.test(path))
+      || shakeEntries.find(([path]) => /(?:^|\/)(?:ii_thumbnail|pin-thumbnail)\.(?:jpg|jpeg|png)$/i.test(path));
     let html = '<div style="font-weight:900;font-size:16px;margin-bottom:8px">PETA INTENSITAS GUNCANGAN (MMI)</div>';
     if (mmiEntry) {
       const imageUrl = mmiEntry[1].url;
