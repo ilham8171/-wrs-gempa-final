@@ -1116,3 +1116,11 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible { 
 }
 .v-toolbar .tb-btn { display:grid; place-items:center; }
 .rp-quick .qicon { display:grid; place-items:center; }
+
+
+.quake-marker-wrap,
+.quake-cluster-wrap {
+  display:grid !important;
+  place-items:center !important;
+  overflow:visible !important;
+}
