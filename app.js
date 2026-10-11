@@ -2,7 +2,9 @@ const API = "/.netlify/functions/earthquakes";
 const SUBSCRIBE_API = "/.netlify/functions/subscribe";
 const VAPID_PUBLIC_KEY =
   "BMMLWEJGdS_HeyHwUWt9z6iswzec3RzLIXGWIrLmLa7xptYq4oLYFLiYlR-g0XE7rZJ4PFieSK9NRf-tOtKRmAA";
-const INTERVAL = 10000;
+const NORMAL_INTERVAL = 10000;
+let batterySaver = localStorage.getItem("wrsBatterySaverV1") === "1";
+const currentInterval = () => batterySaver ? 60000 : NORMAL_INTERVAL;
 const SHAKEMAP_BASE = "https://bmkg-content-inatews.storage.googleapis.com/";
 const $ = (s) => document.querySelector(s);
 
@@ -1377,8 +1379,57 @@ async function load(showSpin) {
   }
 }
 
+/* Timeline 7 hari: ringkasan event per hari, dibangun dari katalog yang sedang tersedia. */
+function renderHistoryTimeline() {
+  const root = $("#histTimeline");
+  if (!root) return;
+  const now = Date.now();
+  const bins = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(now - (6 - i) * 86400000);
+    date.setHours(0, 0, 0, 0);
+    const next = new Date(date.getTime() + 86400000);
+    const events = quakes.filter(q => {
+      const t = new Date(q.time).getTime();
+      return Number.isFinite(t) && t >= date.getTime() && t < next.getTime();
+    });
+    return { date, events };
+  });
+  const max = Math.max(1, ...bins.map(b => b.events.length));
+  root.innerHTML = '<div class="timeline-title">Aktivitas 7 hari terakhir</div><div class="timeline-bars">' +
+    bins.map(b => {
+      const strong = b.events.filter(q => q.magnitude >= 4).length;
+      const height = Math.max(4, Math.round(b.events.length / max * 48));
+      const label = b.date.toLocaleDateString("id-ID", { day: "2-digit", month: "short" });
+      return '<button type="button" class="timeline-day" data-day="' + b.date.toISOString().slice(0,10) +
+        '" title="' + label + ': ' + b.events.length + ' event, ' + strong + ' M4+" aria-label="' + label + ', ' + b.events.length + ' event">' +
+        '<span class="timeline-count">' + b.events.length + '</span><span class="timeline-bar" style="height:' + height + 'px"></span><span class="timeline-label">' + label + '</span></button>';
+    }).join('') + '</div><div class="timeline-note">Jumlah berdasarkan event yang tersedia di katalog saat ini; bukan arsip historis tanpa batas.</div>';
+  root.querySelectorAll(".timeline-day").forEach(btn => btn.addEventListener("click", () => {
+    const day = btn.dataset.day;
+    const selected = quakes.filter(q => q.time && new Date(q.time).toISOString().slice(0,10) === day)
+      .sort((a,b) => new Date(b.time) - new Date(a.time));
+    const body = $("#histBody");
+    if (!body) return;
+    body.innerHTML = "";
+    selected.forEach(q => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = '<td class="hist-mag"></td><td></td><td></td><td></td>';
+      tr.children[0].textContent = Number(q.magnitude).toFixed(1);
+      tr.children[1].textContent = shortDate(q);
+      tr.children[2].textContent = q.place || "Wilayah tidak diketahui";
+      tr.children[3].textContent = (q.depth ?? "—") + " km";
+      tr.addEventListener("click", () => { window._modalQuake = q; openModal(q); });
+      body.appendChild(tr);
+    });
+    $("#histTitle").textContent = "Timeline · " + new Date(day + "T12:00:00").toLocaleDateString("id-ID", { weekday:"long", day:"numeric", month:"long" });
+    $("#histCount").textContent = selected.length + " event";
+    $("#histMap")?.classList.toggle("hidden", selected.length === 0);
+  }));
+}
+
 /* History / daftar modal — mode: all | strong | felt | tsunami */
 function openHistory(mode = "all") {
+  renderHistoryTimeline();
   const body = $("#histBody");
   body.innerHTML = "";
   const titles = {
@@ -1953,7 +2004,7 @@ function scheduleRefresh() {
   refreshTimer = setTimeout(async () => {
     await load(false);
     scheduleRefresh();
-  }, INTERVAL);
+  }, currentInterval());
 }
 scheduleRefresh();
 setInterval(() => {
@@ -2055,6 +2106,62 @@ function initMobileSheet() {
 }
 
 initMobileSheet();
+
+/* Cuaca lokal terpisah dari informasi resmi gempa, memakai Open-Meteo tanpa API key. */
+const WEATHER_CODES = {0:"Cerah",1:"Cerah berawan",2:"Berawan sebagian",3:"Mendung",45:"Kabut",48:"Kabut tebal",51:"Gerimis ringan",53:"Gerimis",55:"Gerimis lebat",61:"Hujan ringan",63:"Hujan",65:"Hujan lebat",71:"Salju ringan",73:"Salju",75:"Salju lebat",80:"Hujan lokal",81:"Hujan lokal",82:"Hujan lebat lokal",95:"Badai petir",96:"Badai petir dan hujan es",99:"Badai petir kuat"};
+async function loadLocalWeather() {
+  const card = $("#weatherCard");
+  if (!card) return;
+  card.classList.remove("hidden");
+  $("#weatherPlace").textContent = "Meminta lokasi…";
+  $("#weatherTemp").textContent = "—";
+  $("#weatherDesc").textContent = "Memuat prakiraan saat ini";
+  if (!navigator.geolocation) {
+    $("#weatherPlace").textContent = "Lokasi tidak didukung";
+    $("#weatherDesc").textContent = "Perangkat/browser tidak menyediakan lokasi.";
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(async pos => {
+    try {
+      const { latitude, longitude } = pos.coords;
+      const url = "https://api.open-meteo.com/v1/forecast?latitude=" + latitude + "&longitude=" + longitude + "&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&timezone=auto";
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error("weather_http_" + res.status);
+      const data = await res.json(), w = data.current || {};
+      $("#weatherPlace").textContent = latitude.toFixed(2) + ", " + longitude.toFixed(2);
+      $("#weatherTemp").textContent = Number.isFinite(w.temperature_2m) ? Math.round(w.temperature_2m) + "°C" : "—";
+      $("#weatherDesc").textContent = WEATHER_CODES[w.weather_code] || "Kondisi cuaca terkini";
+      $("#weatherExtra").textContent = "Terasa " + (w.apparent_temperature ?? "—") + "°C · RH " + (w.relative_humidity_2m ?? "—") + "% · Angin " + (w.wind_speed_10m ?? "—") + " km/j · Hujan " + (w.precipitation ?? "—") + " mm. Bukan peringatan gempa.";
+    } catch (err) {
+      $("#weatherPlace").textContent = "Data cuaca tidak tersedia";
+      $("#weatherDesc").textContent = "Periksa koneksi, lalu coba lagi.";
+      console.warn("Weather request failed", err);
+    }
+  }, () => {
+    $("#weatherPlace").textContent = "Izin lokasi belum diberikan";
+    $("#weatherDesc").textContent = "Izinkan akses lokasi untuk cuaca lokal.";
+  }, { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 });
+}
+function applyBatterySaver() {
+  document.body.classList.toggle("battery-saver", batterySaver);
+  const btn = $("#btnBattery");
+  if (btn) {
+    btn.textContent = batterySaver ? "Hemat baterai: aktif" : "Hemat baterai: mati";
+    btn.setAttribute("aria-pressed", String(batterySaver));
+  }
+  clearTimeout(refreshTimer);
+  if (!document.hidden) scheduleRefresh();
+}
+$("#btnWeather")?.addEventListener("click", loadLocalWeather);
+$("#weatherClose")?.addEventListener("click", () => $("#weatherCard")?.classList.add("hidden"));
+$("#btnBattery")?.addEventListener("click", () => {
+  batterySaver = !batterySaver;
+  localStorage.setItem("wrsBatterySaverV1", batterySaver ? "1" : "0");
+  applyBatterySaver();
+});
+applyBatterySaver();
+
+
 
 
 // Mobile page visibility can change Leaflet container dimensions. Recalculate both maps
