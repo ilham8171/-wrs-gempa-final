@@ -67,10 +67,34 @@ function mapPublic(raw) {
   }
   return { key:"bmkg|"+(time || raw.Tanggal+"|"+raw.Jam+"|"+mag), magnitude:mag, lat:Number.isFinite(lat)?lat:null, lon:Number.isFinite(lon)?lon:null, place:String(raw.Wilayah || "Indonesia"), depth:String(raw.Kedalaman || "—").match(/[0-9]+(?:[.,][0-9]+)?/)?.[0] || "—", time, potential:String(raw.Potensi || "—"), felt:String(raw.Dirasakan || ""), source:"BMKG", status:"BMKG", official:true, shakemap };
 }
+function inferRegionFromCoordinates(lat, lon) {
+  if (lat >= 1 && lat <= 6.5 && lon >= 94 && lon <= 100.5) return "Northern Sumatra, Indonesia";
+  if (lat >= -10.5 && lat <= -7.2 && lon >= 115 && lon <= 120) return "Sumbawa Region, Indonesia";
+  if (lat >= -9.5 && lat <= -5.2 && lon >= 105 && lon < 115) return "Java Region, Indonesia";
+  if (lat >= -10.5 && lat <= -7 && lon >= 119 && lon <= 125.5) return "Flores Region, Indonesia";
+  if (lat >= -6.5 && lat <= 2.5 && lon >= 119 && lon <= 125.5) return "Sulawesi Region, Indonesia";
+  if (lat >= -3.5 && lat <= 3.5 && lon > 125.5 && lon <= 131.5) return "Northern Molucca Sea, Indonesia";
+  if (lat >= -11 && lat <= 0.5 && lon > 130 && lon <= 141.5) return "Papua Region, Indonesia";
+  if (lat >= -10 && lat <= -7 && lon >= 114 && lon < 117) return "Bali–Lombok Region, Indonesia";
+  return "";
+}
+function qlPlaceMatchesCoordinates(place, lat, lon) {
+  const p = String(place || "").toLowerCase();
+  if (/sumbawa/.test(p)) return lat >= -10.5 && lat <= -7.2 && lon >= 115 && lon <= 120;
+  if (/northern sumatra|sumatra/.test(p)) return lat >= -11 && lat <= 6.5 && lon >= 94 && lon <= 106;
+  if (/java|jawa/.test(p)) return lat >= -12 && lat <= -4 && lon >= 105 && lon <= 115;
+  if (/flores/.test(p)) return lat >= -11 && lat <= -6 && lon >= 118 && lon <= 126;
+  if (/sulawesi|minahassa|celebes/.test(p)) return lat >= -7 && lat <= 5 && lon >= 118 && lon <= 126;
+  if (/papua|new guinea/.test(p)) return lon >= 130 && lon <= 142 && lat >= -11 && lat <= 1;
+  return true;
+}
 function mapQL(f) {
   const p=f?.properties||{}, c=f?.geometry?.coordinates||[], mag=num(p.mag ?? p.magnitude), lon=num(c[0]), lat=num(c[1]);
   if (!Number.isFinite(mag)||!Number.isFinite(lat)||!Number.isFinite(lon)||mag<1.5) return null;
-  return {key:"ql|"+String(p.id||p.time+"|"+lat+"|"+lon),eventid:String(p.id||p.time+"|"+lat+"|"+lon),magnitude:mag,lat,lon,place:String(p.place||"Indonesia"),depth:String(c[2]??p.depth??"—"),time:p.time?new Date(p.time).toISOString():"",potential:"—",felt:"",source:"InaTEWS",status:"M",wrsRealtime:true};
+  let place = String(p.place || "Indonesia");
+  // Jika teks wilayah bertentangan dengan koordinat, utamakan koordinat episenter.
+  if (!qlPlaceMatchesCoordinates(place, lat, lon)) place = inferRegionFromCoordinates(lat, lon) || "Indonesia (wilayah berdasarkan koordinat)";
+  return {key:"ql|"+String(p.id||p.time+"|"+lat+"|"+lon),eventid:String(p.id||p.time+"|"+lat+"|"+lon),magnitude:mag,lat,lon,place,depth:String(c[2]??p.depth??"—"),time:p.time?new Date(p.time).toISOString():"",potential:"—",felt:"",source:"InaTEWS",status:"M",wrsRealtime:true};
 }
 function mapUSGS(f, minimumMagnitude = 5) {
   const p=f?.properties||{}, c=f?.geometry?.coordinates||[], mag=num(p.mag), lon=num(c[0]), lat=num(c[1]), flag=Number(p.tsunami)===1;
@@ -284,5 +308,5 @@ export async function onRequestGet() {
     .filter(q=>Number.isFinite(validTime(q)) && inIndonesia(q))
     .sort((a,b)=>validTime(b)-validTime(a));
   const realtime=realtimeEvents[0] || null;
-  return new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:15,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,sources:{public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:ql.status==="fulfilled"?(ql.value.features||[]).length:0,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
+  return new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:15,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:ql.status==="fulfilled"&&Array.isArray(ql.value.features)?ql.value.features.length:0,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS QL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:ql.status==="fulfilled"?(ql.value.features||[]).length:0,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
 }
