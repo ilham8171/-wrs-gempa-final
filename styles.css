@@ -1205,3 +1205,18 @@ body.battery-saver *,body.battery-saver *::before,body.battery-saver *::after{sc
  .map-stats{max-width:calc(100vw - 20px)}
  .right-panel{max-height:100dvh}
 }
+
+@media(max-width:900px){
+  .wrs-utility-bar{
+    top:auto;bottom:calc(48vh + 8px);left:auto;right:62px;transform:none;
+    flex-direction:column;align-items:flex-end;gap:5px;
+  }
+  .utility-btn{font-size:9px;padding:7px 8px}
+  .weather-card{top:calc(70px + env(safe-area-inset-top,0px))}
+}
+@media(max-width:560px){
+  .wrs-health{max-width:calc(100vw - 18px);left:9px;right:9px;transform:none;justify-content:center}
+  .wrs-utility-bar{right:58px;bottom:calc(48vh + 8px)}
+  .left-bottom{width:min(280px,calc(100vw - 16px));bottom:58px;max-height:24vh}
+  .map-stats{bottom:8px}
+}
