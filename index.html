@@ -122,8 +122,18 @@
     <div class="wrs-mode-label">Mode pemantauan</div>
     <div class="wrs-mode-switch" role="group" aria-label="Mode pemantauan WRS">
       <button type="button" data-wrs-mode="operational" aria-pressed="true">● Operasional</button>
-      <button type="button" data-wrs-mode="simulation" aria-pressed="false">▧ Simulasi / Tes</button>
+      <button type="button" data-wrs-mode="simulation" aria-pressed="false">▧ Mode Tes</button>
     </div>
+    <section id="wrsTestTools" class="wrs-test-tools" hidden aria-label="Kontrol simulasi WRS">
+      <div id="wrsTestStatus" class="wrs-test-status" role="status">Mode Tes aktif · data uji saja</div>
+      <div class="wrs-test-actions">
+        <button type="button" id="btnWrsTestQuake">Uji kejadian</button>
+        <button type="button" id="btnWrsTestComm">Tes komunikasi</button>
+        <button type="button" id="btnWrsTestReset">Reset</button>
+      </div>
+      <div id="wrsTestLog" class="wrs-test-log" aria-live="polite"></div>
+      <p class="wrs-test-note">Simulasi lokal. Tidak mengirim peringatan ke BMKG dan bukan data gempa nyata.</p>
+    </section>
   </div>
 </aside>
 
