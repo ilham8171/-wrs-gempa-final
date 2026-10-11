@@ -1263,3 +1263,12 @@ body.battery-saver *,body.battery-saver *::before,body.battery-saver *::after{sc
 .wrs-test-log-row.warning{color:#fde68a;border-left:2px solid #fbbf24}
 .wrs-test-note{margin:8px 0 0;color:#94a3b8;font-size:9px;line-height:1.45}
 @media(max-width:900px){.wrs-test-tools{padding:8px}.wrs-test-actions button{min-height:36px;font-size:10px}}
+
+/* Kontrol skenario magnitudo dan tsunami khusus Mode Tes */
+
+.wrs-test-form{display:grid;gap:5px;margin:8px 0}
+.wrs-test-form>label:not(.wrs-test-check){font-size:10px;font-weight:750;color:#cbd5e1}
+.wrs-test-form select{width:100%;min-height:38px;border:1px solid rgba(125,211,252,.3);border-radius:7px;padding:7px 9px;background:#0f172a;color:#f8fafc;font:600 12px system-ui,sans-serif}
+.wrs-test-form .wrs-test-check{display:flex;align-items:center;gap:7px;margin-top:4px;font-size:10px;line-height:1.4;color:#fde68a}
+.wrs-test-check input{width:18px;height:18px;accent-color:#ef4444;flex-shrink:0}
+.wrs-test-actions button:first-child{background:rgba(127,29,29,.6);border-color:rgba(248,113,113,.5);color:#fee2e2}
