@@ -39,9 +39,19 @@ function parseLon(v) {
 }
 function mapPublic(raw) {
   if (!raw) return null;
-  const coords = String(raw.Coordinates ?? raw.coordinates ?? "").split(",");
-  const lat = coords.length > 1 ? parseLat(coords[0]) : parseLat(raw.Lintang);
-  const lon = coords.length > 1 ? parseLon(coords[1]) : parseLon(raw.Bujur);
+  const coordinateText = String(raw.Coordinates ?? raw.coordinates ?? "").trim();
+  const coords = coordinateText.split(",");
+  let lat = coords.length > 1 ? parseLat(coords[0]) : NaN;
+  let lon = coords.length > 1 ? parseLon(coords[1]) : NaN;
+  // WRS/InaTEWS sometimes formats coordinates with compass suffixes and no comma.
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    const latToken = coordinateText.match(/[+-]?\d+(?:[.,]\d+)?\s*(?:LS|LU|S|N)\b/i)?.[0];
+    const lonToken = coordinateText.match(/[+-]?\d+(?:[.,]\d+)?\s*(?:BT|BB|E|W)\b/i)?.[0];
+    if (!Number.isFinite(lat) && latToken) lat = parseLat(latToken);
+    if (!Number.isFinite(lon) && lonToken) lon = parseLon(lonToken);
+  }
+  if (!Number.isFinite(lat)) lat = parseLat(raw.Lintang);
+  if (!Number.isFinite(lon)) lon = parseLon(raw.Bujur);
   const mag = num(raw.Magnitude ?? raw.magnitude);
   if (!Number.isFinite(mag) || !Number.isFinite(lat) || !Number.isFinite(lon) ||
       Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
@@ -221,10 +231,23 @@ export async function onRequestGet() {
   const tsunami=results[6];
   const tsunamiHistory=tsunami.status==="fulfilled" ? parseTsunamiCapXml(tsunami.value) : [];
   if(tsunami.status!=="fulfilled") errors.push("InaTEWS tsunami");
-  const byKey=new Map(), signatures=new Set();
+  const byKey=new Map(), signatures=new Map();
   list.sort((a,b)=>new Date(b.time||0)-new Date(a.time||0)).forEach(q=>{
     const sig=[q.magnitude.toFixed(1),(q.place||"").slice(0,30),String(q.time).slice(0,16)].join("|");
-    if(!byKey.has(q.key)&&!signatures.has(sig)){byKey.set(q.key,q);signatures.add(sig);}
+    if(byKey.has(q.key)) return;
+    const existingKey=signatures.get(sig);
+    if(!existingKey){
+      byKey.set(q.key,q);
+      signatures.set(sig,q.key);
+      return;
+    }
+    // Prefer the official BMKG record over a near-duplicate USGS/InaTEWS catalogue entry.
+    const existing=byKey.get(existingKey);
+    if(q.official && !existing?.official){
+      byKey.delete(existingKey);
+      byKey.set(q.key,q);
+      signatures.set(sig,q.key);
+    }
   });
   const recent=[...byKey.values()].sort((a,b)=>new Date(b.time||0)-new Date(a.time||0)).slice(0,800);
   const official=recent.find(q=>q.official)||null;
