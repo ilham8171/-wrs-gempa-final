@@ -391,6 +391,58 @@
 })();
 </script>
 
+
+<script>
+/* Mobile app navigation: Peta / Info Gempa / Legenda. Desktop DOM remains unchanged. */
+(function () {
+  if (!window.matchMedia('(max-width: 900px)').matches) return;
+  const body = document.body;
+  const mapPage = document.createElement('section');
+  mapPage.id = 'mobilePageMap';
+  mapPage.className = 'mobile-page active';
+  const infoPage = document.createElement('section');
+  infoPage.id = 'mobilePageInfo';
+  infoPage.className = 'mobile-page';
+  const legendPage = document.createElement('section');
+  legendPage.id = 'mobilePageLegend';
+  legendPage.className = 'mobile-page';
+  const title = document.createElement('header');
+  title.className = 'mobile-page-title';
+  title.innerHTML = '<span>WRS GEMPA</span><small>Legenda & panduan peta</small>';
+  legendPage.appendChild(title);
+  const mapNodes = ['map','map-overlay','mapStats','vToolbar','basemapMenu','cardRealtime'];
+  mapNodes.forEach(id => { const el=document.getElementById(id); if(el) mapPage.appendChild(el); });
+  const panel = document.getElementById('rightPanel');
+  const legend = document.querySelector('.left-bottom');
+  if (panel) infoPage.appendChild(panel);
+  if (legend) { legendPage.appendChild(legend); legend.classList.add('legend-in-panel'); }
+  const firstModal = document.getElementById('filterModal') || document.getElementById('historyModal');
+  const anchor = firstModal || document.getElementById('loadingOverlay');
+  body.insertBefore(mapPage, anchor || null);
+  body.insertBefore(infoPage, anchor || null);
+  body.insertBefore(legendPage, anchor || null);
+  const nav = document.createElement('nav');
+  nav.className = 'mobile-bottom-nav';
+  nav.setAttribute('aria-label','Navigasi utama');
+  nav.innerHTML = '<button type="button" data-page="map" class="active"><span class="nav-symbol">⌖</span><span>Peta</span></button><button type="button" data-page="info"><span class="nav-symbol">▤</span><span>Info Gempa</span></button><button type="button" data-page="legend"><span class="nav-symbol">◎</span><span>Legenda</span></button>';
+  body.appendChild(nav);
+  function showPage(name) {
+    [mapPage,infoPage,legendPage].forEach((p,i)=>p.classList.toggle('active',['map','info','legend'][i]===name));
+    nav.querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.page===name));
+    body.dataset.mobilePage=name;
+    if (panel) {
+      panel.classList.remove('sheet-collapsed');
+      panel.style.height=''; panel.style.maxHeight='';
+      panel.scrollTop=0;
+    }
+    if (name==='map') setTimeout(()=>{try{window.dispatchEvent(new Event('resize'));}catch{}},100);
+  }
+  nav.addEventListener('click',e=>{const b=e.target.closest('button[data-page]');if(b)showPage(b.dataset.page);});
+  window.addEventListener('resize',()=>{ if(window.matchMedia('(min-width: 901px)').matches) location.reload(); },{passive:true});
+  showPage('map');
+})();
+</script>
+
 <script src="/app.js"></script>
 </body>
 </html>
