@@ -1336,6 +1336,12 @@ async function load(showSpin) {
     if (Array.isArray(d.tsunamiHistory)) tsunamiHistory = d.tsunamiHistory;
     const newFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
     status(true, d.sources?.client ? "LIVE · client" : "LIVE");
+    const healthText = $("#wrsHealthText");
+    const healthTime = $("#wrsLastUpdated");
+    const health = $("#wrsHealth");
+    if (healthText) healthText.textContent = d.sources?.client ? "DATA AKTIF · SUMBER CADANGAN" : "DATA AKTIF";
+    if (healthTime) healthTime.textContent = "Diperbarui " + new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    if (health) { health.classList.remove("is-error"); health.title = "Pembaruan data berhasil"; }
     const s = d.sources || {};
     $("#srcCount").textContent = `· ${d.count || 0} event` + (s.inaQL != null ? ` (QL ${s.inaQL})` : "") + (s.tsunami != null ? ` · TS ${s.tsunami}` : "");
 
@@ -1361,6 +1367,10 @@ async function load(showSpin) {
   } catch (e) {
     console.error(e);
     status(false, "OFFLINE");
+    const healthText = $("#wrsHealthText");
+    const health = $("#wrsHealth");
+    if (healthText) healthText.textContent = "DATA TIDAK TERSEDIA";
+    if (health) { health.classList.add("is-error"); health.title = "Pembaruan gagal; data terakhir mungkin sudah lama"; }
   } finally {
     loadInFlight = false;
     hideLoading();
@@ -1708,10 +1718,31 @@ document.querySelectorAll(".bm-opt").forEach((btn) => {
     $("#basemapMenu").classList.add("hidden");
   };
 });
-$("#tbFullscreen").onclick = () => {
-  if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
-  else document.exitFullscreen?.();
+$("#tbFullscreen").onclick = async () => {
+  try {
+    if (!document.fullscreenElement) {
+      await document.documentElement.requestFullscreen?.();
+      document.body.classList.add("monitoring-mode");
+      $("#tbFullscreen").setAttribute("aria-pressed", "true");
+      $("#tbFullscreen").title = "Keluar dari mode monitoring";
+    } else {
+      await document.exitFullscreen?.();
+    }
+  } catch (error) {
+    // Fullscreen may be blocked by the browser; retain a useful CSS-only mode.
+    document.body.classList.toggle("monitoring-mode");
+  }
 };
+document.addEventListener("fullscreenchange", () => {
+  const active = Boolean(document.fullscreenElement);
+  document.body.classList.toggle("monitoring-mode", active);
+  $("#tbFullscreen")?.setAttribute("aria-pressed", String(active));
+  if (!active && $("#tbFullscreen")) $("#tbFullscreen").title = "Layar penuh";
+  setTimeout(() => {
+    try { map?.invalidateSize({ animate: false }); miniMap?.invalidateSize({ animate: false }); }
+    catch (error) { console.warn("Map resize after fullscreen change failed", error); }
+  }, 150);
+});
 $("#tbRefresh").onclick = () => {
   $("#liveText").textContent = "REFRESH…";
   load(true);
