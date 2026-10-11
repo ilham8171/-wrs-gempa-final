@@ -717,3 +717,40 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible { 
  .map-stats { bottom:calc(43dvh + 8px); } .v-toolbar { bottom:calc(43dvh + 48px); } .basemap-menu { bottom:calc(43dvh + 48px); }
 }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; animation-iteration-count:1!important; scroll-behavior:auto!important; } }
+
+
+/* Hotfix: the legend is moved into #rightPanel on mobile, so it must re-enter normal flex flow.
+   These rules intentionally override older fixed-position legend experiments above. */
+@media (max-width:900px) {
+  .left-bottom.legend-in-panel {
+    display:block !important;
+    position:relative !important;
+    inset:auto !important;
+    left:auto !important;
+    right:auto !important;
+    top:auto !important;
+    bottom:auto !important;
+    width:auto !important;
+    max-width:none !important;
+    max-height:none !important;
+    overflow:visible !important;
+    z-index:auto !important;
+    flex:0 0 auto;
+    margin:8px 12px 12px !important;
+    padding:12px !important;
+    background:rgba(15,25,43,.94) !important;
+    border-radius:14px !important;
+  }
+  .right-panel.sheet-collapsed .left-bottom.legend-in-panel {
+    display:none !important;
+  }
+  body.sheet-collapsed .map-stats {
+    bottom:calc(80px + env(safe-area-inset-bottom,0px)) !important;
+  }
+  body.sheet-collapsed .v-toolbar {
+    bottom:calc(80px + 48px + env(safe-area-inset-bottom,0px)) !important;
+  }
+  body.sheet-collapsed .basemap-menu {
+    bottom:calc(80px + 48px + env(safe-area-inset-bottom,0px)) !important;
+  }
+}
