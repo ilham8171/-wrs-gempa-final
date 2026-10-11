@@ -14,19 +14,7 @@ const BMKG = [
 /** GCS lebih stabil (data.bmkg.go.id sering 403 untuk .png/.jpg peta) */
 const SHAKEMAP_BASE = "https://bmkg-content-inatews.storage.googleapis.com/";
 
-const USGS =
-  "https://earthquake.usgs.gov/fdsnws/event/1/query?" +
-  new URLSearchParams({
-    format: "geojson",
-    starttime: new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 19),
-    minlatitude: "-11",
-    maxlatitude: "6.5",
-    minlongitude: "94",
-    maxlongitude: "141.5",
-    minmagnitude: "2",
-    orderby: "time",
-    limit: "150",
-  }).toString();
+const USGS = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson";
 
 const UA = {
   "User-Agent": "GempaMonitor/5.1 (educational; Netlify)",
@@ -242,20 +230,24 @@ function normUsgs(f) {
   if (!f?.geometry?.coordinates || !f?.properties) return null;
   const [lon, lat, dep] = f.geometry.coordinates;
   const magnitude = num(f.properties.mag);
-  if (!Number.isFinite(magnitude) || !Number.isFinite(lat) || !Number.isFinite(lon))
-    return null;
+  const tsunamiFlag = Number(f.properties.tsunami) === 1;
+  // Global feed: include worldwide M5+ events and USGS tsunami-flagged events.
+  if ((!Number.isFinite(magnitude) || magnitude < 5) && !tsunamiFlag) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
   return {
     key: "usgs|" + (f.id || f.properties.code || `${f.properties.time}`),
-    magnitude,
+    magnitude: Number.isFinite(magnitude) ? Math.round(magnitude * 10) / 10 : 0,
     lat,
     lon,
-    place: String(f.properties.place || "Indonesia").trim(),
+    place: String(f.properties.place || "Global earthquake").trim(),
     depth: dep != null ? String(Math.round(Number(dep) * 10) / 10) : "—",
     time: f.properties.time ? new Date(f.properties.time).toISOString() : "",
-    potential: "—",
+    potential: tsunamiFlag ? "USGS: event ditandai terkait tsunami — bukan otomatis peringatan aktif" : "—",
     felt: "",
     status: "USGS",
     source: "USGS",
+    usgsTsunamiFlag: tsunamiFlag,
+    detailUrl: String(f.properties.url || ""),
     shakemap: null,
   };
 }
