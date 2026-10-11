@@ -459,31 +459,28 @@ function updateStats(list) {
 function drawMarkers(force = false) {
   const list = getFilteredQuakes();
   updateStats(list);
-  // Avoid recreating hundreds of objects when only the clock/side panel changes.
   const fp = `${filterState.mag}|${filterState.age}|${filterState.source}|${filterState.depth}|${list.map(q => q.key).join(",")}`;
   if (!force && fp === lastRenderFingerprint) return;
   lastRenderFingerprint = fp;
   markers.clearLayers();
 
-  // Crisp diamond markers: magnitude controls size/color; depth controls border color.
-  // Cluster nearby events to keep dense areas readable on mobile.
+  // Kembalikan marker gempa ke bentuk lingkaran berwarna berdasarkan magnitudo.
+  // Event terbaru tetap diberi bintang merah berdenyut dan cincin pulse.
   const latestKey = list[0]?.key;
   list.slice(0, 800).forEach((q) => {
     const latest = q.key === latestKey;
     const fill = magColor(q.magnitude);
     const edge = depthColor(q.depth);
-    const size = latest ? 18 : Math.max(9, Math.min(16, Math.round(7 + Number(q.magnitude || 0) * 1.25)));
-    const icon = L.divIcon({
-      className: "quake-marker-wrap",
-      html: '<span class="quake-diamond' + (latest ? ' is-latest' : '') + '" style="--quake-fill:' + fill + ';--quake-edge:' + edge + ';--quake-size:' + size + 'px" aria-hidden="true"></span>',
-      iconSize: [size + 8, size + 8],
-      iconAnchor: [(size + 8) / 2, (size + 8) / 2]
-    });
-    const marker = L.marker([q.lat, q.lon], {
-      icon,
-      keyboard: true,
-      title: (latest ? "Gempa terbaru · " : "Gempa · ") + "M" + Number(q.magnitude).toFixed(1),
-      zIndexOffset: latest ? 1000 : 0
+    const size = radius(q.magnitude);
+
+    const marker = L.circleMarker([q.lat, q.lon], {
+      radius: size,
+      color: latest ? "#ffffff" : edge,
+      weight: latest ? 2.5 : 1.5,
+      opacity: 1,
+      fillColor: fill,
+      fillOpacity: 0.9,
+      bubblingMouseEvents: false,
     });
     marker.bindTooltip(
       '<b>M' + Number(q.magnitude).toFixed(1) + '</b> · kedalaman ' + q.depth + ' km<br><span style="opacity:.85">' + (q.place || "") + '</span>',
@@ -491,11 +488,39 @@ function drawMarkers(force = false) {
     );
     marker.on("click", () => openModal(q));
     marker.addTo(markers);
+
+    if (latest) {
+      const starIcon = L.divIcon({
+        className: "eq-star-marker",
+        html: '<span class="eq-star" aria-label="Gempa terbaru">★</span>',
+        iconSize: [38, 40],
+        iconAnchor: [19, 20],
+      });
+      L.marker([q.lat, q.lon], {
+        icon: starIcon,
+        keyboard: false,
+        interactive: false,
+        zIndexOffset: 3000,
+      }).addTo(markers);
+
+      // Pulse ring dibuat dengan SVG renderer agar animasinya berjalan stabil.
+      [12000, 24000].forEach((meters, index) => {
+        L.circle([q.lat, q.lon], {
+          radius: meters,
+          color: "#ff3030",
+          weight: 2,
+          opacity: 0.8,
+          fillColor: "#ff3030",
+          fillOpacity: 0.035,
+          interactive: false,
+          className: "eq-radius-ring",
+          renderer: L.svg(),
+        }).addTo(radiusLayer);
+      });
+    }
   });
-  // Pin lokasi user tetap di atas layer marker
   if (userLocation) updateUserMarker(false);
 }
-
 /** ID stabil event (abaikan magnitudo di key) supaya revisi parameter terdeteksi */
 function stableEventId(q) {
   if (!q) return "";
