@@ -2290,24 +2290,36 @@ $("#btnPush").onclick = async () => {
       return;
     }
 
-    // 3) Subscribe push
+    // 3) Ambil kunci server, lalu pastikan subscription memakai kunci yang sama.
+    let vapidPublicKey;
+    try {
+      const keyResponse = await fetch("/api/push-key", { cache: "no-store" });
+      const keyData = await keyResponse.json();
+      if (!keyResponse.ok || !keyData.publicKey) throw new Error("Kunci push server belum tersedia");
+      vapidPublicKey = keyData.publicKey;
+    } catch (keyErr) {
+      console.warn(keyErr);
+      $("#pushStatus").textContent = "Kunci notifikasi server belum siap. Coba lagi sebentar.";
+      return;
+    }
+
+    const expectedKey = urlBase64ToUint8Array(vapidPublicKey);
     let sub = await reg.pushManager.getSubscription();
-    if (!sub) {
-      let vapidPublicKey;
-      try {
-        const keyResponse = await fetch("/api/push-key", { cache: "no-store" });
-        const keyData = await keyResponse.json();
-        if (!keyResponse.ok || !keyData.publicKey) throw new Error("Kunci push server belum tersedia");
-        vapidPublicKey = keyData.publicKey;
-      } catch (keyErr) {
-        console.warn(keyErr);
-        $("#pushStatus").textContent = "Kunci notifikasi server belum siap. Coba lagi sebentar.";
-        return;
+    if (sub) {
+      const currentKey = sub.options?.applicationServerKey;
+      const currentBytes = currentKey ? new Uint8Array(currentKey) : new Uint8Array();
+      const sameKey = currentBytes.length === expectedKey.length &&
+        currentBytes.every((byte, index) => byte === expectedKey[index]);
+      if (!sameKey) {
+        await sub.unsubscribe().catch(() => false);
+        sub = null;
       }
+    }
+    if (!sub) {
       try {
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+          applicationServerKey: expectedKey,
         });
       } catch (subErr) {
         console.error(subErr);
