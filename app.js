@@ -1,6 +1,5 @@
 const API = "/api/earthquakes";
 const SUBSCRIBE_API = "/api/subscribe";
-const VAPID_PUBLIC_KEY = "BMqnAlvfTK-ZY0MbDNfZjlRTU3J4elbEiSGLXbyFudedq73wMmEVaRWhgSeBayi2dyWGO_GbJ3e7cjstITG4dHE";
 const NORMAL_INTERVAL = 15000;
 const currentInterval = () => NORMAL_INTERVAL;
 const SHAKEMAP_BASE = "https://bmkg-content-inatews.storage.googleapis.com/";
@@ -2294,10 +2293,21 @@ $("#btnPush").onclick = async () => {
     // 3) Subscribe push
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
+      let vapidPublicKey;
+      try {
+        const keyResponse = await fetch("/api/push-key", { cache: "no-store" });
+        const keyData = await keyResponse.json();
+        if (!keyResponse.ok || !keyData.publicKey) throw new Error("Kunci push server belum tersedia");
+        vapidPublicKey = keyData.publicKey;
+      } catch (keyErr) {
+        console.warn(keyErr);
+        $("#pushStatus").textContent = "Kunci notifikasi server belum siap. Coba lagi sebentar.";
+        return;
+      }
       try {
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
         });
       } catch (subErr) {
         console.error(subErr);
