@@ -1738,6 +1738,8 @@ function setWrsMode(mode) {
   try { localStorage.setItem("wrsModeV1", wrsMode); } catch {}
   updateModeButtons();
   if (wrsMode === "simulation") {
+    const testStatus = $("#wrsTestStatus");
+    if (testStatus) testStatus.textContent = "Mode Tes aktif · data uji saja";
     applySimulationMode();
     return;
   }
