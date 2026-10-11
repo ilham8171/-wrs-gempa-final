@@ -1,5 +1,5 @@
 const API = "/api/earthquakes";
-const SUBSCRIBE_API = "/.netlify/functions/subscribe";
+const SUBSCRIBE_API = "/api/subscribe";
 const VAPID_PUBLIC_KEY =
   "BMMLWEJGdS_HeyHwUWt9z6iswzec3RzLIXGWIrLmLa7xptYq4oLYFLiYlR-g0XE7rZJ4PFieSK9NRf-tOtKRmAA";
 const NORMAL_INTERVAL = 15000;
@@ -2308,7 +2308,7 @@ $("#btnPush").onclick = async () => {
       }
     }
 
-    // 4) Kirim ke server (Netlify Function + Blobs)
+    // 4) Simpan subscription ke Cloudflare Pages Function + KV
     let serverOk = false;
     try {
       const res = await fetch(SUBSCRIBE_API, {
@@ -2336,7 +2336,7 @@ $("#btnPush").onclick = async () => {
     try {
       await reg.showNotification("Notifikasi aktif", {
         body: serverOk
-          ? "Langganan push tersimpan. Pengiriman latar belakang tetap menunggu konfirmasi server."
+          ? "Langganan push tersimpan. Pengiriman latar belakang mengikuti status layanan WRS GEMPA."
           : "Izin perangkat aktif, tetapi langganan push belum tersimpan di server.",
         icon: "/icons/icon-192.png",
         tag: "wrs-test",
