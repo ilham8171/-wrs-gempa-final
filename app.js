@@ -274,27 +274,10 @@ function initMap() {
   const saved = localStorage.getItem("wrsBasemap") || "dark";
   setBasemap(saved);
 
-  const clusterOptions = {
-    chunkedLoading: true,
-    showCoverageOnHover: false,
-    spiderfyOnMaxZoom: true,
-    zoomToBoundsOnClick: true,
-    maxClusterRadius: 42,
-    iconCreateFunction(cluster) {
-      const count = cluster.getChildCount();
-      const level = count >= 100 ? "xl" : count >= 25 ? "lg" : "md";
-      return L.divIcon({
-        className: "quake-cluster-wrap",
-        html: '<span class="quake-cluster ' + level + '">' + (count > 999 ? "999+" : count) + '</span>',
-        iconSize: [38, 38],
-        iconAnchor: [19, 19]
-      });
-    }
-  };
-  markers = (typeof L.markerClusterGroup === "function"
-    ? L.markerClusterGroup(clusterOptions)
-    : L.layerGroup()).addTo(map);
-  // Radius/pulse rings are intentionally disabled for a cleaner, low-distraction map.
+  // Nonaktifkan cluster angka: tampilkan tiap gempa sebagai titik bulat berwarna.
+  // Ini mempertahankan tampilan titik individual seperti versi awal.
+  markers = L.layerGroup().addTo(map);
+  // Lapisan terpisah menjaga bintang terbaru dan cincin denyut selalu terlihat.
   radiusLayer = L.layerGroup().addTo(map);
   latestStarLayer = L.layerGroup().addTo(map);
 
