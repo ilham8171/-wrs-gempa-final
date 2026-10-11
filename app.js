@@ -819,9 +819,9 @@ async function loadUsgsProducts(q) {
   if (!box) return;
   const eventId = q.usgsEventId || q.eventid || String(q.key || "").replace(/^usgs\\|/, "");
   const endpoint = q.detailApiUrl || (eventId ? "https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/" + encodeURIComponent(eventId) + ".geojson" : "");
-  box.innerHTML = '<div style="font-weight:900;font-size:15px;margin-bottom:8px">PETA GUNCANGAN</div><p style="font-size:13px;opacity:.7">Memuat gambar peta…</p>';
+  box.innerHTML = '<div style="font-weight:900;font-size:16px">PETA GUNCANGAN</div><p style="font-size:13px;opacity:.75">Memuat gambar peta resmi…</p>';
   if (!endpoint) {
-    box.innerHTML = '<div style="font-weight:900;font-size:15px;margin-bottom:8px">PETA GUNCANGAN</div><p style="font-size:13px">Peta belum tersedia untuk kejadian ini.</p>';
+    box.innerHTML = '<div style="font-weight:900">PETA GUNCANGAN</div><p>Peta resmi belum tersedia untuk kejadian ini.</p>';
     return;
   }
   try {
@@ -829,45 +829,57 @@ async function loadUsgsProducts(q) {
     if (!response.ok) throw new Error("HTTP " + response.status);
     const feature = await response.json();
     if (document.getElementById("modalDetail")?.classList.contains("hidden") || window._modalQuake?.key !== q.key) return;
-    const products = feature?.properties?.products || {};
+    const p = feature?.properties || {};
+    const products = p.products || {};
     const shake = getPreferredUsgsProduct(products.shakemap);
     const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    const fmtDate = value => Number.isFinite(Number(value)) ? new Date(Number(value)).toLocaleString("id-ID",{timeZone:"Asia/Jakarta",dateStyle:"medium",timeStyle:"short"}) + " WIB" : "";
     const contents = shake?.contents || {};
-    const entries = Object.entries(contents).filter(([, item]) => item?.url);
-    // Pilih peta intensitas terlebih dahulu, lalu gambar ShakeMap lain yang tersedia.
-    const preferred = [
-      /download\\/(intensity|mmi)(\\.(jpg|jpeg|png))?$/i,
-      /download\\/(ii_thumbnail|pin-thumbnail)(\\.(jpg|jpeg|png))?$/i,
-      /download\\/(pga|pgv)(\\.(jpg|jpeg|png))?$/i,
-      /download\\/(psa3p0|psa1p0|psa0p6|psa0p3)(\\.(jpg|jpeg|png))?$/i
-    ];
-    const imageItems = [];
-    for (const pattern of preferred) {
-      const found = entries.find(([path, item]) => pattern.test(path) && /\\.(jpg|jpeg|png)$/i.test(path) && !imageItems.some(x => x.url === item.url));
-      if (found) imageItems.push({ path: found[0], url: found[1].url });
+    const entries = Object.entries(contents).filter(([,item]) => item?.url);
+    // Show image files inline, not raw download links. Put intensity/MMI first.
+    const priority = [/\\/(intensity|mmi)\\.(jpg|jpeg|png)$/i,/\\/(ii_thumbnail|pin-thumbnail)\\.(jpg|jpeg|png)$/i,/\\/(pga|pgv)\\.(jpg|jpeg|png)$/i,/\\/(psa3p0|psa1p0|psa0p6|psa0p3)\\.(jpg|jpeg|png)$/i];
+    const images = [];
+    for (const pattern of priority) {
+      for (const [path,item] of entries) {
+        if (pattern.test(path) && /\\.(jpg|jpeg|png)$/i.test(path) && !images.some(x=>x.url===item.url)) {
+          images.push({path,url:item.url});
+        }
+      }
     }
-    for (const [path, item] of entries) {
-      if (/\\.(jpg|jpeg|png)$/i.test(path) && !imageItems.some(x => x.url === item.url)) imageItems.push({ path, url: item.url });
+    for (const [path,item] of entries) {
+      if (/\\.(jpg|jpeg|png)$/i.test(path) && !images.some(x=>x.url===item.url)) images.push({path,url:item.url});
     }
-    let html = '<div style="font-weight:900;font-size:15px;margin-bottom:8px">PETA GUNCANGAN</div>';
-    if (imageItems.length) {
+    const eventUrl = p.url || q.detailUrl || ("https://earthquake.usgs.gov/earthquakes/eventpage/" + encodeURIComponent(feature?.id || eventId));
+    let html = '<div style="font-weight:900;font-size:16px;margin-bottom:10px">PETA GUNCANGAN</div>';
+    if (images.length) {
       html += '<div style="display:grid;grid-template-columns:minmax(0,1fr);gap:12px">';
-      imageItems.forEach(item => {
+      images.forEach(item => {
         const label = /intensity|mmi/i.test(item.path) ? "Peta intensitas guncangan (MMI)" :
-          /ii_thumbnail|pin-thumbnail/i.test(item.path) ? "Peta ringkasan guncangan" :
-          /pga/i.test(item.path) ? "Peta percepatan tanah (PGA)" :
-          /pgv/i.test(item.path) ? "Peta kecepatan tanah (PGV)" :
-          /psa/i.test(item.path) ? "Peta spektral (PSA)" : "Peta ShakeMap";
+          /ii_thumbnail|pin-thumbnail/i.test(item.path) ? "Ringkasan ShakeMap" :
+          /\\bpga\\b/i.test(item.path) ? "Peta percepatan tanah (PGA)" :
+          /\\bpgv\\b/i.test(item.path) ? "Peta kecepatan tanah (PGV)" :
+          /psa/i.test(item.path) ? "Peta spektral (PSA)" : "Produk peta ShakeMap";
         html += '<figure style="margin:0;padding:8px;border:1px solid var(--border,#cbd5e1);border-radius:10px">';
-        html += '<figcaption style="font-size:12px;font-weight:800;margin-bottom:7px">' + label + '</figcaption>';
-        html += '<a href="' + safe(item.url) + '" target="_blank" rel="noopener noreferrer"><img src="' + safe(item.url) + '" alt="' + label + '" loading="lazy" style="display:block;width:100%;height:auto;max-height:440px;object-fit:contain;background:#fff;border-radius:7px" onerror="this.closest(\'figure\')?.remove()"></a>';
-        html += '</figure>';
+        html += '<figcaption style="font-size:13px;font-weight:800;margin-bottom:7px">' + label + '</figcaption>';
+        html += '<a href="' + safe(item.url) + '" target="_blank" rel="noopener noreferrer"><img src="' + safe(item.url) + '" alt="' + label + '" loading="lazy" style="display:block;width:100%;height:auto;max-height:520px;object-fit:contain;background:#fff;border-radius:7px" onerror="this.closest(\'figure\')?.remove()"></a>';
+        html += '<div style="font-size:11px;opacity:.7;margin-top:5px">Ketuk gambar untuk membuka ukuran asli dan simpan gambar.</div></figure>';
       });
       html += '</div>';
-      html += '<p style="font-size:11px;line-height:1.45;opacity:.72;margin:8px 0 0">Sumber peta dan produk detail: USGS ShakeMap. Gambar dapat diketuk untuk dibuka atau disimpan. Peta merupakan estimasi ilmiah.</p>';
+      html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:8px">Sumber peta dan produk ShakeMap: USGS. Diperbarui ' + safe(fmtDate(shake.updateTime) || "mengikuti produk yang tersedia") + '. Peta adalah estimasi ilmiah, bukan pengukuran pasti di setiap lokasi.</div>';
     } else {
-      html += '<p style="font-size:13px;line-height:1.5">Peta guncangan belum tersedia dari USGS untuk kejadian ini.</p>';
+      html += '<p style="font-size:13px;line-height:1.5">USGS tidak menyediakan gambar ShakeMap untuk kejadian ini. WRS akan menampilkan peta hanya jika sumber resmi yang cocok dengan kejadian ini tersedia.</p>';
     }
+    const tsunami = getPreferredUsgsProduct(products["tsunami"]);
+    html += '<div style="margin-top:14px;padding:11px;border:1px solid var(--border,#cbd5e1);border-radius:9px">';
+    html += '<div style="font-weight:900;font-size:14px;margin-bottom:5px">STATUS & SARAN</div>';
+    if (tsunami) {
+      const desc = [tsunami.properties?.eventsource, tsunami.properties?.eventsourcecode, tsunami.properties?.reviewstatus].filter(Boolean).join(" · ");
+      html += '<div style="font-size:13px;line-height:1.5">USGS memiliki produk terkait tsunami untuk kejadian ini. Periksa pembaruan dan arahan otoritas resmi setempat sebelum mengambil keputusan.</div>';
+      if (desc) html += '<div style="font-size:11px;opacity:.7;margin-top:5px">' + safe(desc) + '</div>';
+    } else {
+      html += '<div style="font-size:13px;line-height:1.5">Tidak ditemukan produk peringatan tsunami dari USGS pada detail kejadian ini. Ini bukan konfirmasi bahwa ancaman tsunami tidak ada. Ikuti peringatan resmi dari otoritas wilayah terdampak.</div>';
+    }
+    html += '<div style="font-size:11px;opacity:.72;margin-top:7px">Sumber parameter, produk peta, dan informasi kejadian: USGS ComCat. <a href="' + safe(eventUrl) + '" target="_blank" rel="noopener noreferrer">Sumber resmi USGS ↗</a></div></div>';
     box.innerHTML = html;
   } catch (error) {
     if (window._modalQuake?.key !== q.key) return;
