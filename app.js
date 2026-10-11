@@ -2034,3 +2034,22 @@ function initMobileSheet() {
 }
 
 initMobileSheet();
+
+
+// Mobile page visibility can change Leaflet container dimensions. Recalculate both maps
+// after navigation so the mini earthquake map does not render as an empty rectangle.
+window.addEventListener("wrs:mobile-page-shown", () => {
+  window.setTimeout(() => {
+    try {
+      if (map) map.invalidateSize({ animate: false });
+      if (miniMap) {
+        miniMap.invalidateSize({ animate: false });
+        if (currentOfficial && Number.isFinite(currentOfficial.lat) && Number.isFinite(currentOfficial.lon)) {
+          miniMap.setView([currentOfficial.lat, currentOfficial.lon], 6, { animate: false });
+        }
+      }
+    } catch (error) {
+      console.warn("Map resize after mobile navigation failed", error);
+    }
+  }, 180);
+});
