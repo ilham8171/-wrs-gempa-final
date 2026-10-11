@@ -5,6 +5,20 @@ const BMKG_URLS = [
 ];
 const GCS = "https://bmkg-content-inatews.storage.googleapis.com";
 const USGS = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson";
+function usgsIndonesiaUrl() {
+  const starttime = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 19);
+  return "https://earthquake.usgs.gov/fdsnws/event/1/query?" + new URLSearchParams({
+    format: "geojson",
+    starttime,
+    minlatitude: "-11",
+    maxlatitude: "6.5",
+    minlongitude: "94",
+    maxlongitude: "141.5",
+    minmagnitude: "2",
+    orderby: "time",
+    limit: "150"
+  }).toString();
+}
 const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" };
 const num = v => { const n = Number(String(v ?? "").replace(/,/g, ".").trim()); return Number.isFinite(n) ? n : NaN; };
 function parseLat(v) {
@@ -48,11 +62,33 @@ function mapQL(f) {
   if (!Number.isFinite(mag)||!Number.isFinite(lat)||!Number.isFinite(lon)||mag<1.5) return null;
   return {key:"ql|"+String(p.id||p.time+"|"+lat+"|"+lon),magnitude:mag,lat,lon,place:String(p.place||"Indonesia"),depth:String(c[2]??p.depth??"—"),time:p.time?new Date(p.time).toISOString():"",potential:"—",felt:"",source:"InaTEWS",status:"M"};
 }
-function mapUSGS(f) {
+function mapUSGS(f, minimumMagnitude = 5) {
   const p=f?.properties||{}, c=f?.geometry?.coordinates||[], mag=num(p.mag), lon=num(c[0]), lat=num(c[1]), flag=Number(p.tsunami)===1;
-  if ((!Number.isFinite(mag)||mag<5)&&!flag) return null;
+  if ((!Number.isFinite(mag)||mag<minimumMagnitude)&&!flag) return null;
   if (!Number.isFinite(lat)||!Number.isFinite(lon)) return null;
-  return {key:"usgs|"+String(f.id||p.code||p.time),eventid:String(f.id||""),magnitude:Number.isFinite(mag)?mag:0,lat,lon,place:String(p.place||"Gempa global"),depth:String(c[2]??"—"),time:p.time?new Date(p.time).toISOString():"",potential:flag?"USGS menandai event terkait tsunami — periksa buletin resmi":"—",felt:"",source:"USGS",status:"USGS",official:false,usgsTsunamiFlag:flag,detailUrl:String(p.url||"")};
+  return {key:"usgs|"+String(f.id||p.code||p.time),eventid:String(f.id||""),magnitude:Number.isFinite(mag)?Math.round(mag*10)/10:0,lat,lon,place:String(p.place||"Gempa global"),depth:String(c[2]??"—"),time:p.time?new Date(p.time).toISOString():"",potential:flag?"USGS menandai event terkait tsunami — periksa buletin resmi":"—",felt:"",source:"USGS",status:"USGS",official:false,usgsTsunamiFlag:flag,eventUrl:String(p.url||""),detailUrl:String(p.detail||""),shakemap:null};
+}
+async function attachUSGSShakemaps(events) {
+  const indonesia = q => q.lat >= -11 && q.lat <= 6.5 && q.lon >= 94 && q.lon <= 141.5;
+  const candidates = events
+    .filter(q => q.source === "USGS" && q.detailUrl && q.magnitude >= 4)
+    .sort((a,b) => Number(indonesia(b))-Number(indonesia(a)) || b.magnitude-a.magnitude || new Date(b.time||0)-new Date(a.time||0))
+    .slice(0, 12);
+  await Promise.all(candidates.map(async q => {
+    try {
+      const detail = await getJson(q.detailUrl);
+      const products = detail?.properties?.products?.shakemap || [];
+      const product = products.find(p => p?.contents) || products[0];
+      const contents = product?.contents || {};
+      const image = contents["download/intensity.jpg"]?.url ||
+        contents["download/intensity.png"]?.url ||
+        contents["download/intensity.jpeg"]?.url;
+      if (image) {
+        q.shakemap = image;
+        q.shakemapSource = "USGS ShakeMap";
+      }
+    } catch (_) { /* ShakeMap is optional; keep the earthquake event. */ }
+  }));
 }
 function textBetween(xml, tag) {
   const re = new RegExp("<" + tag + "[^>]*>([\\s\\S]*?)</" + tag + ">", "i");
@@ -150,6 +186,7 @@ export async function onRequestGet() {
     ...BMKG_URLS.map(url=>getJson(url)),
     getJson(GCS+"/gempaQL.json"),
     getJson(USGS),
+    getJson(usgsIndonesiaUrl()),
     getText("https://cdn.bmkg.go.id/last30tsunamievent.xml")
   ]);
   const list=[];
@@ -162,9 +199,26 @@ export async function onRequestGet() {
   if(ql.status==="fulfilled") (ql.value.features||[]).forEach(f=>{const q=mapQL(f);if(q)list.push(q);});
   else errors.push("InaTEWS QL");
   const usgs=results[4];
-  if(usgs.status==="fulfilled") (usgs.value.features||[]).forEach(f=>{const q=mapUSGS(f);if(q)list.push(q);});
-  else errors.push("USGS");
-  const tsunami=results[5];
+  if(usgs.status==="fulfilled") (usgs.value.features||[]).forEach(f=>{const q=mapUSGS(f, 5);if(q)list.push(q);});
+  else errors.push("USGS global");
+  const usgsIndonesia=results[5];
+  if(usgsIndonesia.status==="fulfilled") (usgsIndonesia.value.features||[]).forEach(f=>{const q=mapUSGS(f, 2);if(q)list.push(q);});
+  else errors.push("USGS Indonesia");
+  await attachUSGSShakemaps(list);
+  // Jika event BMKG tidak menyediakan ShakeMap, gunakan peta USGS untuk event
+  // yang cocok secara waktu, magnitudo, dan lokasi; jangan mengubah sumber event.
+  for (const officialEvent of list.filter(q => q.official && !q.shakemap && Number.isFinite(q.lat) && Number.isFinite(q.lon))) {
+    const match = list.find(q => q.source === "USGS" && q.shakemap &&
+      Number.isFinite(new Date(q.time).getTime()) && Number.isFinite(new Date(officialEvent.time).getTime()) &&
+      Math.abs(new Date(q.time).getTime() - new Date(officialEvent.time).getTime()) <= 5 * 60 * 1000 &&
+      Math.abs(q.magnitude - officialEvent.magnitude) <= 0.6 &&
+      Math.abs(q.lat - officialEvent.lat) <= 0.8 && Math.abs(q.lon - officialEvent.lon) <= 0.8);
+    if (match) {
+      officialEvent.shakemap = match.shakemap;
+      officialEvent.shakemapSource = "USGS ShakeMap (fallback)";
+    }
+  }
+  const tsunami=results[6];
   const tsunamiHistory=tsunami.status==="fulfilled" ? parseTsunamiCapXml(tsunami.value) : [];
   if(tsunami.status!=="fulfilled") errors.push("InaTEWS tsunami");
   const byKey=new Map(), signatures=new Set();
@@ -174,5 +228,5 @@ export async function onRequestGet() {
   });
   const recent=[...byKey.values()].sort((a,b)=>new Date(b.time||0)-new Date(a.time||0)).slice(0,800);
   const official=recent.find(q=>q.official)||null;
-  return new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:15,latest:recent[0]||null,official,recent,count:recent.length,tsunamiHistory,sources:{public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:ql.status==="fulfilled"?(ql.value.features||[]).length:0,usgs:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
+  return new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:15,latest:recent[0]||null,official,recent,count:recent.length,tsunamiHistory,sources:{public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:ql.status==="fulfilled"?(ql.value.features||[]).length:0,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
 }

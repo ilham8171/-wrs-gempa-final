@@ -1,7 +1,5 @@
 const API = "/api/earthquakes";
-const SUBSCRIBE_API = "/.netlify/functions/subscribe";
-const VAPID_PUBLIC_KEY =
-  "BMMLWEJGdS_HeyHwUWt9z6iswzec3RzLIXGWIrLmLa7xptYq4oLYFLiYlR-g0XE7rZJ4PFieSK9NRf-tOtKRmAA";
+const SUBSCRIBE_API = "/api/subscribe";
 const NORMAL_INTERVAL = 15000;
 const currentInterval = () => NORMAL_INTERVAL;
 const SHAKEMAP_BASE = "https://bmkg-content-inatews.storage.googleapis.com/";
@@ -2292,13 +2290,36 @@ $("#btnPush").onclick = async () => {
       return;
     }
 
-    // 3) Subscribe push
+    // 3) Ambil kunci server, lalu pastikan subscription memakai kunci yang sama.
+    let vapidPublicKey;
+    try {
+      const keyResponse = await fetch("/api/push-key", { cache: "no-store" });
+      const keyData = await keyResponse.json();
+      if (!keyResponse.ok || !keyData.publicKey) throw new Error("Kunci push server belum tersedia");
+      vapidPublicKey = keyData.publicKey;
+    } catch (keyErr) {
+      console.warn(keyErr);
+      $("#pushStatus").textContent = "Kunci notifikasi server belum siap. Coba lagi sebentar.";
+      return;
+    }
+
+    const expectedKey = urlBase64ToUint8Array(vapidPublicKey);
     let sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      const currentKey = sub.options?.applicationServerKey;
+      const currentBytes = currentKey ? new Uint8Array(currentKey) : new Uint8Array();
+      const sameKey = currentBytes.length === expectedKey.length &&
+        currentBytes.every((byte, index) => byte === expectedKey[index]);
+      if (!sameKey) {
+        await sub.unsubscribe().catch(() => false);
+        sub = null;
+      }
+    }
     if (!sub) {
       try {
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+          applicationServerKey: expectedKey,
         });
       } catch (subErr) {
         console.error(subErr);
@@ -2308,7 +2329,7 @@ $("#btnPush").onclick = async () => {
       }
     }
 
-    // 4) Kirim ke server (Netlify Function + Blobs)
+    // 4) Simpan subscription ke Cloudflare Pages Function + KV
     let serverOk = false;
     try {
       const res = await fetch(SUBSCRIBE_API, {
@@ -2336,7 +2357,7 @@ $("#btnPush").onclick = async () => {
     try {
       await reg.showNotification("Notifikasi aktif", {
         body: serverOk
-          ? "Langganan push tersimpan. Pengiriman latar belakang tetap menunggu konfirmasi server."
+          ? "Langganan push tersimpan. Pengiriman latar belakang mengikuti status layanan WRS GEMPA."
           : "Izin perangkat aktif, tetapi langganan push belum tersimpan di server.",
         icon: "/icons/icon-192.png",
         tag: "wrs-test",
