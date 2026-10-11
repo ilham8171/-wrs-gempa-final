@@ -1289,7 +1289,14 @@ function processNew() {
     saveParamCache();
   }
   showPopup(q);
-  if (Number.isFinite(q.lat)) map.flyTo([q.lat, q.lon], 7, { duration: 0.6 });
+  if (Number.isFinite(q.lat) && Number.isFinite(q.lon)) {
+    map.flyTo([q.lat, q.lon], 7, { duration: 0.8 });
+    const highlight = L.circleMarker([q.lat, q.lon], {
+      radius: 20, color: "#ffffff", weight: 3, fillColor: "#22d3ee", fillOpacity: 0.16,
+      className: "quake-new-event-highlight"
+    }).addTo(map);
+    setTimeout(() => { try { map.removeLayer(highlight); } catch {} }, 10000);
+  }
 
   if (isTsunamiPotential(q.potential)) {
     openTsunamiModal(q);
@@ -1359,11 +1366,32 @@ async function load(showSpin) {
     const params = new URLSearchParams(window.location.search);
     const requestedKey = params.get("quake");
     if (requestedKey && !window.__wrsHandledQuakeDeepLink) {
-      const target = quakes.find((q) => String(q.key || "") === requestedKey);
+      const paramsLat = Number(params.get("lat"));
+      const paramsLon = Number(params.get("lon"));
+      const paramsMag = Number(params.get("mag"));
+      const paramsTime = params.get("time");
+      const target = quakes.find((q) => String(q.key || "") === requestedKey) ||
+        quakes.find((q) => Number.isFinite(paramsLat) && Number.isFinite(paramsLon) &&
+          Math.abs(Number(q.lat) - paramsLat) < 0.08 && Math.abs(Number(q.lon) - paramsLon) < 0.08 &&
+          (!Number.isFinite(paramsMag) || Math.abs(Number(q.magnitude) - paramsMag) < 0.2) &&
+          (!paramsTime || Math.abs(new Date(q.time).getTime() - new Date(paramsTime).getTime()) < 6 * 3600000));
       if (target) {
         window.__wrsHandledQuakeDeepLink = true;
-        if (Number.isFinite(target.lat) && Number.isFinite(target.lon)) map?.flyTo([target.lat, target.lon], 8, { duration: 0.8 });
+        if (Number.isFinite(target.lat) && Number.isFinite(target.lon)) {
+          map?.flyTo([target.lat, target.lon], 8, { duration: 0.8 });
+          const marker = L.circleMarker([target.lat, target.lon], {
+            radius: 22, color: "#ffffff", weight: 3, fillColor: "#38bdf8", fillOpacity: 0.18,
+            className: "quake-deeplink-highlight"
+          }).addTo(map);
+          setTimeout(() => { try { map.removeLayer(marker); } catch {} }, 12000);
+        }
         openModal(target);
+      } else if (requestedKey && !window.__wrsDeepLinkRetry) {
+        window.__wrsDeepLinkRetry = setTimeout(() => {
+          window.__wrsHandledQuakeDeepLink = false;
+          window.__wrsDeepLinkRetry = null;
+          load(false);
+        }, 2500);
       }
     }
   } catch (e) {
@@ -1602,15 +1630,48 @@ function buildShareText(q) {
 
 async function shareQuake(q) {
   if (!q) return;
-  const text = buildShareText(q);
+  const text = buildShareText(q) + (Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon))
+    ? "\nPeta titik gempa: https://www.openstreetmap.org/?mlat=" + encodeURIComponent(q.lat) + "&mlon=" + encodeURIComponent(q.lon) + "#map=7/" + encodeURIComponent(q.lat) + "/" + encodeURIComponent(q.lon)
+    : "");
+  // On browsers that support file sharing, share the same map card used by Save PNG.
+  if (navigator.share && navigator.canShare && typeof html2canvas === "function") {
+    let exportEl = null;
+    try {
+      exportEl = buildExportCard(q);
+      const imgs = [...exportEl.querySelectorAll("img")];
+      await Promise.all(imgs.map(img => new Promise(resolve => {
+        if (img.complete && img.naturalWidth > 0) return resolve();
+        img.onload = resolve; img.onerror = resolve; setTimeout(resolve, 3500);
+      })));
+      const canvas = await html2canvas(exportEl, {
+        backgroundColor: "#f8fafc", scale: 2, useCORS: true, allowTaint: false,
+        logging: false, width: exportEl.offsetWidth, height: exportEl.scrollHeight
+      });
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      if (blob) {
+        const file = new File([blob], "info-gempa-M" + Number(q.magnitude).toFixed(1) + ".png", { type: "image/png" });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ title: "Info Gempa M" + Number(q.magnitude).toFixed(1), text, files: [file] });
+          return;
+        }
+      }
+    } catch (err) {
+      // Sharing may be cancelled or file sharing may not be supported; continue with text fallback.
+      if (err?.name === "AbortError") return;
+      console.warn("Share gambar tidak tersedia, beralih ke teks", err);
+    } finally {
+      exportEl?.remove();
+    }
+  }
   if (navigator.share) {
-    try { await navigator.share({ title: `Gempa M${q.magnitude.toFixed(1)}`, text }); return; } catch {}
+    try { await navigator.share({ title: "Gempa M" + Number(q.magnitude).toFixed(1), text }); return; }
+    catch (err) { if (err?.name === "AbortError") return; }
   }
   try {
     await navigator.clipboard.writeText(text);
-    alert("Teks info gempa disalin ke clipboard.");
+    alert("Info gempa dan tautan peta episenter disalin.");
   } catch {
-    prompt("Salin teks ini:", text);
+    prompt("Salin info gempa dan tautan peta episenter ini:", text);
   }
 }
 
@@ -1648,6 +1709,20 @@ function buildExportCard(q) {
   if (q.wzmap) maps.push({ label: "Warning Zone", url: q.wzmap });
   if (q.ttmap) maps.push({ label: "Estimasi tiba tsunami", url: q.ttmap });
 
+  const hasCoords = Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon));
+  const epicenterMapUrl = hasCoords
+    ? "https://staticmap.openstreetmap.de/staticmap.php?center=" +
+      encodeURIComponent(Number(q.lat) + "," + Number(q.lon)) +
+      "&zoom=6&size=488x220&maptype=mapnik&markers=" +
+      encodeURIComponent(Number(q.lat) + "," + Number(q.lon) + ",red-pushpin")
+    : "";
+  const epicenterMapHtml = hasCoords
+    ? '<div style="margin:12px 0 14px;border:1px solid #cbd5e1;border-radius:9px;overflow:hidden;background:#e2e8f0">' +
+      '<div style="padding:8px 10px;background:#e2e8f0;color:#334155;font-size:11px;font-weight:800">PETA TITIK PUSAT GEMPA</div>' +
+      '<img src="' + epicenterMapUrl + '" crossorigin="anonymous" alt="Peta lokasi pusat gempa" style="width:100%;height:220px;object-fit:cover;display:block;background:#e2e8f0" />' +
+      '<div style="padding:6px 10px;background:#f8fafc;color:#475569;font-size:10px">Titik merah menunjukkan koordinat episenter · © OpenStreetMap</div></div>'
+    : '<div style="margin:12px 0;padding:10px;background:#fff7ed;color:#9a3412;border-radius:8px;font-size:11px">Peta episenter tidak tersedia karena koordinat tidak ada pada data.</div>';
+
   const mapsHtml = maps
     .map(
       (m) =>
@@ -1667,6 +1742,7 @@ function buildExportCard(q) {
       <div style="width:48px;height:48px;border-radius:50%;background:#fff;border:2px solid #0c4a6e;display:grid;place-items:center;font-size:10px;font-weight:900;color:#0c4a6e">BMKG</div>
     </div>
     <div style="padding:14px 16px;font-size:13px;line-height:1.55;color:#1e293b">
+      ${epicenterMapHtml}
       <div style="margin:6px 0"><b>Lokasi:</b> ${q.place || "—"}</div>
       <div style="margin:6px 0"><b>Koordinat:</b> ${typeof fmtCoord === "function" ? fmtCoord(q) : (q.lat + ", " + q.lon)}</div>
       <div style="margin:6px 0"><b>Kedalaman:</b> ${q.depth} km</div>
