@@ -1253,9 +1253,13 @@ body.battery-saver *,body.battery-saver *::before,body.battery-saver *::after{sc
 .wrs-test-tools{margin-top:9px;padding:9px;border:1px solid rgba(251,191,36,.3);border-radius:10px;background:rgba(66,42,10,.22)}
 .wrs-test-status{font-size:10px;font-weight:850;line-height:1.45;color:#fde68a;margin-bottom:8px}
 .wrs-test-actions{display:grid;grid-template-columns:1fr 1fr;gap:5px}
-.wrs-test-actions button{min-height:32px;border:1px solid rgba(125,211,252,.28);border-radius:7px;padding:7px 6px;background:rgba(8,47,73,.55);color:#dbeafe;font:750 10px/1.2 system-ui,sans-serif;cursor:pointer}
-.wrs-test-actions button:last-child{grid-column:1/-1;background:rgba(51,65,85,.45);color:#cbd5e1}
+.wrs-test-actions button{min-height:34px;border:1px solid rgba(125,211,252,.28);border-radius:7px;padding:7px 6px;background:rgba(8,47,73,.55);color:#dbeafe;font:750 10px/1.2 system-ui,sans-serif;cursor:pointer}
+.wrs-test-actions button:disabled{opacity:.45;cursor:not-allowed}
+.wrs-test-actions button:nth-child(1){background:rgba(127,29,29,.6);border-color:rgba(248,113,113,.5);color:#fee2e2}
+.wrs-test-actions button:nth-child(5){background:rgba(51,65,85,.55);color:#e2e8f0}
+.wrs-test-actions button:nth-child(n+6){background:rgba(51,65,85,.45);color:#cbd5e1}
 .wrs-test-actions button:active{transform:scale(.98)}
+.wrs-test-actions button[aria-pressed="true"]{border-color:rgba(251,191,36,.7);color:#fde68a;background:rgba(120,53,15,.45)}
 .wrs-test-actions button:focus-visible{outline:2px solid #67e8f9;outline-offset:2px}
 .wrs-test-log{display:grid;gap:4px;margin-top:8px;font-size:10px;line-height:1.4;color:#cbd5e1}
 .wrs-test-log-row{padding:5px 6px;border-radius:6px;background:rgba(15,23,42,.62);overflow-wrap:anywhere}
