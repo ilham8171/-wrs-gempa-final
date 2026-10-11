@@ -1235,3 +1235,12 @@ body.battery-saver *,body.battery-saver *::before,body.battery-saver *::after{sc
 .hist-actions .hist-action-share{border-color:#4f46e5;color:#c7d2fe}
 .hist-actions button:active{transform:scale(.97)}
 @media(max-width:700px){.hist-actions{flex-wrap:wrap}.hist-actions button{padding:5px 6px;font-size:10px}}
+
+/* WRS mode selector: operational data and clearly labelled test simulation. */
+.wrs-mode-switch{position:fixed;z-index:625;top:52px;left:50%;transform:translateX(-50%);display:flex;gap:5px;padding:4px;border:1px solid rgba(100,205,240,.22);border-radius:11px;background:rgba(5,14,27,.94);box-shadow:0 6px 20px rgba(0,0,0,.24);backdrop-filter:blur(12px)}
+.wrs-mode-switch button{border:1px solid transparent;border-radius:8px;padding:7px 11px;background:transparent;color:#9bb0c8;font:750 10px/1.2 system-ui,sans-serif;white-space:nowrap;cursor:pointer}
+.wrs-mode-switch button.active[data-wrs-mode="operational"]{color:#a7f3d0;background:rgba(6,95,70,.34);border-color:rgba(52,211,153,.42)}
+.wrs-mode-switch button.active[data-wrs-mode="simulation"]{color:#fde68a;background:rgba(146,64,14,.35);border-color:rgba(251,191,36,.45)}
+.wrs-mode-switch button:focus-visible{outline:2px solid #67e8f9;outline-offset:2px}
+@media(max-width:900px){.wrs-mode-switch{top:calc(43px + env(safe-area-inset-top,0px));gap:3px;padding:3px}.wrs-mode-switch button{padding:6px 9px;font-size:9px}}
+@media(max-width:560px){.wrs-mode-switch{top:calc(42px + env(safe-area-inset-top,0px));left:50%;max-width:calc(100vw - 20px)}}
