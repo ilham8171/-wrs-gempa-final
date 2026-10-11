@@ -145,10 +145,26 @@
           <option value="maluku">Laut Seram, Maluku</option>
           <option value="jawa">Samudra Hindia selatan Jawa</option>
         </select>
-        <label class="wrs-test-check"><input type="checkbox" id="wrsTestTsunami"> Sertakan peringatan tsunami simulasi</label>
+        <label for="wrsTestScenarioType">Jenis skenario latihan</label>
+        <select id="wrsTestScenarioType">
+          <option value="staged" selected>Gempa bertahap → gempa besar</option>
+          <option value="major">Gempa besar dan susulan</option>
+          <option value="tsunami">Gempa besar → tsunami simulasi</option>
+          <option value="aftershocks">Gempa utama → beberapa susulan</option>
+        </select>
+        <label for="wrsTestSpeed">Kecepatan rangkaian</label>
+        <select id="wrsTestSpeed">
+          <option value="slow">Pelan · 15 detik/tahap</option>
+          <option value="normal" selected>Normal · 8 detik/tahap</option>
+          <option value="fast">Cepat · 4 detik/tahap</option>
+        </select>
       </div>
       <div class="wrs-test-actions">
-        <button type="button" id="btnWrsTestQuake">▶ Jalankan skenario</button>
+        <button type="button" id="btnWrsTestQuake">▶ Mulai otomatis</button>
+        <button type="button" id="btnWrsTestPause" disabled>Ⅱ Jeda</button>
+        <button type="button" id="btnWrsTestNext">⏭ Berikutnya</button>
+        <button type="button" id="btnWrsTestRepeat" aria-pressed="false">🔁 Ulang: OFF</button>
+        <button type="button" id="btnWrsTestStop">■ Hentikan</button>
         <button type="button" id="btnWrsTestComm">Tes komunikasi API</button>
         <button type="button" id="btnWrsTestReset">Reset skenario</button>
       </div>
