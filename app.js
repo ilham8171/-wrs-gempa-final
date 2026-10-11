@@ -463,7 +463,8 @@ function drawMarkers(force = false) {
 
   // Kembalikan marker gempa ke bentuk lingkaran berwarna berdasarkan magnitudo.
   // Event terbaru tetap diberi bintang merah berdenyut dan cincin pulse.
-  const latestKey = list[0]?.key;
+  const preferredLatest = filterState.source === "ALL" ? primaryRealtimeQuake() : list[0];
+  const latestKey = preferredLatest?.key || list[0]?.key;
   list.slice(0, 800).forEach((q) => {
     const latest = q.key === latestKey;
     const fill = magColor(q.magnitude);
@@ -619,6 +620,11 @@ function showRealtimeUpdate(info) {
   showRealtimeUpdate._t = setTimeout(() => {
     if (!info.significant) el.classList.add("hidden");
   }, 120000);
+}
+
+function primaryRealtimeQuake() {
+  const valid = q => q && Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon));
+  return valid(currentOfficial) ? currentOfficial : quakes[0] || null;
 }
 
 function renderRealtime(q) {
@@ -1235,7 +1241,7 @@ function updateUserMarker(fly) {
 function updateRealtimeDistance() {
   const el = $("#rtDist");
   if (!el) return;
-  const q = quakes[0];
+  const q = primaryRealtimeQuake();
   if (userLocation && q && Number.isFinite(q.lat) && Number.isFinite(q.lon)) {
     const km = haversineKm(userLocation.lat, userLocation.lon, q.lat, q.lon);
     const dist =
@@ -1257,7 +1263,8 @@ function activateLocation(showAlert) {
     updateUserMarker(true);
     setLocStatus(true, `Lokasi · ${userLocation.lat.toFixed(3)}°, ${userLocation.lon.toFixed(3)}°`);
     if (window._modalQuake) updatePopupDistance(window._modalQuake);
-    if (quakes[0]) updatePopupDistance(quakes[0]);
+    const primary = primaryRealtimeQuake();
+    if (primary) updatePopupDistance(primary);
     return;
   }
   if (!navigator.geolocation) {
@@ -1493,7 +1500,7 @@ function processNew() {
   }
 
   // Deteksi revisi parameter pada event yang sudah dikenal (prioritas gempa realtime terbaru)
-  const top = quakes[0];
+  const top = primaryRealtimeQuake();
   if (top) {
     const rev = detectRevision(top);
     if (rev) {
@@ -1622,7 +1629,10 @@ async function load(showSpin) {
     // Saat pertama kali dibuka, pusatkan peta tepat pada marker event terbaru
     // yang ditampilkan di daftar/peta. Jangan mengganggu posisi pengguna saat refresh berikutnya.
     if (!window.__wrsInitialMapCentered && map) {
-      const focus = quakes.find(q => Number.isFinite(q.lat) && Number.isFinite(q.lon));
+      const preferred = d.official || quakes[0];
+      const focus = preferred && Number.isFinite(Number(preferred.lat)) && Number.isFinite(Number(preferred.lon))
+        ? preferred
+        : quakes.find(q => Number.isFinite(q.lat) && Number.isFinite(q.lon));
       if (focus) {
         map.setView([focus.lat, focus.lon], Math.max(map.getZoom(), 6), { animate: false });
         window.__wrsInitialMapCentered = true;
@@ -1642,9 +1652,10 @@ async function load(showSpin) {
     if (s.usgs != null) sourceSummary.push(`USGS ${s.usgs}`);
     $("#srcCount").textContent = sourceSummary.join(" · ");
 
-    if (quakes[0]) renderRealtime(quakes[0]);
     const off = d.official || quakes.find((q) => q.official) || quakes[0];
     if (off) renderOfficial(off);
+    const primary = primaryRealtimeQuake();
+    if (primary) renderRealtime(primary);
 
     if (oldFingerprint !== newFingerprint || showSpin) drawMarkers(true);
     else updateStats(getFilteredQuakes());
@@ -2461,7 +2472,8 @@ setInterval(() => {
     day: "numeric", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit", second: "2-digit",
   });
-  if (quakes[0]) $("#rtAgo").textContent = timeAgo(quakes[0]);
+  const primary = primaryRealtimeQuake();
+  if (primary) $("#rtAgo").textContent = timeAgo(primary);
 }, 1000);
 
 if ("speechSynthesis" in window) {
