@@ -30,10 +30,10 @@ function mapPublic(raw) {
   let shakemap = raw.Shakemap ?? raw.shakemap ?? null;
   if (shakemap) {
     shakemap = String(shakemap).trim();
-    if (/^https?:\\/\\//i.test(shakemap)) shakemap = shakemap.replace(/^https?:\\/\\/data\\.bmkg\\.go\\.id\\/DataMKG\\/TEWS\\//i, GCS + "/");
-    else shakemap = GCS + "/" + shakemap.replace(/^\\/+/, "");
+    if (/^https?:\/\//i.test(shakemap)) shakemap = shakemap.replace(/^https?:\/\/data\.bmkg\.go\.id\/DataMKG\/TEWS\//i, GCS + "/");
+    else shakemap = GCS + "/" + shakemap.replace(/^\/+/, "");
   } else if (time) {
-    const digits = time.replace(/\\D/g, "");
+    const digits = time.replace(/\D/g, "");
     if (digits.length >= 14) shakemap = GCS + "/" + digits.slice(0,14) + ".mmi.jpg";
   }
   return { key:"bmkg|"+(time || raw.Tanggal+"|"+raw.Jam+"|"+mag), magnitude:mag, lat:Number.isFinite(lat)?lat:null, lon:Number.isFinite(lon)?lon:null, place:String(raw.Wilayah || "Indonesia"), depth:String(raw.Kedalaman || "—").match(/[0-9]+(?:[.,][0-9]+)?/)?.[0] || "—", time, potential:String(raw.Potensi || "—"), felt:String(raw.Dirasakan || ""), source:"BMKG", status:"BMKG", official:true, shakemap };
