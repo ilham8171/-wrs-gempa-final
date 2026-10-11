@@ -1883,7 +1883,7 @@ $("#btnPush").onclick = async () => {
 
     if (serverOk) {
       $("#btnPush")?.classList.add("on");
-      $("#pushStatus").textContent = "Notif · aktif (latar belakang)";
+      $("#pushStatus").textContent = "Push tersimpan · pengiriman belum diuji";
     } else {
       $("#btnPush")?.classList.add("on");
       // pesan server sudah diisi di atas jika gagal
