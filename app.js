@@ -2523,6 +2523,8 @@ function scheduleRefresh() {
     scheduleRefresh();
   }, currentInterval());
 }
+updateModeButtons();
+if (wrsMode === "simulation") applySimulationMode();
 scheduleRefresh();
 setInterval(() => {
   $("#clock").textContent = new Date().toLocaleString("id-ID", {
