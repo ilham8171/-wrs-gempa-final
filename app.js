@@ -817,11 +817,11 @@ async function loadUsgsProducts(q) {
   if (q?.source !== "USGS" && !String(q?.key || "").startsWith("usgs|")) return;
   const box = ensureUsgsProductsBox();
   if (!box) return;
-  const eventId = q.usgsEventId || q.eventid || String(q.key || "").replace(/^usgs\|/, "");
+  const eventId = q.usgsEventId || q.eventid || String(q.key || "").replace(/^usgs\\|/, "");
   const endpoint = q.detailApiUrl || (eventId ? "https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/" + encodeURIComponent(eventId) + ".geojson" : "");
-  box.innerHTML = '<div style="font-weight:900;font-size:16px">PETA GUNCANGAN</div><p style="font-size:13px;opacity:.75">Memuat gambar peta resmi…</p>';
+  box.innerHTML = '<div style="font-weight:900;font-size:16px;margin-bottom:8px">PETA GUNCANGAN</div><p style="font-size:13px;opacity:.75">Memuat peta intensitas MMI…</p>';
   if (!endpoint) {
-    box.innerHTML = '<div style="font-weight:900">PETA GUNCANGAN</div><p>Peta resmi belum tersedia untuk kejadian ini.</p>';
+    box.innerHTML = '<div style="font-weight:900">PETA GUNCANGAN</div><p>Peta intensitas MMI belum tersedia untuk kejadian ini.</p>';
     return;
   }
   try {
@@ -835,58 +835,37 @@ async function loadUsgsProducts(q) {
     const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
     const contents = shake?.contents || {};
     const entries = Object.entries(contents).filter(([, item]) => item?.url);
-    // Utamakan peta intensitas, lalu tampilkan gambar ShakeMap lain sebagai galeri.
-    const priority = [
-      /\/(intensity|mmi)\.(jpg|jpeg|png)$/i,
-      /\/(ii_thumbnail|pin-thumbnail)\.(jpg|jpeg|png)$/i,
-      /\/(pga|pgv)\.(jpg|jpeg|png)$/i,
-      /\/(psa3p0|psa1p0|psa0p6|psa0p3)\.(jpg|jpeg|png)$/i
-    ];
-    const images = [];
-    for (const pattern of priority) {
-      for (const [path, item] of entries) {
-        if (pattern.test(path) && /\.(jpg|jpeg|png)$/i.test(path) && !images.some(x => x.url === item.url)) {
-          images.push({ path, url: item.url });
-        }
-      }
-    }
-    for (const [path, item] of entries) {
-      if (/\.(jpg|jpeg|png)$/i.test(path) && !images.some(x => x.url === item.url)) images.push({ path, url: item.url });
-    }
+    // Hanya tampilkan peta intensitas MMI. Jangan tampilkan PGA/PGV/PSA atau tautan produk teknis.
+    const mmiEntry = entries.find(([path]) => /(?:^|\\/)(?:intensity|mmi)\\.(?:jpg|jpeg|png)$/i.test(path))
+      || entries.find(([path]) => /(?:^|\\/)(?:intensity|mmi)[^/]*\\.(?:jpg|jpeg|png)$/i.test(path));
     const eventUrl = p.url || q.detailUrl || ("https://earthquake.usgs.gov/earthquakes/eventpage/" + encodeURIComponent(feature?.id || eventId));
-    let html = '<div style="font-weight:900;font-size:16px;margin-bottom:10px">PETA GUNCANGAN</div>';
-    if (images.length) {
-      html += '<div style="display:grid;grid-template-columns:minmax(0,1fr);gap:12px">';
-      images.forEach(item => {
-        const label = /intensity|mmi/i.test(item.path) ? "Peta intensitas guncangan (MMI)" :
-          /ii_thumbnail|pin-thumbnail/i.test(item.path) ? "Ringkasan ShakeMap" :
-          /(^|\/)pga[^/]*\.(jpg|jpeg|png)$/i.test(item.path) ? "Peta percepatan tanah (PGA)" :
-          /(^|\/)pgv[^/]*\.(jpg|jpeg|png)$/i.test(item.path) ? "Peta kecepatan tanah (PGV)" :
-          /psa/i.test(item.path) ? "Peta spektral (PSA)" : "Produk gambar ShakeMap";
-        html += '<figure style="margin:0;padding:8px;border:1px solid var(--border,#cbd5e1);border-radius:10px">';
-        html += '<figcaption style="font-size:13px;font-weight:800;margin-bottom:7px">' + label + '</figcaption>';
-        html += '<a href="' + safe(item.url) + '" target="_blank" rel="noopener noreferrer"><img src="' + safe(item.url) + '" alt="' + label + '" loading="lazy" style="display:block;width:100%;height:auto;max-height:520px;object-fit:contain;background:#fff;border-radius:7px" onerror="this.closest(\'figure\')?.remove()"></a>';
-        html += '<div style="font-size:11px;opacity:.7;margin-top:5px">Ketuk gambar untuk membuka ukuran asli dan simpan gambar.</div></figure>';
-      });
-      html += '</div>';
-      html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:8px">Sumber peta ShakeMap: USGS. Gambar lain tersedia sesuai produk kejadian ini. Estimasi guncangan bukan pengukuran pasti di setiap lokasi.</div>';
+    let html = '<div style="font-weight:900;font-size:16px;margin-bottom:8px">PETA INTENSITAS GUNCANGAN (MMI)</div>';
+    if (mmiEntry) {
+      const imageUrl = mmiEntry[1].url;
+      html += '<figure style="margin:0"><a href="' + safe(imageUrl) + '" target="_blank" rel="noopener noreferrer"><img src="' + safe(imageUrl) + '" alt="Peta intensitas guncangan MMI" loading="lazy" style="display:block;width:100%;height:auto;max-height:520px;object-fit:contain;background:#fff;border-radius:8px" onerror="this.closest(\'figure\')?.classList.add(\'hidden\')"></a></figure>';
+      html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:7px">Sumber peta intensitas MMI: USGS ShakeMap. Ketuk gambar untuk membuka gambar asli. Intensitas merupakan estimasi ilmiah, bukan pengukuran pasti di setiap lokasi.</div>';
     } else {
-      html += '<p style="font-size:13px;line-height:1.5">Peta ShakeMap belum tersedia untuk kejadian ini.</p>';
+      html += '<div style="padding:10px;border:1px solid var(--border,#cbd5e1);border-radius:9px;font-size:13px;line-height:1.5">Peta intensitas MMI belum tersedia dari USGS untuk kejadian ini.</div>';
     }
-    // Hindari mengulang magnitudo, koordinat, waktu, kedalaman, dan lokasi yang sudah tampil di Detail.
-    const tsunami = getPreferredUsgsProduct(products.tsunami);
+
+    // Informasi tsunami tidak disimpulkan dari magnitudo saja. Tampilkan hanya status yang didukung data USGS.
+    const tsunamiProducts = Array.isArray(products.tsunami) ? products.tsunami : [];
+    const tsunamiProduct = getPreferredUsgsProduct(tsunamiProducts);
+    const tsunamiFlag = p.properties?.tsunami === 1 || p.tsunami === 1;
     html += '<div style="margin-top:12px;padding-top:9px;border-top:1px solid var(--border,#cbd5e1);font-size:12px;line-height:1.5">';
-    if (tsunami) {
-      html += '<b>Status tsunami:</b> USGS memiliki produk terkait tsunami untuk kejadian ini. Ikuti peringatan otoritas resmi wilayah terdampak.';
+    html += '<b>Status tsunami menurut data USGS:</b> ';
+    if (tsunamiFlag || tsunamiProduct) {
+      html += 'kejadian ditandai terkait tsunami pada data USGS. Segera periksa peringatan resmi otoritas tsunami setempat.';
+      html += '<br><b>Saran:</b> Jika berada di pesisir dan merasakan guncangan kuat atau lama, segera menuju tempat tinggi dan ikuti arahan petugas; jangan menunggu perkiraan di aplikasi.';
     } else {
-      html += '<b>Status tsunami:</b> Tidak ada produk tsunami USGS yang tercantum pada detail kejadian ini. Ini bukan konfirmasi bahwa ancaman tsunami tidak ada; ikuti otoritas resmi setempat.';
+      html += 'tidak ada penanda/produk tsunami pada detail USGS yang diterima. Ini bukan jaminan aman atau pengganti peringatan resmi.';
+      html += '<br><b>Saran:</b> Pantau otoritas resmi setempat dan waspadai gempa susulan.';
     }
-    html += '<br><b>Saran:</b> Pantau pembaruan dari otoritas resmi dan jauhi pesisir jika ada peringatan tsunami.';
-    html += '<div style="font-size:11px;opacity:.72;margin-top:5px">Sumber peta dan status produk: USGS ComCat. <a href="' + safe(eventUrl) + '" target="_blank" rel="noopener noreferrer">Catatan sumber dan detail produk ↗</a></div></div>';
+    html += '<div style="font-size:11px;opacity:.72;margin-top:5px">Sumber peta dan informasi kejadian: USGS ComCat.</div></div>';
     box.innerHTML = html;
   } catch (error) {
     if (window._modalQuake?.key !== q.key) return;
-    box.innerHTML = '<div style="font-weight:900;font-size:15px;margin-bottom:8px">PETA GUNCANGAN</div><p style="font-size:13px">Gambar peta belum berhasil dimuat. Coba buka kembali detail gempa.</p>';
+    box.innerHTML = '<div style="font-weight:900;font-size:15px;margin-bottom:8px">PETA INTENSITAS GUNCANGAN (MMI)</div><p style="font-size:13px">Peta belum berhasil dimuat. Coba buka kembali detail gempa.</p>';
     console.warn("Gagal memuat gambar ShakeMap USGS", error);
   }
 }
