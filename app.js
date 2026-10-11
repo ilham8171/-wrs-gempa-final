@@ -35,9 +35,9 @@ try {
 let lastRevisionInfo = null;
 
 const BASEMAPS = {
-  dark: {
-    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    attr: "© OSM · © CARTO",
+  light: {
+    url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+    attr: "© OpenStreetMap · © CARTO",
   },
   street: {
     url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -261,7 +261,7 @@ async function fetchClientSide() {
 
 function setBasemap(key) {
   if (baseLayer) map.removeLayer(baseLayer);
-  const bm = BASEMAPS[key] || BASEMAPS.dark;
+  const bm = BASEMAPS[key] || BASEMAPS.sat;
   baseLayer = L.tileLayer(bm.url, { maxZoom: 12, attribution: bm.attr }).addTo(map);
   document.querySelectorAll(".bm-opt").forEach((b) => b.classList.toggle("active", b.dataset.bm === key));
   localStorage.setItem("wrsBasemap", key);
@@ -270,7 +270,8 @@ function setBasemap(key) {
 function initMap() {
   // Canvas dipakai untuk marker agar pan/zoom tetap ringan. Sesar dibuat static sederhana.
   map = L.map("map", { zoomControl: true, preferCanvas: true, renderer: L.canvas({ padding: 0.5 }) }).setView([-3.5, 118], 5);
-  const saved = localStorage.getItem("wrsBasemap") || "dark";
+  const savedRaw = localStorage.getItem("wrsBasemap");
+  const saved = savedRaw === "dark" || !BASEMAPS[savedRaw] ? "sat" : savedRaw;
   setBasemap(saved);
 
   // Nonaktifkan cluster angka: tampilkan tiap gempa sebagai titik bulat berwarna.
@@ -297,7 +298,7 @@ function initMap() {
     zoomControl: false, attributionControl: false,
     dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
   }).setView([-3.5, 118], 4);
-  L.tileLayer(BASEMAPS.dark.url, { maxZoom: 10 }).addTo(miniMap);
+  L.tileLayer(BASEMAPS.sat.url, { maxZoom: 18, attribution: BASEMAPS.sat.attr }).addTo(miniMap);
 }
 
 function depthColor(d) {
@@ -1626,7 +1627,7 @@ function openHistory(mode = "all") {
   setTimeout(() => {
     if (!histMap) {
       histMap = L.map("histMap", { zoomControl: false, attributionControl: false }).setView([-3.5, 118], 4);
-      L.tileLayer(BASEMAPS.dark.url, { maxZoom: 10 }).addTo(histMap);
+      L.tileLayer(BASEMAPS.sat.url, { maxZoom: 18, attribution: BASEMAPS.sat.attr }).addTo(histMap);
     }
     histMap.invalidateSize();
     histMap.eachLayer((l) => {
@@ -1784,17 +1785,21 @@ function buildExportCard(q) {
   if (q.ttmap) maps.push({ label: "Estimasi tiba tsunami", url: q.ttmap });
 
   const hasCoords = Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon));
+  const mapLat = Number(q.lat);
+  const mapLon = Number(q.lon);
   const epicenterMapUrl = hasCoords
-    ? "https://staticmap.openstreetmap.de/staticmap.php?center=" +
-      encodeURIComponent(Number(q.lat) + "," + Number(q.lon)) +
-      "&zoom=6&size=488x220&maptype=mapnik&markers=" +
-      encodeURIComponent(Number(q.lat) + "," + Number(q.lon) + ",red-pushpin")
+    ? "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=" +
+      encodeURIComponent((mapLon - 5) + "," + (mapLat - 2.25) + "," + (mapLon + 5) + "," + (mapLat + 2.25)) +
+      "&bboxSR=4326&imageSR=4326&size=976,440&format=jpg&f=image"
     : "";
   const epicenterMapHtml = hasCoords
-    ? '<div style="margin:12px 0 14px;border:1px solid #cbd5e1;border-radius:9px;overflow:hidden;background:#e2e8f0">' +
-      '<div style="padding:8px 10px;background:#e2e8f0;color:#334155;font-size:11px;font-weight:800">PETA TITIK PUSAT GEMPA</div>' +
-      '<img src="' + epicenterMapUrl + '" crossorigin="anonymous" alt="Peta lokasi pusat gempa" style="width:100%;height:220px;object-fit:cover;display:block;background:#e2e8f0" />' +
-      '<div style="padding:6px 10px;background:#f8fafc;color:#475569;font-size:10px">Titik merah menunjukkan koordinat episenter · © OpenStreetMap</div></div>'
+    ? '<div style="margin:12px 0 14px;border:1px solid #cbd5e1;border-radius:9px;overflow:hidden;background:#0b1726">' +
+      '<div style="padding:8px 10px;background:#e2e8f0;color:#334155;font-size:11px;font-weight:800">PETA SATELIT · TITIK EPISENTER</div>' +
+      '<div style="position:relative;background:#0b1726;line-height:0">' +
+      '<img src="' + epicenterMapUrl + '" crossorigin="anonymous" alt="Citra satelit di sekitar episenter gempa" style="width:100%;height:220px;object-fit:cover;display:block;background:#0b1726" />' +
+      '<span aria-label="Titik episenter" style="position:absolute;left:50%;top:50%;width:16px;height:16px;transform:translate(-50%,-50%);border:3px solid #fff;border-radius:50%;background:#ef4444;box-shadow:0 0 0 5px rgba(239,68,68,.28),0 2px 8px #111;z-index:2"></span>' +
+      '<span style="position:absolute;right:8px;bottom:8px;padding:4px 7px;background:rgba(7,17,31,.82);color:#fff;border-radius:5px;font:700 10px Segoe UI,system-ui,sans-serif;line-height:1.3">© Ilham</span>' +
+      '</div><div style="padding:6px 10px;background:#f8fafc;color:#475569;font-size:10px">Titik merah = episenter · Citra satelit © Esri dan penyedia datanya</div></div>'
     : '<div style="margin:12px 0;padding:10px;background:#fff7ed;color:#9a3412;border-radius:8px;font-size:11px">Peta episenter tidak tersedia karena koordinat tidak ada pada data.</div>';
 
   const mapsHtml = maps
@@ -1813,7 +1818,7 @@ function buildExportCard(q) {
         <div style="font-size:12px;font-weight:700;margin-top:4px">WAKTU: ${when}</div>
         <div style="font-size:11px;color:#92400e;margin-top:2px">${q.timesent ? "Kirim: " + q.timesent : ""}</div>
       </div>
-      <div style="width:48px;height:48px;border-radius:50%;background:#fff;border:2px solid #0c4a6e;display:grid;place-items:center;font-size:10px;font-weight:900;color:#0c4a6e">BMKG</div>
+      <div style="width:54px;height:54px;border-radius:50%;background:#07111f;border:2px solid #67e8f9;display:grid;place-items:center;text-align:center;font-size:10px;line-height:1.15;font-weight:900;color:#a5f3fc">WRS<br>ILHAM</div>
     </div>
     <div style="padding:14px 16px;font-size:13px;line-height:1.55;color:#1e293b">
       ${epicenterMapHtml}
@@ -1829,7 +1834,7 @@ function buildExportCard(q) {
       ${mapsHtml}
     </div>
     <div style="padding:10px 14px;background:#0f172a;color:#94a3b8;font-size:10px;text-align:center;font-weight:600">
-      WRS GEMPA · Pemantauan independen · Sumber: BMKG / InaTEWS / USGS · Bukan sistem resmi BMKG
+      © 2026 ILHAM · WRS GEMPA · Pemantauan independen · Sumber: BMKG / InaTEWS / USGS · Bukan sistem resmi BMKG
     </div>
   `;
   document.body.appendChild(wrap);
