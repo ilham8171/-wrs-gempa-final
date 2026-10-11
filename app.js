@@ -813,11 +813,11 @@ function getPreferredUsgsProduct(products) {
     Number(b.updateTime || 0) - Number(a.updateTime || 0)
   )[0];
 }
-async function loadUsgsProducts(q) {
+async function loadUsgsProducts(q, forceFallback = false) {
   if (!q) return;
   // BMKG/InaTEWS tetap prioritas. USGS dicari hanya bila peta MMI resmi BMKG
-  // tidak tersedia, agar menjadi sumber cadangan untuk Indonesia maupun global.
-  if (q.shakemap) return;
+  // tidak tersedia atau gambar BMKG gagal dimuat.
+  if (q.shakemap && !forceFallback) return;
   const box = ensureUsgsProductsBox();
   if (!box) return;
   const isUsgsEvent = q.source === "USGS" || String(q.key || "").startsWith("usgs|");
@@ -953,6 +953,18 @@ function openModal(q) {
   const smBox = $("#modalShakemapBox");
   const smImg = $("#modalShakemapImg");
   if (q.shakemap) {
+    // Utamakan peta MMI BMKG. Jika URL gambar gagal, cari peta MMI USGS
+    // untuk kejadian yang sama; jangan menampilkan banyak produk teknis.
+    smImg.onload = () => {
+      smBox.classList.remove("hidden");
+      const fallbackBox = document.getElementById("usgsProductsBox");
+      if (fallbackBox) fallbackBox.innerHTML = "";
+    };
+    smImg.onerror = () => {
+      smBox.classList.add("hidden");
+      smImg.removeAttribute("src");
+      loadUsgsProducts({ ...q, shakemap: "" }, true);
+    };
     smImg.src = q.shakemap;
     smBox.classList.remove("hidden");
   } else {
@@ -963,10 +975,10 @@ function openModal(q) {
   window._modalQuake = q;
   $("#modalDetail").classList.remove("hidden");
   const fallbackBox = document.getElementById("usgsProductsBox");
-  if (q.shakemap) {
-    if (fallbackBox) fallbackBox.innerHTML = "";
-  } else {
+  if (!q.shakemap) {
     loadUsgsProducts(q);
+  } else if (fallbackBox) {
+    fallbackBox.innerHTML = "";
   }
 }
 
