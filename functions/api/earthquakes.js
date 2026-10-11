@@ -11,13 +11,13 @@ function parseLat(v) {
   if (v == null) return NaN;
   const s = String(v).trim(), n = parseFloat(s.replace(/,/g, "."));
   if (!Number.isFinite(n)) return NaN;
-  return /LS|S\\b/i.test(s) ? -Math.abs(n) : Math.abs(n);
+  return /LS|S\b/i.test(s) ? -Math.abs(n) : Math.abs(n);
 }
 function parseLon(v) {
   if (v == null) return NaN;
   const s = String(v).trim(), n = parseFloat(s.replace(/,/g, "."));
   if (!Number.isFinite(n)) return NaN;
-  return /BB|W\\b/i.test(s) ? -Math.abs(n) : Math.abs(n);
+  return /BB|W\b/i.test(s) ? -Math.abs(n) : Math.abs(n);
 }
 function mapPublic(raw) {
   if (!raw) return null;
