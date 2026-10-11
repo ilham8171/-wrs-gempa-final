@@ -1100,3 +1100,19 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible { 
 @media (prefers-reduced-motion:reduce) {
   .quake-diamond { transition:none !important; }
 }
+
+
+/* Unified line-icon system; avoid emoji rendering differences between Android browsers. */
+.v-toolbar .tb-btn svg,
+.rp-quick .qicon svg {
+  width:20px;
+  height:20px;
+  display:block;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.v-toolbar .tb-btn { display:grid; place-items:center; }
+.rp-quick .qicon { display:grid; place-items:center; }
