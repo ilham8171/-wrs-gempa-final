@@ -248,9 +248,9 @@ export async function onRequestGet() {
     const ta = validTime(a), tb = validTime(b);
     if (!Number.isFinite(ta) || !Number.isFinite(tb)) return false;
     const sameCatalog = a.source === b.source;
-    const timeWindow = sameCatalog && a.source === "BMKG" ? 90_000 : 6 * 60_000;
-    const distanceWindow = sameCatalog && a.source === "BMKG" ? 12 : 45;
-    const magnitudeWindow = sameCatalog && a.source === "BMKG" ? 0.3 : 0.8;
+    const timeWindow = sameCatalog && a.source === "BMKG" ? 90_000 : 4 * 60_000;
+    const distanceWindow = sameCatalog && a.source === "BMKG" ? 12 : 35;
+    const magnitudeWindow = sameCatalog && a.source === "BMKG" ? 0.3 : 0.7;
     return Math.abs(ta - tb) <= timeWindow &&
       distanceKm(a, b) <= distanceWindow &&
       Math.abs(Number(a.magnitude) - Number(b.magnitude)) <= magnitudeWindow;
