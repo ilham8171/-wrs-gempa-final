@@ -57,15 +57,15 @@ function mapUSGS(f) {
 function textBetween(xml, tag) {
   const re = new RegExp("<" + tag + "[^>]*>([\\s\\S]*?)</" + tag + ">", "i");
   const match = String(xml ?? "").match(re);
-  return match ? match[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, "").trim() : "";
+  return match ? match[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "";
 }
 function capEventTime(date, time) {
   const d = String(date ?? "").trim();
-  const t = String(time ?? "").trim().replace(/\\s*(WIB|UTC|GMT)\\s*/ig, "");
+  const t = String(time ?? "").trim().replace(/\s*(WIB|UTC|GMT)\s*/ig, "");
   if (!d && !t) return "";
-  const isoBase = (d ? d : "").replace(/\\s+/g, "");
+  const isoBase = (d ? d : "").replace(/\s+/g, "");
   let candidate = "";
-  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(isoBase) && /^\\d{1,2}:\\d{2}(:\\d{2})?$/.test(t)) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoBase) && /^\d{1,2}:\d{2}(:\d{2})?$/.test(t)) {
     const normalizedTime = t.length === 5 ? t + ":00" : t;
     candidate = isoBase + "T" + normalizedTime + "+07:00";
   } else {
@@ -76,7 +76,7 @@ function capEventTime(date, time) {
 }
 function parseTsunamiCapXml(xml) {
   if (typeof xml !== "string" || !xml.trim()) return [];
-  const infos = xml.match(/<info\\b[^>]*>[\\s\\S]*?<\\/info>/gi) || [];
+  const infos = xml.match(/<info\b[^>]*>[\s\S]*?<\/info>/gi) || [];
   const list = [];
   for (const block of infos) {
     const subject = textBetween(block, "subject") || textBetween(block, "headline");
@@ -93,7 +93,7 @@ function parseTsunamiCapXml(xml) {
     const depth = depthRaw.match(/[0-9]+(?:[.,][0-9]+)?/)?.[0] || "—";
     const area = textBetween(block, "area") || "Indonesia";
     const eventid = textBetween(block, "eventid") || [date, time, mag, lat, lon].join("|");
-    const pdMatch = (subject + " " + headline).match(/PD[-\\s]?([\\d.]+)/i);
+    const pdMatch = (subject + " " + headline).match(/PD[-\s]?([\d.]+)/i);
     const pd = pdMatch ? pdMatch[1] : "";
     const potential = textBetween(block, "potential") || subject || headline;
     const instruction = textBetween(block, "instruction");
@@ -115,7 +115,7 @@ function parseTsunamiCapXml(xml) {
       pd: pd || null, headline, description, instruction, instruction1, instruction2, instruction3, timesent,
       shakemap: shakemapUrl(shakemap) || null,
       wzmap: shakemapUrl(wzmap), ttmap: shakemapUrl(ttmap), sshmap: shakemapUrl(sshmap),
-      ended: /telah\\s*berakhir|berakhir|all[\\s-]?clear|dinyatakan\\s*telah\\s*berakhir/i.test(headline + " " + description + " " + subject),
+      ended: /telah\s*berakhir|berakhir|all[\s-]?clear|dinyatakan\s*telah\s*berakhir/i.test(headline + " " + description + " " + subject),
       source: "InaTEWS", isTsunamiWarning: true, official: true
     });
   }
