@@ -1630,16 +1630,40 @@ function status(ok, text) {
   if (label) label.textContent = text;
 }
 
-function simulationQuake() {
+const WRS_TEST_SCENARIOS = [
+  { id: "lombok", magnitude: 4.8, lat: -8.5, lon: 116.1, place: "Wilayah Lombok, NTB", depth: "10" },
+  { id: "sulawesi", magnitude: 5.6, lat: -1.2, lon: 120.0, place: "Wilayah Sulawesi Tengah", depth: "18" },
+  { id: "sumatra", magnitude: 6.2, lat: -2.1, lon: 100.2, place: "Wilayah Barat Daya Sumatra", depth: "25" },
+];
+let simulationScenarioIndex = 0;
+let simulationTestLog = [];
+
+function simulationQuake(scenarioIndex = simulationScenarioIndex) {
+  const s = WRS_TEST_SCENARIOS[((scenarioIndex % WRS_TEST_SCENARIOS.length) + WRS_TEST_SCENARIOS.length) % WRS_TEST_SCENARIOS.length];
   return {
-    key: "simulation|wrs-demo-event",
-    magnitude: 4.8, lat: -8.5, lon: 116.1,
-    place: "SIMULASI · Wilayah Lombok, NTB",
-    depth: "10", time: new Date().toISOString(),
+    key: "simulation|wrs-demo-" + s.id,
+    magnitude: s.magnitude, lat: s.lat, lon: s.lon,
+    place: "SIMULASI · " + s.place,
+    depth: s.depth, time: new Date().toISOString(),
     potential: "DATA UJI — bukan kejadian gempa nyata",
-    felt: "", source: "SIMULASI", status: "TEST",
+    felt: "", source: "SIMULASI / MODE TES", status: "TEST",
     official: false, simulation: true, wrsRealtime: false
   };
+}
+function logSimulationTest(message, kind = "info") {
+  const stamp = new Date().toLocaleTimeString("id-ID", { hour12: false });
+  simulationTestLog.unshift({ stamp, message, kind });
+  simulationTestLog = simulationTestLog.slice(0, 4);
+  const log = $("#wrsTestLog");
+  if (log) {
+    log.replaceChildren();
+    simulationTestLog.forEach(item => {
+      const row = document.createElement("div");
+      row.className = "wrs-test-log-row " + item.kind;
+      row.textContent = item.stamp + " · " + item.message;
+      log.appendChild(row);
+    });
+  }
 }
 function updateModeButtons() {
   document.querySelectorAll("[data-wrs-mode]").forEach(button => {
@@ -1647,6 +1671,8 @@ function updateModeButtons() {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
   });
+  const tools = $("#wrsTestTools");
+  if (tools) tools.hidden = wrsMode !== "simulation";
 }
 function applySimulationMode() {
   const sample = simulationQuake();
@@ -1655,21 +1681,45 @@ function applySimulationMode() {
   currentRealtime = sample;
   currentOfficial = sample;
   const filter = $("#rtFilter");
-  if (filter) filter.textContent = "MODE SIMULASI · DATA UJI, BUKAN GEMPA NYATA";
+  if (filter) filter.textContent = "MODE TES · DATA SIMULASI SAJA — BUKAN GEMPA NYATA";
   renderRealtime(sample);
-  status(true, "MODE SIMULASI");
+  status(true, "MODE TES / SIMULASI");
   const healthText = $("#wrsHealthText");
   const healthTime = $("#wrsLastUpdated");
   const health = $("#wrsHealth");
-  if (healthText) healthText.textContent = "SIMULASI AKTIF · DATA UJI";
-  if (healthTime) healthTime.textContent = "Bukan data gempa nyata";
+  if (healthText) healthText.textContent = "MODE TES AKTIF · DATA SIMULASI SAJA";
+  if (healthTime) healthTime.textContent = "Feed operasional tidak ditampilkan";
   if (health) {
     health.classList.remove("is-error");
-    health.title = "Mode simulasi: data contoh, bukan kejadian gempa nyata.";
+    health.title = "Mode tes WRS: hanya menampilkan data simulasi, bukan kejadian gempa nyata.";
   }
   updateModeButtons();
   drawMarkers(true);
   updateStats(getFilteredQuakes());
+}
+function runSimulationQuakeTest() {
+  if (wrsMode !== "simulation") return;
+  simulationScenarioIndex = (simulationScenarioIndex + 1) % WRS_TEST_SCENARIOS.length;
+  applySimulationMode();
+  const q = currentRealtime;
+  logSimulationTest("Uji kejadian gempa: M" + q.magnitude.toFixed(1) + " · " + q.place.replace("SIMULASI · ", ""), "warning");
+}
+function runCommunicationTest() {
+  if (wrsMode !== "simulation") return;
+  logSimulationTest("Tes komunikasi lokal berhasil. Tidak ada pesan dikirim ke BMKG.", "success");
+  const statusText = $("#wrsTestStatus");
+  if (statusText) statusText.textContent = "TES KOMUNIKASI BERHASIL · lokal saja";
+}
+function resetSimulationTests() {
+  if (wrsMode !== "simulation") return;
+  simulationScenarioIndex = 0;
+  simulationTestLog = [];
+  const log = $("#wrsTestLog");
+  if (log) log.replaceChildren();
+  const statusText = $("#wrsTestStatus");
+  if (statusText) statusText.textContent = "Mode Tes aktif · data uji saja";
+  applySimulationMode();
+  logSimulationTest("Simulasi direset ke skenario awal.", "info");
 }
 function setWrsMode(mode) {
   wrsMode = mode === "simulation" ? "simulation" : "operational";
@@ -1703,6 +1753,9 @@ function setWrsMode(mode) {
 document.querySelectorAll("[data-wrs-mode]").forEach(button => {
   button.addEventListener("click", () => setWrsMode(button.dataset.wrsMode));
 });
+$("#btnWrsTestQuake")?.addEventListener("click", runSimulationQuakeTest);
+$("#btnWrsTestComm")?.addEventListener("click", runCommunicationTest);
+$("#btnWrsTestReset")?.addEventListener("click", resetSimulationTests);
 
 function showLoading(msg) {
   const el = $("#loadingOverlay");
