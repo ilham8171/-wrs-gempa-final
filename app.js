@@ -14,6 +14,8 @@ let alarmOn = false;
 let audioCtx = null;
 let firstLoad = true;
 let currentOfficial = null;
+let currentRealtime = null;
+let realtimeEvents = [];
 let faultsVisible = true;
 let filterState = JSON.parse(localStorage.getItem("wrsFilterV1") || "null") || { mag: 1.5, age: 168, source: "ALL", depth: "ALL" };
 let lastRenderFingerprint = "";
@@ -464,9 +466,18 @@ function drawMarkers(force = false) {
   // Kembalikan marker gempa ke bentuk lingkaran berwarna berdasarkan magnitudo.
   // Event terbaru tetap diberi bintang merah berdenyut dan cincin pulse.
   const preferredLatest = filterState.source === "ALL" ? primaryRealtimeQuake() : list[0];
-  const latestKey = preferredLatest && list.some(q => q.key === preferredLatest.key)
-    ? preferredLatest.key
-    : list[0]?.key;
+  const equivalentLatest = preferredLatest && list.find(q => {
+    if (q.key === preferredLatest.key) return true;
+    const valid = Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon)) &&
+      Number.isFinite(Number(preferredLatest.lat)) && Number.isFinite(Number(preferredLatest.lon));
+    if (!valid) return false;
+    const samePlace = Math.abs(Number(q.lat)-Number(preferredLatest.lat)) <= 0.5 &&
+      Math.abs(Number(q.lon)-Number(preferredLatest.lon)) <= 0.5;
+    const sameMag = Math.abs(Number(q.magnitude)-Number(preferredLatest.magnitude)) <= 0.8;
+    const tq = new Date(q.time || 0).getTime(), tp = new Date(preferredLatest.time || 0).getTime();
+    return samePlace && sameMag && Number.isFinite(tq) && Number.isFinite(tp) && Math.abs(tq-tp) <= 5*60*1000;
+  });
+  const latestKey = equivalentLatest?.key || list[0]?.key;
   list.slice(0, 800).forEach((q) => {
     const latest = q.key === latestKey;
     const fill = magColor(q.magnitude);
@@ -615,7 +626,7 @@ function showRealtimeUpdate(info) {
   el.classList.toggle("rev-big", !!info.significant);
   el.innerHTML =
     `<span class="rt-upd-tag">${tag}</span> ` +
-    `<span class="rt-upd-txt">${info.parts.join(" · ")}</span>`;
+    `<span class="rt-upd-txt">${info.place ? info.place + " · " : ""}${info.parts.join(" · ")}</span>`;
   lastRevisionInfo = info;
   // Auto-sembunyikan label lembut setelah 2 menit (data tetap di cache)
   clearTimeout(showRealtimeUpdate._t);
@@ -626,7 +637,10 @@ function showRealtimeUpdate(info) {
 
 function primaryRealtimeQuake() {
   const valid = q => q && Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon));
-  return valid(currentOfficial) ? currentOfficial : quakes[0] || null;
+  // The realtime card follows the dedicated InaTEWS/WRS feed, not the newest
+  // record in the merged BMKG/USGS catalog.
+  return valid(currentRealtime) ? currentRealtime :
+    valid(currentOfficial) ? currentOfficial : quakes[0] || null;
 }
 
 function renderRealtime(q) {
@@ -642,11 +656,13 @@ function renderRealtime(q) {
   $("#rtPlace").textContent = q.place;
   $("#rtSrc").textContent = `Sumber: ${q.source || "BMKG"}`;
   // Tampilkan badge revisi jika event yang sama baru di-update
-  if (lastRevisionInfo && lastRevisionInfo.id === stableEventId(q)) {
+  if (lastRevisionInfo) {
+    // Keep the latest update visible even when it concerns another event in the
+    // seven-day WRS realtime list; the banner includes that event's location.
     showRealtimeUpdate(lastRevisionInfo);
-  } else if (!lastRevisionInfo || lastRevisionInfo.id !== stableEventId(q)) {
+  } else {
     const elUp = $("#rtUpdate");
-    if (elUp && !lastRevisionInfo) elUp.classList.add("hidden");
+    if (elUp) elUp.classList.add("hidden");
   }
   updateRealtimeDistance();
 }
@@ -1495,51 +1511,65 @@ function processNew() {
       const id = stableEventId(q);
       if (id) paramCache[id] = snapshotParams(q);
     });
+    realtimeEvents.forEach((q) => {
+      const id = stableEventId(q);
+      if (id) paramCache[id] = snapshotParams(q);
+    });
     localStorage.setItem("wrsSeenV8", JSON.stringify([...seen].slice(-1000)));
     saveParamCache();
     firstLoad = false;
     return;
   }
 
-  // Deteksi revisi parameter pada event yang sudah dikenal (prioritas gempa realtime terbaru)
-  const top = primaryRealtimeQuake();
-  if (top) {
-    const rev = detectRevision(top);
+  // Deteksi pemutakhiran pada SEMUA event di feed realtime InaTEWS/WRS,
+  // bukan hanya event teratas. Identitas stabil mencegah revisi dianggap gempa baru.
+  const revisionCandidates = realtimeEvents.length ? realtimeEvents : [primaryRealtimeQuake()].filter(Boolean);
+  const revisions = [];
+  for (const event of revisionCandidates) {
+    const rev = detectRevision(event);
     if (rev) {
-      showRealtimeUpdate(rev);
-      renderRealtime(top);
-      saveParamCache();
-      // Alarm hanya untuk revisi signifikan (bukan setiap update kecil)
-      if (rev.significant && alarmOn) {
-        ensureAudio()
-          .then(async () => {
-            if ($("#optBell")?.checked) {
-              await playSchoolBell(rev.next.magnitude >= 5 ? "alert" : "normal");
-              await new Promise((r) => setTimeout(r, 400));
-            }
-            if ($("#optVoice")?.checked && "speechSynthesis" in window) {
-              speechSynthesis.cancel();
-              const u = new SpeechSynthesisUtterance(
-                `Pemutakhiran parameter gempa. Magnitudo sekarang ${rev.next.magnitude
-                  .toFixed(1)
-                  .replace(".", ",")}, kedalaman ${rev.next.depth} kilometer.`
-              );
-              u.lang = "id-ID";
-              u.rate = 1;
-              const idv = getIdVoice();
-              if (idv) u.voice = idv;
-              speechSynthesis.speak(u);
-            }
-          })
-          .catch(() => {});
-      }
-    } else {
-      saveParamCache();
+      rev.place = event.place || "";
+      revisions.push(rev);
     }
+  }
+  if (revisions.length) {
+    const rev = revisions.sort((a,b) => Number(b.significant)-Number(a.significant))[0];
+    showRealtimeUpdate(rev);
+    const primary = primaryRealtimeQuake();
+    if (primary && rev.id === stableEventId(primary)) renderRealtime(primary);
+    saveParamCache();
+
+    if (rev.significant && alarmOn) {
+      ensureAudio()
+        .then(async () => {
+          if ($("#optBell")?.checked) {
+            await playSchoolBell(rev.next.magnitude >= 5 ? "alert" : "normal");
+            await new Promise((r) => setTimeout(r, 400));
+          }
+          if ($("#optVoice")?.checked && "speechSynthesis" in window) {
+            speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(
+              `Pemutakhiran parameter gempa di ${rev.place || "wilayah terdeteksi"}. Magnitudo sekarang ${rev.next.magnitude.toFixed(1).replace(".", ",")}, kedalaman ${rev.next.depth} kilometer.`
+            );
+            u.lang = "id-ID";
+            u.rate = 1;
+            const idv = getIdVoice();
+            if (idv) u.voice = idv;
+            speechSynthesis.speak(u);
+          }
+        })
+        .catch(() => {});
+    }
+  } else {
+    saveParamCache();
   }
 
   // Seed cache untuk event lain (tanpa notif)
   quakes.slice(0, 80).forEach((q) => {
+    const id = stableEventId(q);
+    if (id && !paramCache[id]) paramCache[id] = snapshotParams(q);
+  });
+  realtimeEvents.forEach((q) => {
     const id = stableEventId(q);
     if (id && !paramCache[id]) paramCache[id] = snapshotParams(q);
   });
@@ -1611,6 +1641,7 @@ async function load(showSpin) {
     }
 
     const incoming = d.recent;
+    realtimeEvents = Array.isArray(d.realtimeEvents) ? d.realtimeEvents : [];
     if (!incoming.length) {
       const hasPreviousData = quakes.length > 0;
       status(false, hasPreviousData ? "MEMAKAI DATA TERAKHIR" : "MENUNGGU DATA");
@@ -1631,7 +1662,7 @@ async function load(showSpin) {
     // Saat pertama kali dibuka, pusatkan peta tepat pada marker event terbaru
     // yang ditampilkan di daftar/peta. Jangan mengganggu posisi pengguna saat refresh berikutnya.
     if (!window.__wrsInitialMapCentered && map) {
-      const preferred = d.official || quakes[0];
+      const preferred = d.realtime || d.official || quakes[0];
       const focus = preferred && Number.isFinite(Number(preferred.lat)) && Number.isFinite(Number(preferred.lon))
         ? preferred
         : quakes.find(q => Number.isFinite(q.lat) && Number.isFinite(q.lon));
@@ -1655,11 +1686,11 @@ async function load(showSpin) {
     $("#srcCount").textContent = sourceSummary.join(" · ");
 
     const off = d.official || quakes.find((q) => q.official) || quakes[0];
-    // Store the server-selected BMKG-first event before updating the realtime UI,
-    // map star, and distance card. Without this assignment those widgets could
-    // keep following quakes[0] (often a newer USGS catalog entry).
     currentOfficial = off || null;
     if (off) renderOfficial(off);
+
+    // Keep WRS realtime and the official/catalog card as separate event streams.
+    currentRealtime = d.realtime || realtimeEvents[0] || null;
     const primary = primaryRealtimeQuake();
     if (primary) renderRealtime(primary);
 
