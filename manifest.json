@@ -1,18 +1,24 @@
 {
   "id": "/",
-  "name": "Pantau Gempa — Monitoring Gempa Indonesia",
-  "short_name": "Pantau Gempa",
-  "description": "Monitor gempabumi realtime Indonesia — independent monitoring berbasis data BMKG/InaTEWS dan sumber pembanding.",
+  "name": "WRS Gempa — Monitor Gempa",
+  "short_name": "WRS Gempa",
+  "description": "Pemantauan gempa Indonesia dan gempa global bermagnitudo 5 ke atas dari BMKG, InaTEWS, dan USGS.",
   "lang": "id-ID",
   "dir": "ltr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui"],
-  "background_color": "#05080f",
-  "theme_color": "#05080f",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "background_color": "#07111f",
+  "theme_color": "#07111f",
   "orientation": "portrait",
-  "categories": ["weather", "utilities"],
+  "categories": [
+    "utilities",
+    "navigation"
+  ],
   "prefer_related_applications": false,
   "icons": [
     {
