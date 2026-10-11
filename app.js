@@ -814,57 +814,93 @@ function getPreferredUsgsProduct(products) {
   )[0];
 }
 async function loadUsgsProducts(q) {
-  if (q?.source !== "USGS" && !String(q?.key || "").startsWith("usgs|")) return;
+  if (!q) return;
+  // BMKG/InaTEWS tetap prioritas. USGS dicari hanya bila peta MMI resmi BMKG
+  // tidak tersedia, agar menjadi sumber cadangan untuk Indonesia maupun global.
+  if (q.shakemap) return;
   const box = ensureUsgsProductsBox();
   if (!box) return;
-  const eventId = q.usgsEventId || q.eventid || String(q.key || "").replace(/^usgs\\|/, "");
-  const endpoint = q.detailApiUrl || (eventId ? "https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/" + encodeURIComponent(eventId) + ".geojson" : "");
-  box.innerHTML = '<div style="font-weight:900;font-size:16px;margin-bottom:8px">PETA INTENSITAS GUNCANGAN (MMI)</div><p style="font-size:13px;opacity:.75">Memuat peta…</p>';
-  if (!endpoint) {
-    box.innerHTML = '<div style="font-weight:900">PETA INTENSITAS GUNCANGAN (MMI)</div><p>Peta belum tersedia untuk kejadian ini.</p>';
-    return;
-  }
+  const isUsgsEvent = q.source === "USGS" || String(q.key || "").startsWith("usgs|");
+  const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  box.innerHTML = '<div style="font-weight:900;font-size:16px;margin-bottom:8px">PETA INTENSITAS GUNCANGAN (MMI)</div><p style="font-size:13px;opacity:.75">Mencari peta MMI cadangan…</p>';
   try {
-    const response = await fetch(endpoint, { cache: "no-store" });
-    if (!response.ok) throw new Error("HTTP " + response.status);
-    const feature = await response.json();
+    let feature = null;
+    let eventId = q.usgsEventId || q.eventid || String(q.key || "").replace(/^usgs\|/, "");
+    let endpoint = q.detailApiUrl || (isUsgsEvent && eventId
+      ? "https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/" + encodeURIComponent(eventId) + ".geojson"
+      : "");
+    if (endpoint) {
+      const response = await fetch(endpoint, { cache: "no-store" });
+      if (response.ok) feature = await response.json();
+    }
+    // Jika event berasal dari BMKG dan peta MMI-nya kosong, cari kandidat USGS
+    // di sekitar waktu dan lokasi yang sama; jangan pernah mencocokkan hanya dari magnitudo.
+    if (!feature && Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon)) && q.time) {
+      const t = new Date(q.time).getTime();
+      if (Number.isFinite(t)) {
+        const params = new URLSearchParams({
+          format: "geojson",
+          starttime: new Date(t - 4 * 60 * 1000).toISOString(),
+          endtime: new Date(t + 4 * 60 * 1000).toISOString(),
+          latitude: String(q.lat), longitude: String(q.lon),
+          maxradiuskm: "120", minmagnitude: String(Math.max(2.5, Number(q.magnitude || 0) - 1.2)),
+          maxmagnitude: String(Number(q.magnitude || 0) + 1.2), orderby: "time"
+        });
+        const search = await fetch("https://earthquake.usgs.gov/fdsnws/event/1/query?" + params, { cache: "no-store" });
+        if (search.ok) {
+          const data = await search.json();
+          const candidates = (data.features || []).map(f => {
+            const c = f.geometry?.coordinates || [];
+            const p = f.properties || {};
+            const dt = Math.abs(Number(p.time) - t);
+            const distance = haversineKm(Number(q.lat), Number(q.lon), Number(c[1]), Number(c[0]));
+            const dm = Math.abs(Number(p.mag) - Number(q.magnitude));
+            return { f, dt, distance, dm, score: dt / 60000 + distance / 20 + dm * 5 };
+          }).filter(x => x.dt <= 4 * 60 * 1000 && x.distance <= 120 && x.dm <= 1.2)
+            .sort((a,b) => a.score - b.score);
+          if (candidates.length) {
+            const candidate = candidates[0].f;
+            const id = candidate.id || candidate.properties?.code;
+            if (id) {
+              const detail = await fetch("https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/" + encodeURIComponent(id) + ".geojson", { cache: "no-store" });
+              if (detail.ok) {
+                feature = await detail.json();
+                eventId = id;
+              }
+            }
+          }
+        }
+      }
+    }
     if (document.getElementById("modalDetail")?.classList.contains("hidden") || window._modalQuake?.key !== q.key) return;
     const p = feature?.properties || {};
     const products = p.products || {};
     const shake = getPreferredUsgsProduct(products.shakemap);
-    const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
     const contents = shake?.contents || {};
     const entries = Object.entries(contents).filter(([, item]) => item?.url);
-    const mmiEntry = entries.find(([path]) => /(?:^|\\/)(?:intensity|mmi)\\.(?:jpg|jpeg|png)$/i.test(path))
-      || entries.find(([path]) => /(?:^|\\/)(?:ii_thumbnail|pin-thumbnail)\\.(?:jpg|jpeg|png)$/i.test(path));
-    const eventUrl = p.url || q.detailUrl || ("https://earthquake.usgs.gov/earthquakes/eventpage/" + encodeURIComponent(feature?.id || eventId));
-    const tsunamiFlag = Number(p.tsunami) === 1;
-    const tsunamiProducts = Array.isArray(products.tsunami) ? products.tsunami : [];
-    const tsunamiProduct = getPreferredUsgsProduct(tsunamiProducts);
-    const instruction = tsunamiFlag || tsunamiProduct
-      ? "Gempa ditandai terkait tsunami oleh USGS. Jika berada di pesisir, ikuti peringatan resmi setempat dan segera menuju tempat tinggi bila merasakan guncangan kuat atau lama."
-      : "Pantau informasi otoritas setempat dan waspadai gempa susulan. Status tsunami tidak dapat dipastikan hanya dari magnitudo atau ketiadaan penanda USGS.";
+    // Utamakan intensity.jpg/png (MMI); thumbnail hanya cadangan.
+    const mmiEntry = entries.find(([path]) => /(?:^|\/)(?:intensity|mmi)\.(?:jpg|jpeg|png)$/i.test(path))
+      || entries.find(([path]) => /(?:^|\/)(?:ii_thumbnail|pin-thumbnail)\.(?:jpg|jpeg|png)$/i.test(path));
     let html = '<div style="font-weight:900;font-size:16px;margin-bottom:8px">PETA INTENSITAS GUNCANGAN (MMI)</div>';
     if (mmiEntry) {
       const imageUrl = mmiEntry[1].url;
+      const sourceName = isUsgsEvent ? "USGS ShakeMap" : "USGS ShakeMap (sumber cadangan; peta BMKG tidak tersedia)";
       html += '<figure style="margin:0"><a href="' + safe(imageUrl) + '" target="_blank" rel="noopener noreferrer"><img src="' + safe(imageUrl) + '" alt="Peta intensitas guncangan MMI" loading="lazy" style="display:block;width:100%;height:auto;max-height:520px;object-fit:contain;background:#fff;border-radius:8px" onerror="this.closest(\'figure\')?.classList.add(\'hidden\')"></a></figure>';
-      html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:7px">Sumber peta: USGS ShakeMap. Intensitas adalah estimasi ilmiah. Ketuk gambar untuk memperbesar.</div>';
+      html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:7px">Sumber peta: ' + sourceName + '. Peta merupakan estimasi ilmiah, bukan pengukuran pasti di setiap lokasi.</div>';
     } else {
-      html += '<div style="padding:10px;border:1px solid var(--border,#cbd5e1);border-radius:9px;font-size:13px">Peta intensitas MMI belum tersedia dari USGS untuk kejadian ini.</div>';
+      html += '<div style="padding:10px;border:1px solid var(--border,#cbd5e1);border-radius:9px;font-size:13px">Peta intensitas MMI belum tersedia untuk kejadian ini.</div>';
     }
-    html += '<div style="margin-top:12px;padding-top:9px;border-top:1px solid var(--border,#cbd5e1);font-size:12px;line-height:1.5">';
-    html += '<b>Status tsunami menurut USGS:</b> ' + (tsunamiFlag || tsunamiProduct
-      ? 'kejadian ditandai terkait tsunami. Ini bukan pengganti peringatan resmi.'
-      : 'tidak ada penanda tsunami pada data USGS yang diterima; ini bukan jaminan aman.');
-    html += '<br><b>Saran dan instruksi:</b> ' + safe(instruction);
-    html += '<br><span style="font-size:11px;opacity:.72">Sumber status dan instruksi: data kejadian USGS. Ikuti otoritas tsunami resmi setempat.</span>';
-    html += '</div>';
-    html += '<details style="margin-top:10px;font-size:12px"><summary style="cursor:pointer;font-weight:800">Sumber data dan detail lainnya</summary><p style="margin:7px 0">Parameter, peta MMI, dan status terkait tsunami diambil dari USGS ComCat/ShakeMap apabila tersedia.</p><a href="' + safe(eventUrl) + '" target="_blank" rel="noopener noreferrer">Buka sumber resmi USGS ↗</a></details>';
+    // Jangan ulangi koordinat/magnitudo atau daftar tautan produk. Satu tautan sumber
+    // ditempatkan tersembunyi di bagian catatan ringkas.
+    if (feature) {
+      const eventUrl = p.url || ("https://earthquake.usgs.gov/earthquakes/eventpage/" + encodeURIComponent(feature.id || eventId));
+      html += '<details style="margin-top:8px;font-size:11px;opacity:.78"><summary style="cursor:pointer">Sumber peta dan detail lainnya</summary><p>Gambar MMI dari USGS ShakeMap untuk kejadian yang dicocokkan berdasarkan waktu dan lokasi.</p><a href="' + safe(eventUrl) + '" target="_blank" rel="noopener noreferrer">Sumber USGS ↗</a></details>';
+    }
     box.innerHTML = html;
   } catch (error) {
     if (window._modalQuake?.key !== q.key) return;
-    box.innerHTML = '<div style="font-weight:900;font-size:15px;margin-bottom:8px">PETA INTENSITAS GUNCANGAN (MMI)</div><p style="font-size:13px">Peta belum berhasil dimuat. Coba buka kembali detail gempa.</p>';
-    console.warn("Gagal memuat gambar ShakeMap USGS", error);
+    box.innerHTML = '<div style="font-weight:900;font-size:16px;margin-bottom:8px">PETA INTENSITAS GUNCANGAN (MMI)</div><p style="font-size:13px">Peta MMI belum tersedia atau sumber cadangan sedang tidak dapat diakses.</p>';
+    console.warn("Gagal memuat peta MMI cadangan USGS", error);
   }
 }
 
@@ -923,7 +959,12 @@ function openModal(q) {
 
   window._modalQuake = q;
   $("#modalDetail").classList.remove("hidden");
-  loadUsgsProducts(q);
+  const fallbackBox = document.getElementById("usgsProductsBox");
+  if (q.shakemap) {
+    if (fallbackBox) fallbackBox.innerHTML = "";
+  } else {
+    loadUsgsProducts(q);
+  }
 }
 
 function classifyAreaLevel(scale) {
