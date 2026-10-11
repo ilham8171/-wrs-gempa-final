@@ -1631,24 +1631,54 @@ function status(ok, text) {
 }
 
 const WRS_TEST_SCENARIOS = [
-  { id: "lombok", magnitude: 4.8, lat: -8.5, lon: 116.1, place: "Wilayah Lombok, NTB", depth: "10" },
-  { id: "sulawesi", magnitude: 5.6, lat: -1.2, lon: 120.0, place: "Wilayah Sulawesi Tengah", depth: "18" },
-  { id: "sumatra", magnitude: 6.2, lat: -2.1, lon: 100.2, place: "Wilayah Barat Daya Sumatra", depth: "25" },
+  { id: "lombok", lat: -8.5, lon: 116.1, place: "Lombok, Nusa Tenggara Barat", depth: 10 },
+  { id: "sulawesi", lat: -1.2, lon: 120.0, place: "Sulawesi Tengah", depth: 18 },
+  { id: "sumatra", lat: -2.1, lon: 100.2, place: "Barat Daya Sumatra", depth: 25 },
+  { id: "ntt", lat: -9.2, lon: 119.8, place: "Laut selatan Nusa Tenggara Timur", depth: 20 },
+  { id: "maluku", lat: -2.8, lon: 129.5, place: "Laut Seram, Maluku", depth: 15 },
+  { id: "jawa", lat: -10.0, lon: 110.0, place: "Samudra Hindia selatan Jawa", depth: 22 }
 ];
-let simulationScenarioIndex = 0;
+let simulationScenarioIndex = 1;
 let simulationTestLog = [];
 
+function simulationMapSvg(kind, magnitude) {
+  const isShake = kind === "shake";
+  const title = isShake ? "SHAKEMAP MMI · SIMULASI" : kind === "ssh" ? "TINGGI MUKA LAUT · SIMULASI" : kind === "warning" ? "ZONA PERINGATAN · SIMULASI" : "WAKTU TIBA · SIMULASI";
+  const colors = isShake ? ["#fff7bc","#fec44f","#fe9929","#ec7014","#cc4c02"] : ["#dbeafe","#93c5fd","#60a5fa","#2563eb","#1e3a8a"];
+  const rings = [150,120,92,65,38].map((r,i)=>'<ellipse cx="180" cy="120" rx="'+r+'" ry="'+Math.round(r*.63)+'" fill="'+colors[i]+'" fill-opacity=".72" stroke="#fff" stroke-opacity=".75" stroke-width="1.5"/>').join("");
+  const extra = isShake
+    ? '<text x="18" y="214" fill="#e2e8f0" font-size="10">Intensitas MMI: ilustrasi model, bukan hasil sensor</text>'
+    : '<path d="M0 176 Q55 158 102 176 T205 176 T360 176 V240 H0Z" fill="#38bdf8" fill-opacity=".18"/><text x="18" y="214" fill="#e2e8f0" font-size="10">Tidak ada estimasi resmi ETA/tinggi gelombang</text>';
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="360" height="240" viewBox="0 0 360 240"><rect width="360" height="240" fill="#0b1729"/><path d="M0 40H360M0 80H360M0 120H360M0 160H360M0 200H360M60 0V240M120 0V240M180 0V240M240 0V240M300 0V240" stroke="#64748b" stroke-opacity=".22"/><text x="14" y="22" fill="#f8fafc" font-size="12" font-weight="700">'+title+'</text>'+rings+'<circle cx="180" cy="120" r="5" fill="#fff" stroke="#111827" stroke-width="2"/><text x="191" y="114" fill="#fff" font-size="10">Episenter uji</text>'+extra+'<text x="14" y="234" fill="#fbbf24" font-size="10" font-weight="700">DATA FIKTIF UNTUK PENGUJIAN · M'+Number(magnitude).toFixed(1)+'</text></svg>';
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+}
 function simulationQuake(scenarioIndex = simulationScenarioIndex) {
-  const s = WRS_TEST_SCENARIOS[((scenarioIndex % WRS_TEST_SCENARIOS.length) + WRS_TEST_SCENARIOS.length) % WRS_TEST_SCENARIOS.length];
-  return {
-    key: "simulation|wrs-demo-" + s.id,
-    magnitude: s.magnitude, lat: s.lat, lon: s.lon,
+  const preset = WRS_TEST_SCENARIOS[((scenarioIndex % WRS_TEST_SCENARIOS.length) + WRS_TEST_SCENARIOS.length) % WRS_TEST_SCENARIOS.length];
+  const magnitude = Math.max(5, Math.min(9, Number($("#wrsTestMagnitude")?.value || 5.6)));
+  const selectedPlace = $("#wrsTestLocation")?.value || preset.id;
+  const s = WRS_TEST_SCENARIOS.find(item => item.id === selectedPlace) || preset;
+  const tsunami = !!$("#wrsTestTsunami")?.checked;
+  const mag = magnitude.toFixed(1);
+  const quake = {
+    key: "simulation|wrs-demo-" + s.id + "-m" + mag + (tsunami ? "-tsunami" : ""),
+    magnitude, lat: s.lat, lon: s.lon,
     place: "SIMULASI · " + s.place,
-    depth: s.depth, time: new Date().toISOString(),
-    potential: "DATA UJI — bukan kejadian gempa nyata",
-    felt: "", source: "SIMULASI / MODE TES", status: "TEST",
-    official: false, simulation: true, wrsRealtime: false
+    depth: String(s.depth), time: new Date().toISOString(),
+    potential: tsunami ? "SIMULASI TSUNAMI — SKENARIO UJI (BUKAN PERINGATAN RESMI)" : "DATA UJI — tidak ada potensi tsunami yang disimulasikan",
+    headline: tsunami ? "PERINGATAN TSUNAMI · SIMULASI LOKAL · BUKAN PERINGATAN RESMI" : "INFO GEMPA M" + mag + " · SIMULASI LOKAL",
+    subject: tsunami ? "SIMULASI TSUNAMI · UJI LOKAL" : "SIMULASI GEMPA · UJI LOKAL",
+    felt: "Simulasi intensitas MMI untuk demonstrasi — bukan observasi sensor.",
+    source: "SIMULASI LOKAL / MODE TES", status: "TEST", pd: "SIMULASI",
+    official: false, simulation: true, wrsRealtime: false,
+    isTsunamiWarning: tsunami, shakemap: simulationMapSvg("shake", magnitude),
+    sshmap: tsunami ? simulationMapSvg("ssh", magnitude) : "",
+    wzmap: tsunami ? simulationMapSvg("warning", magnitude) : "",
+    ttmap: tsunami ? simulationMapSvg("travel", magnitude) : "",
+    instruction: tsunami
+      ? "SIMULASI: untuk latihan, bayangkan mengikuti prosedur evakuasi tsunami. Ini bukan perintah evakuasi nyata."
+      : "Ini latihan simulasi. Pada kejadian nyata, ikuti informasi resmi BMKG dan petugas setempat."
   };
+  return quake;
 }
 function logSimulationTest(message, kind = "info") {
   const stamp = new Date().toLocaleTimeString("id-ID", { hour12: false });
@@ -1674,7 +1704,7 @@ function updateModeButtons() {
   const tools = $("#wrsTestTools");
   if (tools) tools.hidden = wrsMode !== "simulation";
 }
-function applySimulationMode() {
+function applySimulationMode(options = {}) {
   const sample = simulationQuake();
   quakes = [sample];
   realtimeEvents = [sample];
@@ -1697,13 +1727,19 @@ function applySimulationMode() {
   updateModeButtons();
   drawMarkers(true);
   updateStats(getFilteredQuakes());
+  const statusText = $("#wrsTestStatus");
+  if (statusText) statusText.textContent = "SKENARIO AKTIF · M" + sample.magnitude.toFixed(1) + (sample.isTsunamiWarning ? " · TSUNAMI SIMULASI" : " · TANPA TSUNAMI");
+  if (options.alert) {
+    showPopup(sample);
+    if (sample.isTsunamiWarning) openTsunamiModal(sample);
+    playAlarmSequence(sample).catch(error => console.warn("Alarm simulasi tidak tersedia", error));
+    logSimulationTest("Skenario berjalan: M" + sample.magnitude.toFixed(1) + (sample.isTsunamiWarning ? " · alarm tsunami uji" : " · alarm gempa uji"), "warning");
+  }
+  return sample;
 }
 function runSimulationQuakeTest() {
   if (wrsMode !== "simulation") return;
-  simulationScenarioIndex = (simulationScenarioIndex + 1) % WRS_TEST_SCENARIOS.length;
-  applySimulationMode();
-  const q = currentRealtime;
-  logSimulationTest("Uji kejadian gempa: M" + q.magnitude.toFixed(1) + " · " + q.place.replace("SIMULASI · ", ""), "warning");
+  applySimulationMode({ alert: true });
 }
 async function runCommunicationTest() {
   if (wrsMode !== "simulation") return;
@@ -1724,7 +1760,10 @@ async function runCommunicationTest() {
 }
 function resetSimulationTests() {
   if (wrsMode !== "simulation") return;
-  simulationScenarioIndex = 0;
+  simulationScenarioIndex = 1;
+  if ($("#wrsTestMagnitude")) $("#wrsTestMagnitude").value = "5.6";
+  if ($("#wrsTestLocation")) $("#wrsTestLocation").value = "sulawesi";
+  if ($("#wrsTestTsunami")) $("#wrsTestTsunami").checked = false;
   simulationTestLog = [];
   const log = $("#wrsTestLog");
   if (log) log.replaceChildren();
