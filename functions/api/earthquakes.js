@@ -74,6 +74,15 @@ function capEventTime(date, time) {
   const parsed = new Date(candidate);
   return Number.isNaN(parsed.getTime()) ? candidate : parsed.toISOString();
 }
+function mapCapAsset(raw) {
+  if (!raw) return null;
+  const value = String(raw).trim();
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) {
+    return value.replace(/^https?:\/\/data\.bmkg\.go\.id\/DataMKG\/TEWS\//i, GCS + "/");
+  }
+  return GCS + "/" + value.replace(/^\/+/, "");
+}
 function parseTsunamiCapXml(xml) {
   if (typeof xml !== "string" || !xml.trim()) return [];
   const infos = xml.match(/<info\b[^>]*>[\s\S]*?<\/info>/gi) || [];
@@ -113,8 +122,8 @@ function parseTsunamiCapXml(xml) {
       potential: potential || "Riwayat peringatan dini tsunami InaTEWS",
       subject: subject || ("WARNING TSUNAMI PD-" + (pd || "?")),
       pd: pd || null, headline, description, instruction, instruction1, instruction2, instruction3, timesent,
-      shakemap: shakemapUrl(shakemap) || null,
-      wzmap: shakemapUrl(wzmap), ttmap: shakemapUrl(ttmap), sshmap: shakemapUrl(sshmap),
+      shakemap: mapCapAsset(shakemap) || null,
+      wzmap: mapCapAsset(wzmap), ttmap: mapCapAsset(ttmap), sshmap: mapCapAsset(sshmap),
       ended: /telah\s*berakhir|berakhir|all[\s-]?clear|dinyatakan\s*telah\s*berakhir/i.test(headline + " " + description + " " + subject),
       source: "InaTEWS", isTsunamiWarning: true, official: true
     });
