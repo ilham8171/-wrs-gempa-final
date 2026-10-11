@@ -881,23 +881,20 @@ async function loadUsgsProducts(q) {
     }
     html += '<div style="font-weight:900;border-bottom:1px solid var(--border,#cbd5e1);padding-bottom:7px;margin:16px 0 8px">INFORMASI TSUNAMI</div>';
     html += '<div style="font-size:13px;line-height:1.55;padding:11px;border-radius:9px;background:rgba(148,163,184,.10)">Status tsunami harus diperiksa melalui otoritas resmi untuk lokasi kejadian. Magnitudo saja tidak cukup untuk menyatakan ada atau tidaknya ancaman tsunami.</div>';
-    const query = encodeURIComponent(location + " earthquake " + (Number.isFinite(time) ? new Date(time).toISOString().slice(0,10) : "") + " official shakemap");
-    html += '<div style="font-weight:900;border-bottom:1px solid var(--border,#cbd5e1);padding-bottom:7px;margin:16px 0 8px">SUMBER PEMBANDING & PETA LAIN</div>';
-    html += '<div style="font-size:13px;line-height:1.5;margin-bottom:8px">Jika USGS tidak memiliki peta, periksa sumber seismologi resmi yang mencakup wilayah tersebut. Hasil pencarian perlu dicocokkan dengan waktu dan koordinat kejadian.</div>';
-    html += '<div style="display:flex;flex-wrap:wrap;gap:7px">';
-    html += '<a href="https://earthquake.usgs.gov/earthquakes/map/" target="_blank" rel="noopener noreferrer" style="padding:8px 10px;border-radius:8px;background:var(--accent,#0f766e);color:#fff;text-decoration:none;font-size:12px;font-weight:800">Katalog USGS ↗</a>';
-    html += '<a href="https://www.emsc-csem.org/" target="_blank" rel="noopener noreferrer" style="padding:8px 10px;border-radius:8px;background:var(--accent,#0f766e);color:#fff;text-decoration:none;font-size:12px;font-weight:800">EMSC ↗</a>';
-    html += '<a href="https://www.globalcmt.org/" target="_blank" rel="noopener noreferrer" style="padding:8px 10px;border-radius:8px;background:var(--accent,#0f766e);color:#fff;text-decoration:none;font-size:12px;font-weight:800">Global CMT ↗</a>';
-    if (Math.abs(Number(lat)) <= 12 && Math.abs(Number(lon)) >= 90 && Math.abs(Number(lon)) <= 145) html += '<a href="https://data.bmkg.go.id/gempabumi/" target="_blank" rel="noopener noreferrer" style="padding:8px 10px;border-radius:8px;background:var(--accent,#0f766e);color:#fff;text-decoration:none;font-size:12px;font-weight:800">Katalog BMKG ↗</a>';
-    html += '<a href="https://www.google.com/search?q=' + query + '" target="_blank" rel="noopener noreferrer" style="padding:8px 10px;border-radius:8px;border:1px solid var(--border,#cbd5e1);color:inherit;text-decoration:none;font-size:12px;font-weight:800">Cari peta resmi wilayah ini ↗</a></div>';
+    // Ringkasan sumber dibuat singkat agar tampilan utama tetap seperti buletin BMKG.
+    const sourceNote = shakeMapUrl
+      ? 'Sumber peta: USGS ShakeMap. Produk tambahan dan metadata tersedia di sumber resmi.'
+      : 'Peta ShakeMap belum tersedia untuk kejadian ini. Data tambahan dapat diperiksa melalui sumber resmi.';
+    html += '<div style="font-size:11px;line-height:1.45;opacity:.72;margin-top:7px">' + sourceNote + '</div>';
     if (productRows.length || uniqueLinks.length) {
-      html += '<details style="margin-top:14px;border:1px solid var(--border,#cbd5e1);border-radius:9px;padding:10px"><summary style="cursor:pointer;font-weight:900">Informasi teknis & produk tambahan (' + (productRows.length + uniqueLinks.length) + ')</summary>';
-      if (productRows.length) html += '<ul style="padding-left:19px;font-size:13px;line-height:1.6">' + productRows.join("") + '</ul>';
-      if (uniqueLinks.length) html += '<div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:8px">' + uniqueLinks.map(item => '<a href="' + safe(item.url) + '" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:7px 10px;border-radius:7px;background:var(--accent,#0f766e);color:white;text-decoration:none;font-size:12px;font-weight:700">' + safe(item.label) + ' ↗</a>').join("") + '</div>';
+      html += '<details style="margin-top:10px;border:1px solid var(--border,#cbd5e1);border-radius:9px;padding:10px"><summary style="cursor:pointer;font-weight:800;font-size:12px">Detail sumber & produk tambahan</summary>';
+      html += '<div style="font-size:12px;line-height:1.5;margin-top:7px">Produk tambahan tersedia dari katalog resmi USGS untuk kejadian ini.</div>';
+      if (productRows.length) html += '<ul style="padding-left:19px;font-size:12px;line-height:1.6">' + productRows.join("") + '</ul>';
+      if (uniqueLinks.length) html += '<div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:8px">' + uniqueLinks.map(item => '<a href="' + safe(item.url) + '" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:7px 10px;border-radius:7px;background:var(--accent,#0f766e);color:white;text-decoration:none;font-size:11px;font-weight:700">' + safe(item.label) + ' ↗</a>').join("") + '</div>';
       html += '</details>';
     }
-    html += '<p style="margin:14px 0 0;font-size:12px"><a href="' + safe(eventUrl) + '" target="_blank" rel="noopener noreferrer">Buka sumber resmi USGS ↗</a></p>';
-    html += '<div style="font-size:11px;opacity:.7;margin-top:9px">Peta guncangan adalah estimasi ilmiah, bukan pengukuran pasti di setiap lokasi. Data pembanding wajib dicocokkan dengan kejadian yang sama.</div>';
+    html += '<p style="margin:10px 0 0;font-size:11px"><a href="' + safe(eventUrl) + '" target="_blank" rel="noopener noreferrer">Sumber resmi USGS ↗</a></p>';
+    html += '<div style="font-size:11px;opacity:.7;margin-top:7px">Peta guncangan merupakan estimasi ilmiah, bukan pengukuran pasti di setiap lokasi.</div>';
     box.innerHTML = html;
   } catch (error) {
     if (window._modalQuake?.key !== q.key) return;
