@@ -1812,17 +1812,11 @@ async function saveModalAsImage(_cardEl, filename) {
     alert("Library gambar belum termuat. Coba refresh halaman.");
     return;
   }
-  if (typeof JSZip !== "function") {
-    alert("Fitur ZIP belum termuat. Coba refresh halaman lalu unduh lagi.");
-    return;
-  }
-
   const defs = buildExportPages(q);
   const base = (filename || "info-gempa.png").replace(/\.png$/i, "");
-  const zip = new JSZip();
   let saved = 0;
-  showLoading("Membuat ZIP berisi " + defs.length + " gambar 9:16…");
-
+  const nativeGallery = !!(window.AndroidWrs && typeof window.AndroidWrs.saveImage === "function");
+  showLoading("Membuat " + defs.length + " gambar PNG…");
   try {
     for (let i = 0; i < defs.length; i++) {
       const def = defs[i];
@@ -1831,52 +1825,44 @@ async function saveModalAsImage(_cardEl, filename) {
         const imgs = [...el.querySelectorAll("img")];
         await Promise.all(imgs.map(img => new Promise(resolve => {
           if (img.complete && img.naturalWidth > 0) return resolve();
-          img.onload = resolve;
-          img.onerror = resolve;
-          setTimeout(resolve, 5000);
+          img.onload = resolve; img.onerror = resolve; setTimeout(resolve, 5000);
         })));
         await new Promise(resolve => setTimeout(resolve, 150));
         const canvas = await html2canvas(el, {
-          backgroundColor: "#f8fafc",
-          scale: 2,
-          useCORS: true,
-          allowTaint: false,
-          logging: false,
-          scrollX: 0,
-          scrollY: 0,
-          width: 390,
-          height: 693,
-          windowWidth: 390,
-          windowHeight: 693
+          backgroundColor: "#f8fafc", scale: 2, useCORS: true, allowTaint: false,
+          logging: false, scrollX: 0, scrollY: 0, width: 390, height: 693,
+          windowWidth: 390, windowHeight: 693
         });
         const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
         if (!blob) throw new Error("Gagal membuat gambar halaman " + (i + 1));
         const pageName = base + "_" + String(i + 1).padStart(2, "0") + "_" + def.label + ".png";
-        zip.file(pageName, blob);
+        if (nativeGallery) {
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ""));
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          const result = window.AndroidWrs.saveImage(pageName, dataUrl.split(",")[1] || "");
+          if (result !== "OK") throw new Error(result || "Gagal menyimpan ke galeri");
+        } else {
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url; link.download = pageName;
+          document.body.appendChild(link); link.click(); link.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 30000);
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
         saved++;
-        showLoading("Memproses gambar " + saved + " dari " + defs.length + "…");
-      } finally {
-        el.remove();
-      }
+        showLoading("Menyimpan PNG " + saved + " dari " + defs.length + "…");
+      } finally { el.remove(); }
     }
-
-    showLoading("Mengemas " + saved + " gambar ke ZIP…");
-    const zipBlob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 4 } });
-    const url = URL.createObjectURL(zipBlob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = base + "_semua-halaman.zip";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 15000);
-    alert("Berhasil! " + saved + " gambar 9:16 dimasukkan ke satu file ZIP. Ekstrak ZIP untuk melihat semua halaman.");
+    if (nativeGallery) alert("Berhasil! " + saved + " gambar PNG tersimpan di Galeri > Album WRS GEMPA.");
+    else alert("Berhasil menyiapkan " + saved + " gambar PNG satu per satu. Jika browser meminta izin unduhan, izinkan.");
   } catch (err) {
-    console.warn("Pembuatan ZIP gambar gagal:", err);
-    alert("ZIP belum berhasil dibuat. " + saved + " dari " + defs.length + " gambar sempat diproses. Coba refresh lalu ulangi.");
-  } finally {
-    hideLoading();
-  }
+    console.warn("Penyimpanan gambar PNG gagal:", err);
+    alert("Gagal menyimpan gambar. " + saved + " dari " + defs.length + " berhasil. " + (err?.message || "Coba refresh halaman lalu ulangi."));
+  } finally { hideLoading(); }
 }
 $("#btnShare")?.addEventListener("click", () => shareQuake(window._modalQuake));
 $("#btnShareTsunami")?.addEventListener("click", () => shareQuake(window._modalQuake));
