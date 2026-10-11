@@ -1699,7 +1699,7 @@ $("#modalTsunamiAlert")?.addEventListener("click", (e) => {
 });
 
 function buildShareText(q) {
-  return `Gempa M${q.magnitude.toFixed(1)} — ${q.place}\nWaktu: ${fmtTime(q)}\nKoordinat: ${fmtCoord(q)}\nKedalaman: ${q.depth} km\nPotensi: ${q.potential || "—"}\nSumber: ${q.source || "BMKG"}\n\nIndependent monitoring by ilham · data resmi BMKG/InaTEWS`;
+  return `Gempa M${q.magnitude.toFixed(1)} — ${q.place}\nWaktu: ${fmtTime(q)}\nKoordinat: ${fmtCoord(q)}\nKedalaman: ${q.depth} km\nPotensi: ${q.potential || "—"}\nSumber: ${q.source || "BMKG"}\n\nWRS GEMPA · pemantauan independen · data BMKG/InaTEWS/USGS`;
 }
 
 async function shareQuake(q) {
@@ -1829,7 +1829,7 @@ function buildExportCard(q) {
       ${mapsHtml}
     </div>
     <div style="padding:10px 14px;background:#0f172a;color:#94a3b8;font-size:10px;text-align:center;font-weight:600">
-      Independent monitoring by ilham · Sumber data resmi BMKG/InaTEWS
+      WRS GEMPA · Pemantauan independen · Sumber: BMKG / InaTEWS / USGS · Bukan sistem resmi BMKG
     </div>
   `;
   document.body.appendChild(wrap);
