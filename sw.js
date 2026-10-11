@@ -5,11 +5,12 @@
  * - Network-first untuk HTML/JS/CSS agar data dan kode tetap mudah diperbarui
  */
 
-const CACHE_NAME = "pantau-gempa-shell-v7-1-5";
+const CACHE_NAME = "pantau-gempa-shell-v7-2-0";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/styles.css",
+  "/ui-refresh.css",
   "/app.js",
   "/manifest.json",
   "/icons/icon-192.png",
@@ -44,11 +45,23 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
+  // API data gempa selalu network-first dan tidak masuk cache app-shell.
+  if (url.pathname.startsWith("/api/")) {
+    event.respondWith(
+      fetch(request).catch(() => new Response(
+        JSON.stringify({ ok: false, error: "network_unavailable" }),
+        { status: 503, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } }
+      ))
+    );
+    return;
+  }
+
   // HTML/JS/CSS/manifest: network-first, cache fallback saat jaringan bermasalah.
   if (
     request.mode === "navigate" ||
     url.pathname === "/app.js" ||
     url.pathname === "/styles.css" ||
+    url.pathname === "/ui-refresh.css" ||
     url.pathname === "/manifest.json"
   ) {
     event.respondWith(
