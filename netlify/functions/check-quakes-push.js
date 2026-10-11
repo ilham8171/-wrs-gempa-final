@@ -12,13 +12,11 @@ async function handler() {
   }
   webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:admin@example.com", publicKey, privateKey);
   try {
-    const state = getStore("push-state");
     const subsStore = getStore("push-subscriptions");
+    const deliveryStore = getStore("push-delivery-state");
     const data = await fetchAll();
     const latest = data && data.latest;
     if (!latest || !latest.key) return { statusCode: 200, body: "no data" };
-    const lastKey = (await state.get("lastKey")) || "";
-    if (latest.key === lastKey) return { statusCode: 200, body: "no new quake" };
     const { blobs } = await subsStore.list();
     if (!blobs.length) return { statusCode: 200, body: "no subscribers" };
     const payload = JSON.stringify({
@@ -29,19 +27,32 @@ async function handler() {
       url: `/?quake=${encodeURIComponent(latest.key)}`
     });
     let attempts = 0;
+    let skipped = 0;
     await Promise.all(blobs.map(async ({ key }) => {
       const sub = await subsStore.get(key, { type: "json" });
       if (!sub) return;
+      const deliveredKey = await deliveryStore.get(key);
+      if (deliveredKey === latest.key) {
+        skipped++;
+        return;
+      }
       try {
         await webpush.sendNotification(sub, payload, { TTL: 300 });
+        await deliveryStore.set(key, latest.key);
         attempts++;
       } catch (err) {
-        if (err.statusCode === 404 || err.statusCode === 410) await subsStore.delete(key);
-        else console.error("Web Push delivery failed", err.statusCode || err.message);
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          await subsStore.delete(key);
+          await deliveryStore.delete(key);
+        } else {
+          console.error("Web Push delivery failed", err.statusCode || err.message);
+        }
       }
     }));
-    await state.set("lastKey", latest.key);
-    return { statusCode: 200, body: `delivery attempted: ${attempts}` };
+    return {
+      statusCode: attempts > 0 || skipped > 0 ? 200 : 502,
+      body: `delivered: ${attempts}; already delivered: ${skipped}; failed subscriptions are retried on next check`
+    };
   } catch (err) {
     console.error("check-quakes-push failed", err);
     return { statusCode: 500, body: "push check failed" };
