@@ -1,28 +1,35 @@
-# WRS GEMPA — Source Website (finalisasi)
+# WRS GEMPA — Website & PWA
 
-Repositori ini menyimpan source website/PWA WRS GEMPA. Proyek Android native dan APK berada di repositori terpisah: https://github.com/ilham8171/wrs-gempa-app
+Website pemantauan gempa Indonesia dan global. Source Android native terpisah tersedia di https://github.com/ilham8171/wrs-gempa-app; APK menggunakan website/API yang sama untuk data peta dan notifikasi latar belakang.
 
-## Status
-- [ ] Source website lengkap dimasukkan dan diverifikasi.
-- [ ] API gempa dan penanganan kegagalan jaringan diuji.
-- [ ] Tampilan peta/legenda pada perangkat mobile diuji.
-- [ ] Push notification website diuji dengan konfigurasi Netlify yang benar.
-- [ ] Proyek Android dibangun dan APK diuji terpisah.
+## Data sources
 
-## Struktur source website yang diharapkan
-- index.html, styles.css, app.js
-- manifest.json, sw.js, icons/
-- netlify.toml
-- netlify/functions/earthquakes.js
-- netlify/functions/subscribe.js
-- netlify/functions/check-quakes-push.js
-- netlify/functions/_shared/fetchQuakes.js
+- BMKG public feeds are preferred for official Indonesian earthquake reports.
+- InaTEWS feeds provide additional Indonesian earthquake and tsunami-warning context.
+- USGS global feed supplements larger global events.
+- A separate USGS query covers Indonesia (approximately 94–141.5°E, 11°S–6.5°N) for M2+ events during the last seven days, so events may still appear if BMKG's public feed is unavailable or incomplete.
+- USGS ShakeMap products are attached when available. For a BMKG event without a ShakeMap, a USGS map is used only when time, magnitude, and coordinates are sufficiently close. A USGS ShakeMap is not guaranteed for every event and is not an official BMKG intensity assessment.
 
-## Keamanan
-Jangan commit VAPID private key, Firebase service-account JSON, token, atau kredensial. Simpan rahasia di environment variables/Secrets pada layanan yang membutuhkannya.
+## Hosting and push notifications
 
-## Notifikasi dan keselamatan
-Berhasil membangun APK tidak membuktikan push notification bekerja saat aplikasi ditutup. Aplikasi harus diuji pada perangkat nyata. Interval WorkManager Android memiliki batas sistem dan tidak menjamin peringatan seketika. Informasi peringatan resmi harus dikonfirmasi melalui BMKG; aplikasi ini bukan pengganti arahan resmi.
+The live site is hosted on Cloudflare Pages. Pages Functions live under `functions/api/`; browser push subscriptions are stored in the Cloudflare KV namespace bound as `PUSH_SUBSCRIPTIONS`. Do not rely on the old Netlify Functions as the active backend.
 
-## Build APK
-Build Android dijalankan melalui GitHub Actions pada repositori Android. Perubahan website di repositori ini tidak otomatis mengubah kode native Android.
+- `GET /api/earthquakes` — combines BMKG, InaTEWS, and USGS data.
+- `GET /api/push-key` — creates/returns the VAPID public key; its private JWK remains in server-side KV and is never returned to clients.
+- `POST /api/subscribe` — stores a browser push subscription.
+- `DELETE /api/subscribe` — removes a browser push subscription.
+- `workers/push-cron.js` — Cloudflare Worker scheduled every minute; sends Web Push for recent qualifying earthquakes and active tsunami warnings.
+
+The Pages project needs the `PUSH_SUBSCRIPTIONS` KV binding in both Preview and Production. The scheduled Worker needs the same namespace binding and an active cron trigger. The Worker checks for new events and deduplicates deliveries per subscription.
+
+## Validation and safety
+
+- JavaScript syntax checks should pass before merging.
+- Confirm the Cloudflare Pages preview deployment and test `/api/earthquakes`, `/api/push-key`, and a real browser push subscription before treating notifications as fully verified.
+- Push delivery depends on the browser/device allowing notifications and the push provider being reachable. It is not guaranteed to be instant.
+- ShakeMap coverage is conditional; missing maps should be presented as unavailable rather than fabricated.
+- WRS GEMPA is a supplementary monitor, not a replacement for official BMKG/InaTEWS instructions. In an emergency, follow official alerts and local authorities.
+
+## Android
+
+The Android WebView opens the hosted website, while WorkManager polls `/api/earthquakes` for background alerts. WorkManager scheduling is controlled by Android and is not guaranteed to run at exact intervals.
