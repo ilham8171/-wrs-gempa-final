@@ -451,6 +451,35 @@ function parseTsunamiCapXml(xml) {
     const wzmap = textBetween(block, "wzmap");
     const ttmap = textBetween(block, "ttmap");
     const sshmap = textBetween(block, "sshmap");
+    // Only accept explicitly supplied SSHmax raster bounds. Never derive map
+    // placement from the earthquake epicentre or warning-area names.
+    const sshBoundsRaw = textBetween(block, "sshbounds");
+    const boundNumber = (tag) => {
+      const v = num(textBetween(block, tag));
+      return Number.isFinite(v) ? v : null;
+    };
+    let sshBounds = {
+      minLat: boundNumber("sshminlat"),
+      minLon: boundNumber("sshminlon"),
+      maxLat: boundNumber("sshmaxlat"),
+      maxLon: boundNumber("sshmaxlon"),
+    };
+    if (Object.values(sshBounds).some(v => v == null) && sshBoundsRaw) {
+      try {
+        const parsed = JSON.parse(sshBoundsRaw);
+        const candidate = {
+          minLat: num(parsed.minLat ?? parsed.south),
+          minLon: num(parsed.minLon ?? parsed.west),
+          maxLat: num(parsed.maxLat ?? parsed.north),
+          maxLon: num(parsed.maxLon ?? parsed.east),
+        };
+        if (Object.values(candidate).every(Number.isFinite)) sshBounds = candidate;
+      } catch {}
+    }
+    const hasSshBounds = Object.values(sshBounds).every(Number.isFinite) &&
+      sshBounds.minLat >= -90 && sshBounds.maxLat <= 90 &&
+      sshBounds.minLon >= -180 && sshBounds.maxLon <= 180 &&
+      sshBounds.minLat < sshBounds.maxLat && sshBounds.minLon < sshBounds.maxLon;
     const instruction = textBetween(block, "instruction");
     const instruction1 = textBetween(block, "instruction1");
     const instruction2 = textBetween(block, "instruction2");
@@ -485,6 +514,7 @@ function parseTsunamiCapXml(xml) {
       wzmap: shakemapUrl(wzmap),
       ttmap: shakemapUrl(ttmap),
       sshmap: shakemapUrl(sshmap),
+      sshBounds: hasSshBounds ? sshBounds : null,
       ended: /telah\s*berakhir|berakhir|all[\s-]?clear|dinyatakan\s*telah\s*berakhir/i.test(
         (headline || "") + " " + (description || "") + " " + (subject || "")
       ),
