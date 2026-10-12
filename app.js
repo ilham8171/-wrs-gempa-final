@@ -1,6 +1,6 @@
 const API = "/api/earthquakes";
 const SUBSCRIBE_API = "/api/subscribe";
-const NORMAL_INTERVAL = 8000; // polling lebih rapat; latensi upstream tetap bergantung pada feed InaTEWS
+const NORMAL_INTERVAL = 4000; // klien memeriksa tiap 4 dtk; edge cache membatasi fetch upstream sekitar tiap 8 dtk
 const currentInterval = () => NORMAL_INTERVAL;
 const SHAKEMAP_BASE = "https://bmkg-content-inatews.storage.googleapis.com/";
 const $ = (s) => document.querySelector(s);
