@@ -455,7 +455,9 @@ function parseTsunamiCapXml(xml) {
     // placement from the earthquake epicentre or warning-area names.
     const sshBoundsRaw = textBetween(block, "sshbounds");
     const boundNumber = (tag) => {
-      const v = num(textBetween(block, tag));
+      const raw = textBetween(block, tag).trim();
+      if (!raw) return null;
+      const v = num(raw);
       return Number.isFinite(v) ? v : null;
     };
     let sshBounds = {
@@ -467,11 +469,17 @@ function parseTsunamiCapXml(xml) {
     if (Object.values(sshBounds).some(v => v == null) && sshBoundsRaw) {
       try {
         const parsed = JSON.parse(sshBoundsRaw);
+        const readBound = (...values) => {
+          const raw = values.find(v => v !== undefined && v !== null && String(v).trim() !== "");
+          if (raw === undefined) return null;
+          const value = num(raw);
+          return Number.isFinite(value) ? value : null;
+        };
         const candidate = {
-          minLat: num(parsed.minLat ?? parsed.south),
-          minLon: num(parsed.minLon ?? parsed.west),
-          maxLat: num(parsed.maxLat ?? parsed.north),
-          maxLon: num(parsed.maxLon ?? parsed.east),
+          minLat: readBound(parsed.minLat, parsed.south),
+          minLon: readBound(parsed.minLon, parsed.west),
+          maxLat: readBound(parsed.maxLat, parsed.north),
+          maxLon: readBound(parsed.maxLon, parsed.east),
         };
         if (Object.values(candidate).every(Number.isFinite)) sshBounds = candidate;
       } catch {}
