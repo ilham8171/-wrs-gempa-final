@@ -1588,3 +1588,37 @@ body.battery-saver *,body.battery-saver *::before,body.battery-saver *::after{sc
 #cardRealtime .world-clock-grid small{font-size:6px!important;line-height:1.15!important}
 #cardRealtime .world-clock-grid strong{font-size:12px!important;letter-spacing:0!important;line-height:1.1!important;margin:1px 0!important}
 #cardRealtime .world-clock-grid time{font-size:6px!important;line-height:1.1!important}
+
+/* Latest earthquake: compact red pulse rings stay centered on the marker at every zoom. */
+.eq-pulse-ring{stroke:#ff354f!important;stroke-linecap:round;fill:none!important;fill-opacity:0!important;pointer-events:none!important;vector-effect:non-scaling-stroke;transform-box:fill-box;transform-origin:center;animation:wrsQuakeRingPulse 2.15s cubic-bezier(.15,.55,.35,1) infinite;filter:drop-shadow(0 0 2px rgba(255,35,65,.45))}
+.eq-pulse-ring-inner{animation-delay:0s;stroke-width:2.1px!important}
+.eq-pulse-ring-outer{animation-delay:1.05s;stroke-width:1.6px!important}
+@keyframes wrsQuakeRingPulse{
+  0%{transform:scale(.78);opacity:.95;stroke-width:2.3px}
+  72%{transform:scale(1.14);opacity:.18;stroke-width:1px}
+  100%{transform:scale(1.18);opacity:0;stroke-width:.6px}
+}
+.eq-star{animation:starPulse 1.7s ease-in-out infinite!important}
+@keyframes starPulse{
+  0%,100%{transform:scale(1);opacity:1;filter:drop-shadow(0 0 1px rgba(255,55,70,.3))}
+  50%{transform:scale(1.13);opacity:.95;filter:drop-shadow(0 0 4px rgba(255,45,65,.72))}
+}
+#rightPanel.felt-event-pulse .rp-mag-bar{
+  position:relative;isolation:isolate;
+  animation:wrsFeltSummaryPulse 2.2s ease-in-out infinite;
+}
+#rightPanel.felt-event-pulse .rp-mag-bar::after{
+  content:"";position:absolute;inset:5px;border:1px solid rgba(255,70,80,.45);
+  border-radius:10px;pointer-events:none;animation:wrsFeltSummaryRing 2.2s ease-out infinite;
+}
+@keyframes wrsFeltSummaryPulse{
+  0%,100%{box-shadow:0 0 0 rgba(255,45,65,0)}
+  50%{box-shadow:0 0 16px rgba(255,45,65,.17)}
+}
+@keyframes wrsFeltSummaryRing{
+  0%{opacity:.7;transform:scale(.99)}
+  85%,100%{opacity:0;transform:scale(1.025)}
+}
+@media(prefers-reduced-motion:reduce){
+  .eq-pulse-ring,.eq-star,#rightPanel.felt-event-pulse .rp-mag-bar,#rightPanel.felt-event-pulse .rp-mag-bar::after{animation:none!important}
+}
