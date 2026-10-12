@@ -318,11 +318,30 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   qlEvents.push(...liveQL);
   // Jangan pernah menyamarkan katalog historis sebagai feed realtime bila lastQL gagal/kosong.
   const usgs=results[5];
-  if(usgs.status==="fulfilled") (usgs.value.features||[]).forEach(f=>{const q=mapUSGS(f, 5);if(q)list.push(q);});
-  else errors.push("USGS global: " + String(usgs.reason?.message || "permintaan gagal").slice(0,120));
+  const usgsGlobalFeatures = usgs.status==="fulfilled" && Array.isArray(usgs.value?.features) ? usgs.value.features : [];
+  if(usgs.status==="fulfilled") {
+    usgsGlobalFeatures.forEach(f=>{const q=mapUSGS(f, 5);if(q)list.push(q);});
+  } else {
+    errors.push("USGS global: " + String(usgs.reason?.message || "permintaan gagal").slice(0,120));
+  }
   const usgsIndonesia=results[6];
-  if(usgsIndonesia.status==="fulfilled") (usgsIndonesia.value.features||[]).forEach(f=>{const q=mapUSGS(f, 2);if(q)list.push(q);});
-  else errors.push("USGS Indonesia: " + String(usgsIndonesia.reason?.message || "permintaan gagal").slice(0,120));
+  if(usgsIndonesia.status==="fulfilled") {
+    (usgsIndonesia.value.features||[]).forEach(f=>{const q=mapUSGS(f, 2);if(q)list.push(q);});
+  } else {
+    errors.push("USGS Indonesia: " + String(usgsIndonesia.reason?.message || "permintaan gagal").slice(0,120));
+    // Resilience fallback: if the regional FDSN query times out, recover Indonesian
+    // M2+ events from the already-fetched global weekly GeoJSON feed. This is a
+    // partial fallback (the global feed may omit smaller events), but it keeps
+    // useful USGS backup coverage without blocking the main BMKG/WRS response.
+    const inIndonesia = q => q.lat >= -11 && q.lat <= 6.5 && q.lon >= 94 && q.lon <= 141.5;
+    usgsGlobalFeatures.forEach(f => {
+      const q = mapUSGS(f, 2);
+      if (q && inIndonesia(q)) {
+        q.usgsRegionalFallback = true;
+        list.push(q);
+      }
+    });
+  }
   // Jangan menunggu permintaan detail ShakeMap USGS untuk mengirim katalog.
   // Peta USGS dimuat on-demand ketika pengguna membuka detail event; ini menjaga
   // polling operasional tetap cepat dan tidak membebani feed pada setiap refresh.
