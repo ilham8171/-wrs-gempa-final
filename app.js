@@ -1770,6 +1770,49 @@ function renderTsunamiStagePanel(index,q){
 }
 function clearSimulationTsunamiStage(){simulationTsunamiStageIndex=-1;renderSimulationTsunamiMap(null,-1);renderTsunamiStagePanel(-1,null)}
 
+const OBSERVATION_COORDS=[
+ {re:/loloda/i,name:"Loloda",lat:1.72,lon:127.55},{re:/ulu\\s*siau/i,name:"Ulu Siau",lat:2.75,lon:125.4},
+ {re:/melonguane/i,name:"Melonguane",lat:4.05,lon:126.67},{re:/bitung/i,name:"Bitung",lat:1.44,lon:125.19},
+ {re:/manado/i,name:"Manado",lat:1.49,lon:124.85},{re:/ternate/i,name:"Ternate",lat:.79,lon:127.38},
+ {re:/halmahera/i,name:"Halmahera",lat:.63,lon:127.97},{re:/ambon/i,name:"Ambon",lat:-3.7,lon:128.18},
+ {re:/padang/i,name:"Padang",lat:-.95,lon:100.36},{re:/bengkulu/i,name:"Bengkulu",lat:-3.8,lon:102.26},
+ {re:/cilacap/i,name:"Cilacap",lat:-7.73,lon:109.01},{re:/pangandaran/i,name:"Pangandaran",lat:-7.7,lon:108.65},
+ {re:/kupang/i,name:"Kupang",lat:-10.17,lon:123.61},{re:/maumere/i,name:"Maumere",lat:-8.62,lon:122.21},
+ {re:/sorong/i,name:"Sorong",lat:-.87,lon:131.25},{re:/jayapura/i,name:"Jayapura",lat:-2.53,lon:140.72}
+];
+function safeTsunamiMapText(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function renderOfficialTsunamiMap(){
+ if(!map||!tsunamiMapLayer||wrsMode==="simulation")return;
+ clearTsunamiMapLayer();
+ const events=Array.isArray(tsunamiHistory)?tsunamiHistory:[];
+ const latest=new Map();
+ events.forEach(q=>{
+  if(!q||!Number.isFinite(Number(q.lat))||!Number.isFinite(Number(q.lon)))return;
+  const id=String(q.eventid||q.key||q.place||"event"),old=latest.get(id);
+  const rank=x=>isTsunamiEnded(x)?999:(Number(String(x.pd||"").replace(/[^0-9.]/g,""))||0);
+  if(!old||rank(q)>rank(old)||(rank(q)===rank(old)&&(new Date(q.time||0).getTime()||0)>(new Date(old.time||0).getTime()||0)))latest.set(id,q);
+ });
+ latest.forEach(q=>{
+  const ended=isTsunamiEnded(q),pd=q.pd?"PD-"+q.pd:"Peringatan tsunami",color=ended?"#22c55e":"#dc2626";
+  L.circleMarker([Number(q.lat),Number(q.lon)],{radius:ended?7:10,color:"#fff",weight:2,fillColor:color,fillOpacity:.9})
+   .bindTooltip(safeTsunamiMapText(pd)+(ended?" · BERAKHIR":" · InaTEWS"),{sticky:true})
+   .bindPopup("<strong>"+safeTsunamiMapText(q.place||"Lokasi gempa")+"</strong><br>"+safeTsunamiMapText(pd)+"<br>"+(ended?"Peringatan dinyatakan berakhir menurut buletin.":"Titik episenter dari buletin resmi; bukan batas genangan.")+"<br><small>Sumber: InaTEWS</small>")
+   .addTo(tsunamiMapLayer);
+ });
+ // Titik berwarna hanya untuk tinggi muka laut yang benar-benar tertulis pada buletin
+ // dan nama lokasi yang dapat dipetakan; bukan poligon prediksi genangan.
+ events.forEach(q=>parseTsunamiZones(q).forEach(row=>{
+  if(row.height==null)return;
+  const place=OBSERVATION_COORDS.find(p=>p.re.test(row.name));if(!place)return;
+  const level=tsunamiLevelForHeight(row.height);
+  L.circleMarker([place.lat,place.lon],{radius:7+Math.min(row.height*2,9),color:"#fff",weight:1.8,fillColor:level.color,fillOpacity:.9})
+   .bindTooltip("<b>"+place.name+"</b><br>"+row.height.toFixed(2)+" m · "+level.label,{sticky:true})
+   .bindPopup("<strong>"+place.name+"</strong><br>Tinggi muka laut dalam buletin: <b>"+row.height.toFixed(2)+" m</b><br>"+safeTsunamiMapText(row.eta||"Waktu tidak tersedia")+"<br><small>Titik lokasi perkiraan; bukan batas genangan atau tinggi di seluruh wilayah.</small>")
+   .addTo(tsunamiMapLayer);
+ }));
+}
+
+
 function simulationQuake(scenarioIndex = simulationScenarioIndex, overrides = {}) {
   const preset = WRS_TEST_SCENARIOS[((scenarioIndex % WRS_TEST_SCENARIOS.length) + WRS_TEST_SCENARIOS.length) % WRS_TEST_SCENARIOS.length];
   const selectedMax = Math.max(5, Math.min(9, Number($("#wrsTestMagnitude")?.value || 5.6)));
@@ -2073,6 +2116,7 @@ function setWrsMode(mode) {
   simulationSequenceActive = false;
   simulationSequencePaused = false;
   clearSimulationTsunamiStage();
+  renderOfficialTsunamiMap();
   // Invalidate any request started before the mode change. Its response may arrive
   // late and must not replace operational data or leave the UI stuck as "connecting".
   loadRequestId++;
@@ -2168,7 +2212,7 @@ async function load(showSpin, force = false) {
     }
     const oldFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
     quakes = incoming;
-    if (Array.isArray(d.tsunamiHistory)) tsunamiHistory = d.tsunamiHistory;
+    if (Array.isArray(d.tsunamiHistory)) { tsunamiHistory = d.tsunamiHistory; renderOfficialTsunamiMap(); }
     // Saat pertama kali dibuka, pusatkan peta tepat pada marker event terbaru
     // yang ditampilkan di daftar/peta. Jangan mengganggu posisi pengguna saat refresh berikutnya.
     if (!window.__wrsInitialMapCentered && map) {
