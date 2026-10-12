@@ -2361,8 +2361,17 @@ updateSimulationControls();
 function showLoading(msg) {
   const el = $("#loadingOverlay");
   if (!el) return;
+  const text = msg || "Memuat data…";
   const t = el.querySelector(".loading-text");
-  if (t) t.textContent = msg || "Memuat data…";
+  if (t) t.textContent = text;
+  const stages = [...el.querySelectorAll(".wrs-loading-stages span")];
+  let active = 0;
+  if (/peta|gambar|png|canvas/i.test(text)) active = 1;
+  if (/selesai|menyimpan|siap/i.test(text)) active = 2;
+  stages.forEach((stage, index) => {
+    stage.classList.toggle("active", index === active);
+    stage.textContent = (index <= active ? "● " : "○ ") + ["Menyiapkan data", "Memuat peta / gambar", "Menyelesaikan tampilan"][index];
+  });
   el.classList.remove("hidden");
 }
 function hideLoading() {
@@ -2848,6 +2857,17 @@ function openHistory(mode = "all") {
 }
 
 /* Events */
+document.querySelectorAll("#optBell, #prefBell").forEach((element) => {
+  const syncBell = () => {
+    try {
+      if (window.AndroidWrs && typeof window.AndroidWrs.setBellEnabled === "function") {
+        window.AndroidWrs.setBellEnabled(!!element.checked);
+      }
+    } catch (error) { console.warn("Could not sync Android bell preference", error); }
+  };
+  element.addEventListener("change", syncBell);
+  syncBell();
+});
 document.querySelectorAll("#optVoice, #prefVoice").forEach((element) => {
   element.addEventListener("change", (event) => {
     try {
