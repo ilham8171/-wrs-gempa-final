@@ -703,6 +703,26 @@ function primaryRealtimeQuake() {
   return valid(currentRealtime) ? currentRealtime : null;
 }
 
+// Native Android WebView calls this after its first data load. The map and quake
+// records live in this module's lexical scope, so expose a small safe focus API.
+window.wrsFocusLatestQuake = function () {
+  try {
+    if (!map || typeof map.setView !== "function") return false;
+    const valid = q => q &&
+      Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon)) &&
+      Number(q.lat) >= -90 && Number(q.lat) <= 90 &&
+      Number(q.lon) >= -180 && Number(q.lon) <= 180;
+    const q = primaryRealtimeQuake() ||
+      quakes.filter(valid).sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0))[0];
+    if (!valid(q)) return false;
+    map.invalidateSize({ animate: false });
+    map.setView([Number(q.lat), Number(q.lon)], 6, { animate: false });
+    return true;
+  } catch (_) {
+    return false;
+  }
+};
+
 function renderRealtime(q) {
   const el = $("#rtMag");
   if (!q) {
