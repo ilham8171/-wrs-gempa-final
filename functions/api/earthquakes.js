@@ -257,6 +257,8 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   // so multiple devices share one upstream refresh, but never cache longer than 4s.
   const edgeCache = typeof caches !== "undefined" ? caches.default : null;
   let edgeCacheKey = null;
+  let staleEdgeData = null;
+  let staleEdgeAgeSeconds = null;
   if (edgeCache && request?.url) {
     try {
       const cacheUrl = new URL(request.url);
@@ -265,10 +267,22 @@ export async function onRequestGet({ request, waitUntil } = {}) {
       edgeCacheKey = new Request(cacheUrl.toString(), { method: "GET" });
       const cached = await edgeCache.match(edgeCacheKey);
       if (cached) {
-        const cachedHeaders = new Headers(cached.headers);
-        cachedHeaders.set("cache-control", "no-store");
-        cachedHeaders.set("x-wrs-cache", "HIT");
-        return new Response(cached.body, { status: cached.status, headers: cachedHeaders });
+        const cachedData = await cached.clone().json();
+        const fetchedAtMs = Date.parse(cachedData?.fetchedAt || "");
+        const ageMs = Date.now() - fetchedAtMs;
+        if (cachedData?.ok === true && Array.isArray(cachedData.recent) && cachedData.recent.length &&
+            Number.isFinite(fetchedAtMs) && ageMs >= 0) {
+          // Serve the edge copy immediately only while it is genuinely fresh.
+          if (ageMs <= 4000) {
+            const cachedHeaders = new Headers(cached.headers);
+            cachedHeaders.set("cache-control", "no-store");
+            cachedHeaders.set("x-wrs-cache", "HIT");
+            return new Response(JSON.stringify(cachedData), { status: 200, headers: cachedHeaders });
+          }
+          // Keep a last-known-good edge copy available while live feeds are checked.
+          staleEdgeData = cachedData;
+          staleEdgeAgeSeconds = Math.floor(ageMs / 1000);
+        }
       }
     } catch (_) { /* Cache API is optional; continue with live upstream requests. */ }
   }
@@ -370,11 +384,35 @@ export async function onRequestGet({ request, waitUntil } = {}) {
     .filter(q=>Number.isFinite(validTime(q)) && inIndonesia(q))
     .sort((a,b)=>validTime(b)-validTime(a));
   const realtime=liveEvents[0] || null;
+  // If every earthquake feed failed, or the combined catalogue suddenly becomes empty,
+  // serve the last known good catalogue instead of making the monitor appear to go blank.
+  const anyQuakeSourceAvailable = results.slice(0, 7).some(r => r.status === "fulfilled");
+  if (staleEdgeData && staleEdgeData.recent?.length &&
+      (!anyQuakeSourceAvailable || recent.length === 0)) {
+    const fallback = {
+      ...staleEdgeData,
+      ok: true,
+      sources: {
+        ...(staleEdgeData.sources || {}),
+        wrs: { ...(staleEdgeData.sources?.wrs || {}), ok: false, error: "Feed realtime belum dapat diverifikasi; memakai katalog tersimpan" },
+        staleCache: true,
+        staleAgeSeconds: staleEdgeAgeSeconds,
+        errors: [...new Set([...(errors || []), "Feed gempa sementara tidak tersedia; katalog terakhir dipertahankan"])]
+      }
+    };
+    const fallbackHeaders = new Headers(headers);
+    fallbackHeaders.set("cache-control", "no-store");
+    fallbackHeaders.set("x-wrs-cache", "STALE");
+    fallbackHeaders.set("x-wrs-data-age-seconds", String(staleEdgeAgeSeconds ?? ""));
+    return new Response(JSON.stringify(fallback), { status: 200, headers: fallbackHeaders });
+  }
   const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
   if (edgeCache && edgeCacheKey) {
     try {
       const cacheHeaders = new Headers(response.headers);
-      cacheHeaders.set("cache-control", "public, max-age=4");
+      // Retain the last known-good payload for recovery, but the handler above
+      // only serves it as fresh for 4 seconds; older copies are fallback-only.
+      cacheHeaders.set("cache-control", "public, max-age=900");
       cacheHeaders.set("x-wrs-cache", "MISS");
       const cacheResponse = new Response(response.clone().body, { status: response.status, headers: cacheHeaders });
       if (typeof waitUntil === "function") waitUntil(edgeCache.put(edgeCacheKey, cacheResponse));
