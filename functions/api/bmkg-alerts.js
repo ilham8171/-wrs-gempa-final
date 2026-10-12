@@ -28,6 +28,35 @@ function parseRss(xml) {
     return { title, description, url, updated };
   }).filter(Boolean).slice(0, 100);
 }
+function articleMedia(html, baseUrl) {
+  const metaTags = html.match(/<meta\\b[^>]*>/gi) || [];
+  let image = "";
+  for (const tag of metaTags) {
+    if (/(?:property|name)=["'](?:og:image|twitter:image)["']/i.test(tag)) {
+      image = (tag.match(/content=["']([^"']+)["']/i) || [, ""])[1] || "";
+      if (image) break;
+    }
+  }
+  if (!image) {
+    const imgs = html.match(/<img\\b[^>]*>/gi) || [];
+    for (const tag of imgs) {
+      const src = (tag.match(/(?:src|data-src)=["']([^"']+)["']/i) || [, ""])[1] || "";
+      if (src && !/(logo|icon|avatar|banner.*bmkg)/i.test(src)) { image = src; break; }
+    }
+  }
+  try { image = image ? new URL(image, baseUrl).href : ""; } catch { image = ""; }
+  if (image && !/^https:\\/\\/(?:www\\.)?bmkg\\.go\\.id\\//i.test(image)) image = "";
+  const tables = [];
+  const tableHtml = html.match(/<table\\b[^>]*>[\\s\\S]*?<\\/table>/gi) || [];
+  for (const table of tableHtml.slice(0, 4)) {
+    const rows = (table.match(/<tr\\b[^>]*>[\\s\\S]*?<\\/tr>/gi) || []).map(row =>
+      (row.match(/<t[dh]\\b[^>]*>[\\s\\S]*?<\\/t[dh]>/gi) || []).map(cell => strip(cell))
+        .filter(Boolean)
+    ).filter(row => row.length);
+    if (rows.length) tables.push({ rows: rows.slice(0, 14).map(row => row.slice(0, 6)) });
+  }
+  return { image, tables };
+}
 function articleSummary(html) {
   const metas = html.match(/<meta\b[^>]*>/gi) || [];
   const meta = metas.find(tag => /(?:name|property)=["'](?:description|og:description)["']/i.test(tag));
@@ -75,15 +104,27 @@ export async function onRequestGet() {
     ? [...new Map(outcomes[1].value.map(item => [item.url, item])).values()].slice(0, 8)
     : [];
   // Summaries come from the official BMKG page description/intro, not invented.
-  const news = await Promise.all(uniqueNews.slice(0, 6).map(async item => {
+  const news = await Promise.all(uniqueNews.slice(0, 8).map(async item => {
     try {
       const response = await fetch(item.url, { headers: { accept: "text/html" }, cf: { cacheTtl: 300, cacheEverything: true } });
       if (!response.ok) return { ...item, summary: "" };
-      return { ...item, summary: articleSummary(await response.text()) };
-    } catch { return { ...item, summary: "" }; }
+      const html = await response.text();
+      const media = articleMedia(html, item.url);
+      return { ...item, summary: articleSummary(html), image: media.image, tables: media.tables };
+    } catch { return { ...item, summary: "", image: "", tables: [] }; }
+  }));
+  const enrichedAlerts = await Promise.all(alerts.slice(0, 30).map(async item => {
+    try {
+      const response = await fetch(item.url, { headers: { accept: "text/html" }, cf: { cacheTtl: 120, cacheEverything: true } });
+      if (!response.ok) return { ...item, image: "", tables: [] };
+      const html = await response.text();
+      const media = articleMedia(html, item.url);
+      const summary = articleSummary(html);
+      return { ...item, description: item.description || summary, image: media.image, tables: media.tables };
+    } catch { return { ...item, image: "", tables: [] }; }
   }));
   return new Response(JSON.stringify({
-    alerts, news, fetchedAt: new Date().toISOString(), source: "BMKG",
+    alerts: enrichedAlerts, news, fetchedAt: new Date().toISOString(), source: "BMKG",
     sourceStatus: { alerts: outcomes[0].status === "fulfilled", news: outcomes[1].status === "fulfilled" }
   }), { headers });
 }
