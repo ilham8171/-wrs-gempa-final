@@ -5,7 +5,7 @@ const currentInterval = () => NORMAL_INTERVAL;
 const SHAKEMAP_BASE = "https://bmkg-content-inatews.storage.googleapis.com/";
 const $ = (s) => document.querySelector(s);
 
-let map, markers, miniMap, miniMarker, faultLayer, radiusLayer, latestStarLayer, baseLayer, histMap;
+let map, markers, miniMap, miniMarker, faultLayer, radiusLayer, latestStarLayer, baseLayer, histMap, tsunamiMapLayer;
 let userMarker = null;
 let quakes = [];
 /** Riwayat peringatan dini tsunami dari InaTEWS (last30tsunamievent.xml) */
@@ -299,6 +299,7 @@ function initMap() {
   // Lapisan terpisah menjaga bintang terbaru dan cincin denyut selalu terlihat.
   radiusLayer = L.layerGroup().addTo(map);
   latestStarLayer = L.layerGroup().addTo(map);
+  tsunamiMapLayer = L.layerGroup().addTo(map);
 
   faultLayer = L.geoJSON(FAULTS_GEOJSON, {
     style: {
@@ -1714,26 +1715,83 @@ function simulationMapSvg(kind, magnitude) {
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="360" height="240" viewBox="0 0 360 240"><rect width="360" height="240" fill="#0b1729"/><path d="M0 40H360M0 80H360M0 120H360M0 160H360M0 200H360M60 0V240M120 0V240M180 0V240M240 0V240M300 0V240" stroke="#64748b" stroke-opacity=".22"/><text x="14" y="22" fill="#f8fafc" font-size="12" font-weight="700">'+title+'</text>'+rings+'<circle cx="180" cy="120" r="5" fill="#fff" stroke="#111827" stroke-width="2"/><text x="191" y="114" fill="#fff" font-size="10">Episenter uji</text>'+extra+'<text x="14" y="234" fill="#fbbf24" font-size="10" font-weight="700">DATA FIKTIF UNTUK PENGUJIAN · M'+Number(magnitude).toFixed(1)+'</text></svg>';
   return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
 }
+
+/* Tsunami simulation stages. All heights and colored zones here are fictitious training data. */
+let simulationTsunamiStageIndex = -1;
+const SIMULATION_COASTS = {
+  lombok:[["Ampenan",-8.57,116.07,.35],["Tanjung",-8.36,116.16,.65],["Labuhan Lombok",-8.49,116.67,1.1],["Senggigi",-8.49,116.04,.45]],
+  sulawesi:[["Palu",-.89,119.87,1.4],["Donggala",-.67,119.74,1.8],["Parigi",-.82,120.17,.75],["Toli-Toli",1.04,120.81,.4]],
+  sumatra:[["Padang",-.95,100.36,1.7],["Mentawai",-1.5,99,2.2],["Painan",-1.35,100.57,1.1],["Bengkulu",-3.8,102.26,.55]],
+  ntt:[["Maumere",-8.62,122.21,1.1],["Ende",-8.84,121.65,.8],["Larantuka",-8.35,122.98,1.45],["Kupang",-10.17,123.61,.45]],
+  maluku:[["Ambon",-3.7,128.18,.75],["Masohi",-3.3,128.92,1.3],["Buru",-3.38,126.78,.6],["Banda",-4.52,129.9,1.6]],
+  jawa:[["Pangandaran",-7.7,108.65,1.5],["Cilacap",-7.73,109.01,1.1],["Pacitan",-8.2,111.1,1.8],["Banyuwangi selatan",-8.6,114.35,.7]]
+};
+const SIMULATION_TSUNAMI_STAGES = [
+ {pd:"PD-1",title:"Peringatan awal",level:"waspada",multiplier:.45,description:"Potensi tsunami sedang dikaji; wilayah terdampak belum final."},
+ {pd:"PD-2",title:"Daftar wilayah awal",level:"siaga",multiplier:.7,description:"Daftar wilayah dan estimasi tinggi simulasi mulai ditampilkan."},
+ {pd:"PD-3.1",title:"Pemutakhiran 1",level:"siaga",multiplier:.85,description:"Pembaruan model latihan; cakupan dapat berubah."},
+ {pd:"PD-3.2",title:"Pemutakhiran 2",level:"siaga",multiplier:1,description:"Pembaruan kedua dengan daftar tinggi simulasi."},
+ {pd:"PD-3.3",title:"Pemutakhiran 3",level:"awas",multiplier:1.15,description:"Skenario latihan menunjukkan ancaman lebih tinggi di beberapa titik."},
+ {pd:"PD-3.4",title:"Pemutakhiran 4",level:"awas",multiplier:.9,description:"Model latihan diperbarui kembali."},
+ {pd:"PD-4",title:"Buletin akhir latihan",level:"siaga",multiplier:.5,description:"Buletin akhir skenario; bukan berarti ancaman otomatis berakhir."},
+ {pd:"BERAKHIR",title:"TSUNAMI TELAH BERAKHIR",level:"ended",multiplier:0,description:"Tahap hijau: peringatan latihan dinyatakan berakhir."}
+];
+function tsunamiLevelForHeight(h){return h>3?{label:"AWAS",color:"#ef4444"}:h>=.5?{label:"SIAGA",color:"#f97316"}:{label:"WASPADA",color:"#eab308"}}
+function clearTsunamiMapLayer(){if(tsunamiMapLayer)tsunamiMapLayer.clearLayers()}
+function renderSimulationTsunamiMap(q,index){
+ if(!map||!tsunamiMapLayer)return;clearTsunamiMapLayer();
+ if(!q?.simulation||!q?.isTsunamiWarning||index<0)return;
+ const stage=SIMULATION_TSUNAMI_STAGES[Math.min(index,SIMULATION_TSUNAMI_STAGES.length-1)];
+ if(stage.level==="ended")return;
+ const loc=document.querySelector("#wrsTestLocation")?.value||"sulawesi";
+ (SIMULATION_COASTS[loc]||SIMULATION_COASTS.sulawesi).forEach(area=>{
+  const height=Math.max(.05,area[3]*stage.multiplier),level=tsunamiLevelForHeight(height);
+  // Lingkaran berwarna adalah ilustrasi latihan, bukan batas genangan sebenarnya.
+  L.circle([area[1],area[2]],{radius:6500+height*3500,color:level.color,weight:1,opacity:.75,fillColor:level.color,fillOpacity:.2,interactive:false}).addTo(tsunamiMapLayer);
+  L.circleMarker([area[1],area[2]],{radius:8+Math.min(height*3,8),color:"#fff",weight:2,fillColor:level.color,fillOpacity:.92})
+   .bindTooltip("<b>"+area[0]+"</b><br>SIMULASI · "+height.toFixed(2)+" m<br>"+level.label,{sticky:true})
+   .bindPopup("<strong>"+area[0]+"</strong><br>"+level.label+" · tinggi gelombang latihan <b>"+height.toFixed(2)+" m</b><br><small>Angka dan zona fiktif untuk latihan, bukan prakiraan BMKG.</small>")
+   .addTo(tsunamiMapLayer);
+ });
+}
+function renderTsunamiStagePanel(index,q){
+ const box=document.querySelector("#wrsTsunamiStage");if(!box)return;
+ if(wrsMode!=="simulation"||!q?.simulation||!q?.isTsunamiWarning||index<0){box.hidden=true;box.innerHTML="";return}
+ const stage=SIMULATION_TSUNAMI_STAGES[Math.min(index,SIMULATION_TSUNAMI_STAGES.length-1)],ended=stage.level==="ended";
+ const loc=document.querySelector("#wrsTestLocation")?.value||"sulawesi";
+ const rows=ended?"":(SIMULATION_COASTS[loc]||SIMULATION_COASTS.sulawesi).map(area=>{
+  const h=Math.max(.05,area[3]*stage.multiplier),level=tsunamiLevelForHeight(h);
+  return '<div class="wrs-tsunami-zone-row"><b style="color:'+level.color+'">'+level.label+'</b><span>'+area[0]+'</span><strong>'+h.toFixed(2)+' m</strong></div>';
+ }).join("");
+ box.hidden=false;
+ box.innerHTML='<div class="wrs-tsunami-stage-head '+(ended?"ended":"")+'"><span class="wrs-tsunami-stage-chip">'+(ended?"✓ BERAKHIR":stage.pd)+'</span><div><strong>'+stage.title+'</strong><small>'+stage.description+'</small></div></div>'+
+ (ended?'<div class="wrs-tsunami-ended-note">Peringatan latihan berakhir · status hijau. Hanya berlaku pada simulasi lokal.</div>':
+ '<div class="wrs-tsunami-warning-note">SIMULASI LOKAL · BUKAN PERINGATAN RESMI. Tinggi di bawah adalah angka latihan.</div><div class="wrs-tsunami-zone-list">'+rows+'</div>');
+}
+function clearSimulationTsunamiStage(){simulationTsunamiStageIndex=-1;renderSimulationTsunamiMap(null,-1);renderTsunamiStagePanel(-1,null)}
+
 function simulationQuake(scenarioIndex = simulationScenarioIndex, overrides = {}) {
   const preset = WRS_TEST_SCENARIOS[((scenarioIndex % WRS_TEST_SCENARIOS.length) + WRS_TEST_SCENARIOS.length) % WRS_TEST_SCENARIOS.length];
   const selectedMax = Math.max(5, Math.min(9, Number($("#wrsTestMagnitude")?.value || 5.6)));
   const magnitude = Math.max(3.5, Math.min(selectedMax, Number(overrides.magnitude ?? selectedMax)));
   const selectedPlace = $("#wrsTestLocation")?.value || preset.id;
   const s = WRS_TEST_SCENARIOS.find(item => item.id === selectedPlace) || preset;
-  const tsunami = overrides.tsunami === true; 
+  const tsunami = overrides.tsunami === true;
+  const stage = tsunami && Number.isInteger(overrides.tsunamiStageIndex) ? SIMULATION_TSUNAMI_STAGES[overrides.tsunamiStageIndex] : null;
+  const ended = stage?.level === "ended";
   const mag = magnitude.toFixed(1);
   const quake = {
     key: "simulation|wrs-demo-" + s.id + "-m" + mag + (tsunami ? "-tsunami" : ""),
     magnitude, lat: s.lat, lon: s.lon,
     place: "SIMULASI · " + s.place,
     depth: String(s.depth), time: new Date().toISOString(),
-    potential: tsunami ? "SIMULASI TSUNAMI — SKENARIO UJI (BUKAN PERINGATAN RESMI)" : "DATA UJI — tidak ada potensi tsunami yang disimulasikan",
-    headline: tsunami ? "PERINGATAN TSUNAMI · SIMULASI LOKAL · BUKAN PERINGATAN RESMI" : "INFO GEMPA M" + mag + " · SIMULASI LOKAL",
-    subject: tsunami ? "SIMULASI TSUNAMI · UJI LOKAL" : "SIMULASI GEMPA · UJI LOKAL",
+    potential: tsunami ? (ended ? "TSUNAMI TELAH BERAKHIR · SIMULASI LOKAL" : "SIMULASI TSUNAMI — SKENARIO UJI (BUKAN PERINGATAN RESMI)") : "DATA UJI — tidak ada potensi tsunami yang disimulasikan",
+    headline: tsunami ? (ended ? "TSUNAMI TELAH BERAKHIR · SIMULASI LOKAL · BUKAN PERINGATAN RESMI" : "PERINGATAN TSUNAMI " + (stage?.pd || "SIMULASI") + " · BUKAN PERINGATAN RESMI") : "INFO GEMPA M" + mag + " · SIMULASI LOKAL",
+    subject: tsunami ? "SIMULASI TSUNAMI " + (stage?.pd || "") + " · UJI LOKAL" : "SIMULASI GEMPA · UJI LOKAL",
     felt: "Simulasi intensitas MMI untuk demonstrasi — bukan observasi sensor.",
-    source: "SIMULASI LOKAL / MODE TES", status: "TEST", pd: "SIMULASI",
+    source: "SIMULASI LOKAL / MODE TES", status: "TEST", pd: stage?.pd || "SIMULASI", ended,
     official: false, simulation: true, wrsRealtime: false,
-    isTsunamiWarning: tsunami, shakemap: simulationMapSvg("shake", magnitude),
+    isTsunamiWarning: tsunami, tsunamiStageIndex: Number.isInteger(overrides.tsunamiStageIndex) ? overrides.tsunamiStageIndex : -1, shakemap: simulationMapSvg("shake", magnitude),
     sshmap: tsunami ? simulationMapSvg("ssh", magnitude) : "",
     wzmap: tsunami ? simulationMapSvg("warning", magnitude) : "",
     ttmap: tsunami ? simulationMapSvg("travel", magnitude) : "",
@@ -1793,6 +1851,11 @@ function applySimulationMode(options = {}) {
   const statusText = $("#wrsTestStatus");
   const stage = options.stageLabel ? options.stageLabel + " · " : "";
   if (statusText) statusText.textContent = stage + "M" + sample.magnitude.toFixed(1) + (sample.isTsunamiWarning ? " · TSUNAMI SIMULASI" : " · GEMPA SIMULASI") + " · BUKAN DATA RESMI";
+  if (sample.isTsunamiWarning) {
+    simulationTsunamiStageIndex = Number.isInteger(options.tsunamiStageIndex) ? options.tsunamiStageIndex : (simulationTsunamiStageIndex < 0 ? 0 : simulationTsunamiStageIndex);
+    renderSimulationTsunamiMap(sample, simulationTsunamiStageIndex);
+    renderTsunamiStagePanel(simulationTsunamiStageIndex, sample);
+  } else clearSimulationTsunamiStage();
   if (options.alert) {
     if (sample.isTsunamiWarning) openTsunamiModal(sample);
     else showPopup(sample);
@@ -1818,7 +1881,10 @@ function buildSimulationSequence() {
       { magnitude: 4.3, label: "Aktivitas awal" },
       { magnitude: after(Math.min(5.5, max)), label: "Gempa meningkat" },
       { magnitude: max, label: "GEMPA UTAMA" },
-      { magnitude: max, tsunami: true, label: "PERINGATAN TSUNAMI SIMULASI" }
+      ...SIMULATION_TSUNAMI_STAGES.map((stage, index) => ({
+        magnitude: max, tsunami: true, tsunamiStageIndex: index,
+        label: stage.level === "ended" ? "TSUNAMI TELAH BERAKHIR · SIMULASI" : stage.pd + " · " + stage.title
+      }))
     ];
   }
   if (type === "aftershocks") {
@@ -1879,7 +1945,7 @@ function showNextSimulationEvent() {
   }
   const step = simulationSequence[simulationSequenceIndex];
   simulationSequenceIndex += 1;
-  applySimulationMode({ alert: true, magnitude: step.magnitude, tsunami: step.tsunami === true, stageLabel: step.label });
+  applySimulationMode({ alert: true, magnitude: step.magnitude, tsunami: step.tsunami === true, tsunamiStageIndex: step.tsunamiStageIndex, stageLabel: step.label });
   updateSimulationControls();
   if (simulationSequenceIndex < simulationSequence.length || simulationSequenceRepeat) {
     const speed = $("#wrsTestSpeed")?.value || "normal";
@@ -1974,6 +2040,7 @@ function resetSimulationTests() {
   simulationSequencePaused = false;
   simulationSequenceRepeat = false;
   simulationScenarioIndex = 1;
+  clearSimulationTsunamiStage();
   if ($("#wrsTestMagnitude")) $("#wrsTestMagnitude").value = "5.6";
   if ($("#wrsTestLocation")) $("#wrsTestLocation").value = "sulawesi";
   if ($("#wrsTestScenarioType")) $("#wrsTestScenarioType").value = "staged";
@@ -1992,6 +2059,7 @@ function setWrsMode(mode) {
   try { localStorage.setItem("wrsModeV1", wrsMode); } catch {}
   updateModeButtons();
   if (wrsMode === "simulation") {
+    clearTsunamiMapLayer();
     const testStatus = $("#wrsTestStatus");
     if (testStatus) testStatus.textContent = "Mode Tes aktif · data uji saja";
     clearSimulationTimer();
@@ -2004,6 +2072,7 @@ function setWrsMode(mode) {
   clearSimulationTimer();
   simulationSequenceActive = false;
   simulationSequencePaused = false;
+  clearSimulationTsunamiStage();
   // Invalidate any request started before the mode change. Its response may arrive
   // late and must not replace operational data or leave the UI stuck as "connecting".
   loadRequestId++;
