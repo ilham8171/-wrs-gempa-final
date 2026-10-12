@@ -1276,3 +1276,21 @@ body.battery-saver *,body.battery-saver *::before,body.battery-saver *::after{sc
 .wrs-test-form .wrs-test-check{display:flex;align-items:center;gap:7px;margin-top:4px;font-size:10px;line-height:1.4;color:#fde68a}
 .wrs-test-check input{width:18px;height:18px;accent-color:#ef4444;flex-shrink:0}
 .wrs-test-actions button:first-child{background:rgba(127,29,29,.6);border-color:rgba(248,113,113,.5);color:#fee2e2}
+
+/* Tahapan peringatan tsunami latihan */
+.wrs-tsunami-stage[hidden]{display:none!important}
+.wrs-tsunami-stage{margin:10px 0;padding:10px;border:1px solid rgba(245,158,11,.45);border-radius:12px;background:rgba(15,23,42,.94);color:#e5eefc}
+.wrs-tsunami-stage-head{display:flex;gap:10px;align-items:flex-start;padding:2px 0 9px}
+.wrs-tsunami-stage-head>div{min-width:0;display:grid;gap:4px}
+.wrs-tsunami-stage-head strong{font-size:13px;line-height:1.35}
+.wrs-tsunami-stage-head small{font-size:11px;line-height:1.45;color:#cbd5e1}
+.wrs-tsunami-stage-chip{flex:0 0 auto;padding:5px 7px;border-radius:7px;background:#9a3412;color:#ffedd5;font-size:10px;font-weight:900}
+.wrs-tsunami-stage-head.ended .wrs-tsunami-stage-chip{background:#166534;color:#dcfce7}
+.wrs-tsunami-stage-head.ended strong{color:#86efac}
+.wrs-tsunami-warning-note{font-size:10px;line-height:1.4;color:#fde68a;background:rgba(146,64,14,.22);border-radius:7px;padding:7px;margin-bottom:7px}
+.wrs-tsunami-zone-list{display:grid;gap:4px}
+.wrs-tsunami-zone-row{display:grid;grid-template-columns:65px minmax(0,1fr) auto;align-items:center;gap:7px;padding:6px 7px;border-radius:7px;background:rgba(148,163,184,.09);font-size:11px}
+.wrs-tsunami-zone-row b{font-size:9px}
+.wrs-tsunami-zone-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wrs-tsunami-zone-row strong{font-variant-numeric:tabular-nums;color:#f8fafc}
+.wrs-tsunami-ended-note{padding:9px;border-radius:8px;background:rgba(22,101,52,.3);border:1px solid rgba(74,222,128,.4);color:#bbf7d0;font-size:11px;line-height:1.45}
