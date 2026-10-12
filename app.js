@@ -3463,7 +3463,7 @@ document.querySelectorAll("a.ext-link").forEach((a) => {
 
 setupPush();
 initMap();
-load(true);
+load(false);
 // Jika halaman dibuka dari tautan Bagikan WRS, fokuskan titiknya lalu buka detail event
 // setelah katalog selesai dimuat. Parameter event cocok dengan key event stabil.
 function openSharedEventFromUrl() {
