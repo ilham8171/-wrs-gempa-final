@@ -1414,3 +1414,12 @@ body.battery-saver *,body.battery-saver *::before,body.battery-saver *::after{sc
  #mobilePageAlerts{padding:10px 12px calc(100px + env(safe-area-inset-bottom,0px))!important}
  .mobile-bottom-nav button{font-size:10px!important}
 }
+
+
+/* BMKG news cards are semantic articles with a separate source link. */
+.wrs-alert-news-card{display:grid;gap:8px;padding:13px;border:1px solid rgba(103,163,202,.19);border-radius:13px;background:linear-gradient(150deg,#102338,#0a1726);color:#e6f5ff;text-decoration:none}
+.wrs-alert-news-card>span{color:#75d9ed;font-size:9px;font-weight:900;letter-spacing:.06em;text-transform:uppercase}
+.wrs-alert-news-card strong{font-size:12px;line-height:1.5}
+.wrs-alert-news-card p{margin:0;color:#b4c9d8;font-size:11px;line-height:1.65;overflow-wrap:anywhere}
+.wrs-alert-news-card small{color:#819bb0;font-size:9px}
+.wrs-alert-news-card>a{justify-self:start;padding:7px 9px;border:1px solid #28516a;border-radius:8px;color:#70d7f0;font-size:10px;font-weight:850;text-decoration:none}
