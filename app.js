@@ -1838,7 +1838,13 @@ function ensureTsunamiMapControl(){
  };
  tsunamiMapControl.addTo(map);
 }
-function renderTsunamiMapControl(latestEvents){
+function formatTsunamiBulletinTime(q){
+ const raw=q?.timesent||q?.time||"";
+ const d=new Date(raw);
+ if(Number.isNaN(d.getTime()))return "Waktu kirim tidak tersedia";
+ return new Intl.DateTimeFormat("id-ID",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",second:"2-digit",timeZone:"Asia/Jakarta"}).format(d)+" WIB";
+}
+function renderTsunamiMapControl(latestEvents,allEvents){
  ensureTsunamiMapControl();
  const el=tsunamiMapControlNode;if(!el)return;
  if(!latestEvents.length){el.style.display="none";el.innerHTML="";return}
@@ -1846,9 +1852,16 @@ function renderTsunamiMapControl(latestEvents){
   const ended=isTsunamiEnded(q),age=Date.now()-tsunamiBulletinTime(q),stale=!ended&&age>6*3600000;
   const label=ended?"BERAKHIR":stale?"PERLU VERIFIKASI":"BUletin terbaru";
   const color=ended?"#22c55e":stale?"#94a3b8":"#f97316";
-  return '<div class="wrs-tsu-map-event"><i style="background:'+color+'"></i><span><b>'+safeTsunamiMapText(q.pd?"PD-"+q.pd:"TSUNAMI")+'</b><small>'+safeTsunamiMapText(q.place||"Lokasi gempa")+' · '+safeTsunamiMapText(label)+'</small></span></div>';
+  return '<div class="wrs-tsu-map-event"><i style="background:'+color+'"></i><span><b>'+safeTsunamiMapText(q.pd?"PD-"+q.pd:"TSUNAMI")+'</b><small>'+safeTsunamiMapText(q.place||"Lokasi gempa")+' · '+safeTsunamiMapText(label)+'</small><small>'+safeTsunamiMapText(formatTsunamiBulletinTime(q))+'</small></span></div>';
  }).join("");
  const latest=latestEvents[0];
+ const latestEventId=String(latest?.eventid||latest?.key||latest?.place||"");
+ const timeline=(Array.isArray(allEvents)?allEvents:[]).filter(q=>String(q?.eventid||q?.key||q?.place||"")===latestEventId)
+  .sort((a,b)=>tsunamiBulletinTime(a)-tsunamiBulletinTime(b)).slice(-6);
+ const timelineHtml=timeline.length?'<div class="wrs-tsu-map-section"><b>Timeline buletin terbaru</b>'+timeline.map(q=>{
+  const ended=isTsunamiEnded(q),label=ended?"BERAKHIR":(q.pd?"PD-"+q.pd:"Peringatan");
+  return '<div class="wrs-tsu-map-timeline"><span>'+safeTsunamiMapText(label)+'</span><small>'+safeTsunamiMapText(formatTsunamiBulletinTime(q))+'</small></div>';
+ }).join("")+'</div>':'';
  const observations=latestEvents.slice(0,6).flatMap(parseTsunamiObservations).slice(0,6);
  const areas=latestEvents.slice(0,4).flatMap(parseTsunamiWarningAreas).slice(0,8);
  const assets=[["SSHmax",safeTsunamiAssetUrl(latest.sshmap)],["Warning Zone",safeTsunamiAssetUrl(latest.wzmap)],["Waktu tiba",safeTsunamiAssetUrl(latest.ttmap)]].filter(x=>x[1]);
@@ -1856,7 +1869,7 @@ function renderTsunamiMapControl(latestEvents){
  const areaHtml=areas.length?'<div class="wrs-tsu-map-section"><b>Zona peringatan dari buletin</b>'+areas.map(a=>'<div class="wrs-tsu-map-area"><span class="wrs-tsu-status '+a.status.toLowerCase()+'">'+a.status+'</span><span>'+safeTsunamiMapText(a.area)+'</span><small>'+safeTsunamiMapText(a.eta||"ETA tidak tercantum")+'</small></div>').join("")+'</div>':'';
  const obsHtml=observations.length?'<div class="wrs-tsu-map-section"><b>Observasi muka laut</b>'+observations.map(o=>'<div class="wrs-tsu-map-area"><span class="wrs-tsu-height-dot" style="background:'+(o.height>=1?"#dc2626":o.height>=.3?"#f97316":"#eab308")+'"></span><span>'+safeTsunamiMapText(o.name)+'</span><strong>'+o.height.toFixed(2)+' m</strong></div>').join("")+'</div>':'';
  el.style.display="block";
- el.innerHTML='<div class="wrs-tsu-map-title">TSUNAMI · InaTEWS</div><div class="wrs-tsu-map-events">'+rows+'</div>'+areaHtml+obsHtml+assetHtml+
+ el.innerHTML='<div class="wrs-tsu-map-title">TSUNAMI · InaTEWS</div><div class="wrs-tsu-map-events">'+rows+'</div>'+timelineHtml+areaHtml+obsHtml+assetHtml+
  '<div class="wrs-tsu-map-note">Titik berwarna = observasi dengan koordinat eksplisit. Produk Warning Zone/SSHmax adalah pratinjau resmi, bukan overlay geografis karena batas koordinat raster belum tersedia.</div>';
 }
 function renderOfficialTsunamiMap(){
@@ -1870,7 +1883,7 @@ function renderOfficialTsunamiMap(){
   if(!old||tsunamiBulletinTime(q)>tsunamiBulletinTime(old))latestByEvent.set(id,q);
  });
  const latestEvents=[...latestByEvent.values()].sort((a,b)=>tsunamiBulletinTime(b)-tsunamiBulletinTime(a));
- renderTsunamiMapControl(latestEvents);
+ renderTsunamiMapControl(latestEvents,events);
  // Maksimum 10 episenter buletin terbaru. Buletin lama diberi abu-abu agar
  // tidak keliru terbaca sebagai peringatan yang baru/aktif.
  latestEvents.slice(0,10).forEach(q=>{
