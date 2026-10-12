@@ -683,18 +683,30 @@
     m.querySelector('.content').innerHTML='<small>'+d.kind+'</small><h2>'+d.title.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</h2><p>'+d.body.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</p><p class="source">Sumber: BMKG<br>'+d.url.replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]))+'</p><button type="button" class="download">Unduh gambar 9:16</button> <button type="button" class="share">Bagikan</button>';
     m.classList.add('open');m.querySelector('.download').onclick=()=>download(item,kind);m.querySelector('.share').onclick=()=>share(item,kind);
   }
-  function makeImage(item,kind){
-    const d=text(item,kind),canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1920;
+  function bodyPages(body){
+    const words=String(body||'').split(/\s+/),pages=[];let line='';
+    for(const word of words){if((line+' '+word).trim().length>780&&line){pages.push(line);line=word;}else line=(line+' '+word).trim();}
+    if(line)pages.push(line);return pages.length?pages:[''];
+  }
+  function makeImage(item,kind,pageIndex=0){
+    const d=text(item,kind),parts=bodyPages(d.body),canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1920;
     const c=canvas.getContext('2d'),g=c.createLinearGradient(0,0,1080,1920);g.addColorStop(0,'#07111f');g.addColorStop(1,'#12344a');c.fillStyle=g;c.fillRect(0,0,1080,1920);
     c.fillStyle='#49cbe8';c.fillRect(64,84,120,10);c.fillStyle='#a6e9fa';c.font='bold 30px Arial';c.fillText('WRS GEMPA · INFORMASI BMKG',64,150);
     c.fillStyle='#78dff5';c.font='bold 26px Arial';c.fillText(d.kind.toUpperCase().slice(0,45),64,230);
     c.fillStyle='#f3f8ff';c.font='bold 54px Arial';let y=320;
     function wrap(str,size,color,limit,lh){c.font=(size==='54'?'bold ':'')+size+'px Arial';c.fillStyle=color;let line='';for(const w of String(str||'').split(/\s+/)){let t=line?line+' '+w:w;if(c.measureText(t).width>limit&&line){c.fillText(line,64,y);y+=lh;line=w;}else line=t;}if(line){c.fillText(line,64,y);y+=lh;}}
-    wrap(d.title,'54','#f3f8ff',950,68);y+=30;wrap(d.body,'30','#d6e6f1',950,48);
-    c.fillStyle='#87aabe';c.font='24px Arial';c.fillText('Sumber: BMKG',64,1760);c.font='20px Arial';c.fillText(d.url.slice(0,72),64,1810);c.fillText('Ikuti peringatan resmi dan arahan petugas setempat.',64,1870);
-    return {canvas,d};
+    wrap(d.title,'54','#f3f8ff',950,68);y+=30;wrap(parts[pageIndex]||'', '30','#d6e6f1',950,48);
+    c.fillStyle='#87aabe';c.font='24px Arial';c.fillText('Sumber: BMKG · '+(pageIndex+1)+'/'+parts.length,64,1760);c.font='20px Arial';c.fillText(d.url.slice(0,72),64,1810);c.fillText('Ikuti peringatan resmi dan arahan petugas setempat.',64,1870);
+    return {canvas,d,parts};
   }
-  function download(item,kind){const o=makeImage(item,kind);o.canvas.toBlob(b=>{if(!b)return;const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download='wrs-bmkg-'+kind+'-9x16.png';a.click();setTimeout(()=>URL.revokeObjectURL(u),30000);},'image/png');}
+  async function download(item,kind){
+    const first=makeImage(item,kind),total=first.parts.length;
+    for(let i=0;i<total;i++){
+      const o=makeImage(item,kind,i),blob=await new Promise(resolve=>o.canvas.toBlob(resolve,'image/png'));if(!blob)continue;
+      const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='wrs-bmkg-'+kind+'-'+(i+1)+'-dari-'+total+'.png';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),30000);
+      if(i<total-1)await new Promise(resolve=>setTimeout(resolve,350));
+    }
+  }
   async function share(item,kind){const o=makeImage(item,kind),d=o.d;const msg=d.kind+'\n'+d.title+'\n\n'+d.body+'\n\nSumber BMKG: '+d.url;try{if(navigator.share){const b=await new Promise(r=>o.canvas.toBlob(r,'image/png'));if(b&&window.File){const f=new File([b],'wrs-bmkg.png',{type:'image/png'});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({title:d.title,text:msg,files:[f]});return;}}await navigator.share({title:d.title,text:msg,url:d.url});}else{await navigator.clipboard.writeText(msg);alert('Ringkasan dan sumber disalin.');}}catch(e){if(e.name!=='AbortError')alert('Berbagi tidak tersedia. Gunakan Unduh gambar.');}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-alert-detail],[data-alert-image],[data-alert-share]');if(!b)return;const kind=b.dataset.alertDetail||b.dataset.alertImage||b.dataset.alertShare;const item=pick(kind,Number(b.dataset.alertIndex));if(!item)return;if(b.dataset.alertDetail)showDetail(item,kind);else if(b.dataset.alertImage)download(item,kind);else share(item,kind);});
 })();
