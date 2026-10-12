@@ -226,7 +226,7 @@ function parseTsunamiCapXml(xml) {
   }
   return list.sort((a,b) => new Date(b.time || 0) - new Date(a.time || 0));
 }
-async function getText(url, timeoutMs = 5000) {
+async function getText(url, timeoutMs = 4000) {
   const res = await fetch(url, {
     signal: AbortSignal.timeout(timeoutMs),
     headers: { accept: "application/xml,text/xml,*/*", referer: "https://inatews.bmkg.go.id/web/tsunami" },
@@ -236,7 +236,7 @@ async function getText(url, timeoutMs = 5000) {
   return res.text();
 }
 
-async function getJson(url, live = false, timeoutMs = 5000) {
+async function getJson(url, live = false, timeoutMs = 4000) {
   const requestUrl = live ? url + (url.includes("?") ? "&" : "?") + "_wrs_ts=" + Date.now() : url;
   const res = await fetch(requestUrl, {
     signal: AbortSignal.timeout(timeoutMs),
@@ -252,11 +252,30 @@ function qlFeatures(value) {
   if (Array.isArray(value)) return value;
   return [];
 }
-export async function onRequestGet() {
+export async function onRequestGet({ request, waitUntil } = {}) {
+  // Cache API response briefly at the Cloudflare edge. Strip the client's cache-buster
+  // so multiple devices share one upstream refresh, but never cache longer than 4s.
+  const edgeCache = typeof caches !== "undefined" ? caches.default : null;
+  let edgeCacheKey = null;
+  if (edgeCache && request?.url) {
+    try {
+      const cacheUrl = new URL(request.url);
+      cacheUrl.search = "";
+      cacheUrl.searchParams.set("_wrs_edge_cache", "v1");
+      edgeCacheKey = new Request(cacheUrl.toString(), { method: "GET" });
+      const cached = await edgeCache.match(edgeCacheKey);
+      if (cached) {
+        const cachedHeaders = new Headers(cached.headers);
+        cachedHeaders.set("cache-control", "no-store");
+        cachedHeaders.set("x-wrs-cache", "HIT");
+        return new Response(cached.body, { status: cached.status, headers: cachedHeaders });
+      }
+    } catch (_) { /* Cache API is optional; continue with live upstream requests. */ }
+  }
   const errors=[];
   const results=await Promise.allSettled([
     ...BMKG_URLS.map(url=>getJson(url)),
-    getJson(GCS+"/lastQL.json", true),
+    getJson(GCS+"/lastQL.json", true, 3500),
     getJson(GCS+"/gempaQL.json"),
     getJson(USGS),
     getJson(usgsIndonesiaUrl()),
@@ -286,20 +305,9 @@ export async function onRequestGet() {
   const usgsIndonesia=results[6];
   if(usgsIndonesia.status==="fulfilled") (usgsIndonesia.value.features||[]).forEach(f=>{const q=mapUSGS(f, 2);if(q)list.push(q);});
   else errors.push("USGS Indonesia");
-  await attachUSGSShakemaps(list);
-  // Jika event BMKG tidak menyediakan ShakeMap, gunakan peta USGS untuk event
-  // yang cocok secara waktu, magnitudo, dan lokasi; jangan mengubah sumber event.
-  for (const officialEvent of list.filter(q => q.official && !q.shakemap && Number.isFinite(q.lat) && Number.isFinite(q.lon))) {
-    const match = list.find(q => q.source === "USGS" && q.shakemap &&
-      Number.isFinite(new Date(q.time).getTime()) && Number.isFinite(new Date(officialEvent.time).getTime()) &&
-      Math.abs(new Date(q.time).getTime() - new Date(officialEvent.time).getTime()) <= 5 * 60 * 1000 &&
-      Math.abs(q.magnitude - officialEvent.magnitude) <= 0.6 &&
-      Math.abs(q.lat - officialEvent.lat) <= 0.8 && Math.abs(q.lon - officialEvent.lon) <= 0.8);
-    if (match) {
-      officialEvent.shakemap = match.shakemap;
-      officialEvent.shakemapSource = "USGS ShakeMap (fallback)";
-    }
-  }
+  // Jangan menunggu permintaan detail ShakeMap USGS untuk mengirim katalog.
+  // Peta USGS dimuat on-demand ketika pengguna membuka detail event; ini menjaga
+  // polling operasional tetap cepat dan tidak membebani feed pada setiap refresh.
   const tsunami=results[7];
   const tsunamiHistory=tsunami.status==="fulfilled" ? parseTsunamiCapXml(tsunami.value) : [];
   if(tsunami.status!=="fulfilled") errors.push("InaTEWS tsunami");
@@ -362,5 +370,16 @@ export async function onRequestGet() {
     .filter(q=>Number.isFinite(validTime(q)) && inIndonesia(q))
     .sort((a,b)=>validTime(b)-validTime(a));
   const realtime=liveEvents[0] || null;
-  return new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
+  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
+  if (edgeCache && edgeCacheKey) {
+    try {
+      const cacheHeaders = new Headers(response.headers);
+      cacheHeaders.set("cache-control", "public, max-age=4");
+      cacheHeaders.set("x-wrs-cache", "MISS");
+      const cacheResponse = new Response(response.clone().body, { status: response.status, headers: cacheHeaders });
+      if (typeof waitUntil === "function") waitUntil(edgeCache.put(edgeCacheKey, cacheResponse));
+      else await edgeCache.put(edgeCacheKey, cacheResponse);
+    } catch (_) { /* Never fail the live API solely because edge caching failed. */ }
+  }
+  return response;
 }
