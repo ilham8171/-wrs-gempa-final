@@ -172,6 +172,18 @@
       <div id="wrsTestLog" class="wrs-test-log" aria-live="polite"></div>
       <p class="wrs-test-note">Simulasi lokal. Tidak mengirim peringatan ke BMKG dan bukan data gempa nyata.</p>
     </section>
+    <details class="wrs-diagnostics" id="wrsDiagnostics">
+      <summary>Diagnostik koneksi & sumber data</summary>
+      <dl>
+        <dt>Status koneksi</dt><dd id="diagConnection">Menunggu pemeriksaan</dd>
+        <dt>Status sumber</dt><dd id="diagSources">Belum tersedia</dd>
+        <dt>Umur respons API</dt><dd id="diagFetchAge">Menunggu data</dd>
+        <dt>Fetch sukses terakhir</dt><dd id="diagLastSuccess">Belum tersedia</dd>
+        <dt>Gagal berturut-turut</dt><dd id="diagRetries">0</dd>
+        <dt>Error terakhir</dt><dd id="diagError">Belum ada pemeriksaan</dd>
+      </dl>
+      <p>Waktu fetch API bukan jaminan waktu kejadian atau waktu notifikasi diterima. Ikuti informasi resmi BMKG/InaTEWS.</p>
+    </details>
   </div>
 </aside>
 
