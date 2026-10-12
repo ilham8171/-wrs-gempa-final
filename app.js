@@ -1770,44 +1770,128 @@ function renderTsunamiStagePanel(index,q){
 }
 function clearSimulationTsunamiStage(){simulationTsunamiStageIndex=-1;renderSimulationTsunamiMap(null,-1);renderTsunamiStagePanel(-1,null)}
 
-const OBSERVATION_COORDS=[
- {re:/loloda/i,name:"Loloda",lat:1.72,lon:127.55},{re:/ulu\\s*siau/i,name:"Ulu Siau",lat:2.75,lon:125.4},
- {re:/melonguane/i,name:"Melonguane",lat:4.05,lon:126.67},{re:/bitung/i,name:"Bitung",lat:1.44,lon:125.19},
- {re:/manado/i,name:"Manado",lat:1.49,lon:124.85},{re:/ternate/i,name:"Ternate",lat:.79,lon:127.38},
- {re:/halmahera/i,name:"Halmahera",lat:.63,lon:127.97},{re:/ambon/i,name:"Ambon",lat:-3.7,lon:128.18},
- {re:/padang/i,name:"Padang",lat:-.95,lon:100.36},{re:/bengkulu/i,name:"Bengkulu",lat:-3.8,lon:102.26},
- {re:/cilacap/i,name:"Cilacap",lat:-7.73,lon:109.01},{re:/pangandaran/i,name:"Pangandaran",lat:-7.7,lon:108.65},
- {re:/kupang/i,name:"Kupang",lat:-10.17,lon:123.61},{re:/maumere/i,name:"Maumere",lat:-8.62,lon:122.21},
- {re:/sorong/i,name:"Sorong",lat:-.87,lon:131.25},{re:/jayapura/i,name:"Jayapura",lat:-2.53,lon:140.72}
-];
+
 function safeTsunamiMapText(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function safeTsunamiAssetUrl(value){
+ if(!value)return "";
+ let u;
+ try{u=new URL(String(value).replace(/^https?:\/\/data\.bmkg\.go\.id\/DataMKG\/TEWS\//i, SHAKEMAP_BASE));}catch{return ""}
+ if(u.protocol!=="https:")return "";
+ if(!/(^|\.)bmkg-content-inatews\.storage\.googleapis\.com$|(^|\.)storage\.googleapis\.com$|(^|\.)cdn\.bmkg\.go\.id$/.test(u.hostname))return "";
+ return u.href;
+}
+function tsunamiBulletinTime(q){
+ const raw=q?.timesent||q?.time||"";
+ const parsed=Date.parse(raw);
+ return Number.isFinite(parsed)?parsed:0;
+}
+/** Observasi tinggi muka laut hanya diplot bila buletin menyertakan koordinat eksplisit. */
+function parseTsunamiObservations(q){
+ const raw=[q?.description,q?.headline,q?.subject].filter(Boolean).join("\n")
+  .replace(/<br\s*\/?\s*>/gi,"\n").replace(/<\/tr>/gi,"\n").replace(/<\/t[dh]>/gi," | ").replace(/&nbsp;/gi," ");
+ const locRe=/([A-Z][A-Z0-9 _.,()/-]{2,70}?)\s*\(\s*(-?\d{1,2}(?:[.,]\d+)?)\s+(-?\d{1,3}(?:[.,]\d+)?)\s*\)/gi;
+ const locs=[...raw.matchAll(locRe)],out=[],seen=new Set();
+ locs.forEach((m,index)=>{
+  const lat=Number(m[2].replace(",", ".")),lon=Number(m[3].replace(",", "."));
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return;
+  const next=locs[index+1];
+  const tail=raw.slice(m.index+m[0].length,next?next.index:Math.min(raw.length,m.index+m[0].length+260));
+  const hm=tail.match(/(?:^|[|;\s])([0-9]+(?:[.,][0-9]+)?)\s*m(?:\b|$)/i);
+  if(!hm)return;
+  const height=Number(hm[1].replace(",", "."));
+  if(!Number.isFinite(height)||height<0)return;
+  const name=m[1].replace(/[|;,]+$/,"").trim();
+  const time=tail.match(/(\d{2}[-/]\d{2}[-/]\d{4}[^|;\n]*?\d{2}:\d{2}(?::\d{2})?\s*(?:WIB|WITA|WIT)?|\d{1,2}:\d{2}\s*(?:WIB|WITA|WIT))/i)?.[1]||"Waktu observasi tidak tersedia";
+  const key=[name,lat.toFixed(3),lon.toFixed(3),height].join("|");
+  if(seen.has(key))return;seen.add(key);
+  out.push({name,lat,lon,height,time});
+ });
+ return out;
+}
+/** Baca tabel provinsi/kabupaten/status/ETA bila format tabel ada di CAP. */
+function parseTsunamiWarningAreas(q){
+ const raw=[q?.description,q?.instruction,q?.instruction1,q?.instruction2,q?.instruction3].filter(Boolean).join("\n")
+  .replace(/<br\s*\/?\s*>/gi,"\n").replace(/<\/tr>/gi,"\n").replace(/<\/t[dh]>/gi," | ").replace(/&nbsp;/gi," ");
+ const out=[],seen=new Set();
+ const add=(province,area,status,eta)=>{
+  province=String(province||"").trim();area=String(area||"").trim();status=String(status||"").toUpperCase().trim();eta=String(eta||"").trim();
+  if(!area||!/(AWAS|SIAGA|WASPADA)/.test(status)||/^(PROVINSI|KOTA.?KABUPATEN|STATUS|ESTIMASI TIBA)$/i.test(area))return;
+  const key=[province,area,status,eta].join("|");if(seen.has(key))return;seen.add(key);out.push({province,area,status,eta});
+ };
+ const pipeRe=/([^|\n]{2,40})\s*\|\s*([^|\n]{2,70})\s*\|\s*(AWAS|SIAGA|WASPADA)\s*\|\s*([^|\n]{2,70})/gi;
+ for(const m of raw.matchAll(pipeRe))add(m[1],m[2],m[3],m[4]);
+ for(const line of raw.split(/\n/).map(x=>x.replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim()).filter(Boolean)){
+  const parts=line.split("|").map(x=>x.trim()).filter(Boolean);
+  if(parts.length>=4){const si=parts.findIndex(x=>/^(AWAS|SIAGA|WASPADA)\b/i.test(x));if(si>=1)add(parts[0],parts[1],parts[si],parts.slice(si+1).join(" | "));}
+ }
+ return out;
+}
+let tsunamiMapControl=null,tsunamiMapControlNode=null;
+function ensureTsunamiMapControl(){
+ if(!map||tsunamiMapControl)return;
+ tsunamiMapControl=L.control({position:"topright"});
+ tsunamiMapControl.onAdd=()=>{
+  const el=L.DomUtil.create("div","wrs-tsunami-map-control");
+  el.setAttribute("aria-label","Informasi tsunami resmi");
+  L.DomEvent.disableClickPropagation(el);L.DomEvent.disableScrollPropagation(el);
+  tsunamiMapControlNode=el;return el;
+ };
+ tsunamiMapControl.addTo(map);
+}
+function renderTsunamiMapControl(latestEvents){
+ ensureTsunamiMapControl();
+ const el=tsunamiMapControlNode;if(!el)return;
+ if(!latestEvents.length){el.style.display="none";el.innerHTML="";return}
+ const rows=latestEvents.slice(0,4).map(q=>{
+  const ended=isTsunamiEnded(q),age=Date.now()-tsunamiBulletinTime(q),stale=!ended&&age>6*3600000;
+  const label=ended?"BERAKHIR":stale?"PERLU VERIFIKASI":"BUletin terbaru";
+  const color=ended?"#22c55e":stale?"#94a3b8":"#f97316";
+  return '<div class="wrs-tsu-map-event"><i style="background:'+color+'"></i><span><b>'+safeTsunamiMapText(q.pd?"PD-"+q.pd:"TSUNAMI")+'</b><small>'+safeTsunamiMapText(q.place||"Lokasi gempa")+' · '+safeTsunamiMapText(label)+'</small></span></div>';
+ }).join("");
+ const latest=latestEvents[0];
+ const observations=latestEvents.slice(0,6).flatMap(parseTsunamiObservations).slice(0,6);
+ const areas=latestEvents.slice(0,4).flatMap(parseTsunamiWarningAreas).slice(0,8);
+ const assets=[["SSHmax",safeTsunamiAssetUrl(latest.sshmap)],["Warning Zone",safeTsunamiAssetUrl(latest.wzmap)],["Waktu tiba",safeTsunamiAssetUrl(latest.ttmap)]].filter(x=>x[1]);
+ const assetHtml=assets.length?'<div class="wrs-tsu-map-products">'+assets.map(([label,url])=>'<a href="'+safeTsunamiMapText(url)+'" target="_blank" rel="noopener"><img loading="lazy" src="'+safeTsunamiMapText(url)+'" alt="'+label+'"><span>'+label+' ↗</span></a>').join("")+'</div>':'';
+ const areaHtml=areas.length?'<div class="wrs-tsu-map-section"><b>Zona peringatan dari buletin</b>'+areas.map(a=>'<div class="wrs-tsu-map-area"><span class="wrs-tsu-status '+a.status.toLowerCase()+'">'+a.status+'</span><span>'+safeTsunamiMapText(a.area)+'</span><small>'+safeTsunamiMapText(a.eta||"ETA tidak tercantum")+'</small></div>').join("")+'</div>':'';
+ const obsHtml=observations.length?'<div class="wrs-tsu-map-section"><b>Observasi muka laut</b>'+observations.map(o=>'<div class="wrs-tsu-map-area"><span class="wrs-tsu-height-dot" style="background:'+(o.height>=1?"#dc2626":o.height>=.3?"#f97316":"#eab308")+'"></span><span>'+safeTsunamiMapText(o.name)+'</span><strong>'+o.height.toFixed(2)+' m</strong></div>').join("")+'</div>':'';
+ el.style.display="block";
+ el.innerHTML='<div class="wrs-tsu-map-title">TSUNAMI · InaTEWS</div><div class="wrs-tsu-map-events">'+rows+'</div>'+areaHtml+obsHtml+assetHtml+
+ '<div class="wrs-tsu-map-note">Titik berwarna = observasi dengan koordinat eksplisit. Produk Warning Zone/SSHmax adalah pratinjau resmi, bukan overlay geografis karena batas koordinat raster belum tersedia.</div>';
+}
 function renderOfficialTsunamiMap(){
  if(!map||!tsunamiMapLayer||wrsMode==="simulation")return;
  clearTsunamiMapLayer();
  const events=Array.isArray(tsunamiHistory)?tsunamiHistory:[];
- const latest=new Map();
+ const latestByEvent=new Map();
  events.forEach(q=>{
-  if(!q||!Number.isFinite(Number(q.lat))||!Number.isFinite(Number(q.lon)))return;
-  const id=String(q.eventid||q.key||q.place||"event"),old=latest.get(id);
-  const rank=x=>isTsunamiEnded(x)?999:(Number(String(x.pd||"").replace(/[^0-9.]/g,""))||0);
-  if(!old||rank(q)>rank(old)||(rank(q)===rank(old)&&(new Date(q.time||0).getTime()||0)>(new Date(old.time||0).getTime()||0)))latest.set(id,q);
+  if(!q)return;
+  const id=String(q.eventid||q.key||q.place||"event"),old=latestByEvent.get(id);
+  if(!old||tsunamiBulletinTime(q)>tsunamiBulletinTime(old))latestByEvent.set(id,q);
  });
- latest.forEach(q=>{
-  const ended=isTsunamiEnded(q),pd=q.pd?"PD-"+q.pd:"Peringatan tsunami",color=ended?"#22c55e":"#dc2626";
-  L.circleMarker([Number(q.lat),Number(q.lon)],{radius:ended?7:10,color:"#fff",weight:2,fillColor:color,fillOpacity:.9})
-   .bindTooltip(safeTsunamiMapText(pd)+(ended?" · BERAKHIR":" · InaTEWS"),{sticky:true})
-   .bindPopup("<strong>"+safeTsunamiMapText(q.place||"Lokasi gempa")+"</strong><br>"+safeTsunamiMapText(pd)+"<br>"+(ended?"Peringatan dinyatakan berakhir menurut buletin.":"Titik episenter dari buletin resmi; bukan batas genangan.")+"<br><small>Sumber: InaTEWS</small>")
+ const latestEvents=[...latestByEvent.values()].sort((a,b)=>tsunamiBulletinTime(b)-tsunamiBulletinTime(a));
+ renderTsunamiMapControl(latestEvents);
+ // Maksimum 10 episenter buletin terbaru. Buletin lama diberi abu-abu agar
+ // tidak keliru terbaca sebagai peringatan yang baru/aktif.
+ latestEvents.slice(0,10).forEach(q=>{
+  if(!Number.isFinite(Number(q.lat))||!Number.isFinite(Number(q.lon)))return;
+  const ended=isTsunamiEnded(q),age=Date.now()-tsunamiBulletinTime(q),stale=!ended&&age>6*3600000;
+  const color=ended?"#22c55e":stale?"#94a3b8":"#f97316";
+  const pd=q.pd?"PD-"+q.pd:"Buletin tsunami";
+  L.circleMarker([Number(q.lat),Number(q.lon)],{radius:ended?7:10,color:"#fff",weight:2,fillColor:color,fillOpacity:.92})
+   .bindTooltip(safeTsunamiMapText(pd)+(ended?" · BERAKHIR":stale?" · STATUS PERLU VERIFIKASI":" · BUletin terbaru"),{sticky:true})
+   .bindPopup("<strong>"+safeTsunamiMapText(q.place||"Lokasi gempa")+"</strong><br>"+safeTsunamiMapText(pd)+"<br>"+(ended?"Peringatan dinyatakan berakhir menurut buletin.":stale?"Buletin sudah lama; status terkini perlu diverifikasi.":"Buletin terbaru yang tersedia; ikuti arahan resmi BMKG.")+"<br><small>Sumber: InaTEWS · "+safeTsunamiMapText(q.timesent||"waktu kirim tidak tersedia")+"</small>")
    .addTo(tsunamiMapLayer);
  });
- // Titik berwarna hanya untuk tinggi muka laut yang benar-benar tertulis pada buletin
- // dan nama lokasi yang dapat dipetakan; bukan poligon prediksi genangan.
- events.forEach(q=>parseTsunamiZones(q).forEach(row=>{
-  if(row.height==null)return;
-  const place=OBSERVATION_COORDS.find(p=>p.re.test(row.name));if(!place)return;
-  const level=tsunamiLevelForHeight(row.height);
-  L.circleMarker([place.lat,place.lon],{radius:7+Math.min(row.height*2,9),color:"#fff",weight:1.8,fillColor:level.color,fillOpacity:.9})
-   .bindTooltip("<b>"+place.name+"</b><br>"+row.height.toFixed(2)+" m · "+level.label,{sticky:true})
-   .bindPopup("<strong>"+place.name+"</strong><br>Tinggi muka laut dalam buletin: <b>"+row.height.toFixed(2)+" m</b><br>"+safeTsunamiMapText(row.eta||"Waktu tidak tersedia")+"<br><small>Titik lokasi perkiraan; bukan batas genangan atau tinggi di seluruh wilayah.</small>")
+ // Hanya titik observasi yang punya koordinat eksplisit dalam buletin yang dipetakan.
+ const observedSeen=new Set();
+ latestEvents.slice(0,6).forEach(q=>parseTsunamiObservations(q).forEach(o=>{
+  const key=[o.name,o.lat.toFixed(3),o.lon.toFixed(3),o.height].join("|");
+  if(observedSeen.has(key))return;observedSeen.add(key);
+  const color=o.height>=1?"#dc2626":o.height>=.3?"#f97316":"#eab308";
+  L.circleMarker([o.lat,o.lon],{radius:8+Math.min(o.height*2,8),color:"#fff",weight:2,fillColor:color,fillOpacity:.95})
+   .bindTooltip("<b>"+safeTsunamiMapText(o.name)+"</b><br>Observasi: "+o.height.toFixed(2)+" m",{sticky:true})
+   .bindPopup("<strong>"+safeTsunamiMapText(o.name)+"</strong><br>Tinggi muka laut yang tercantum: <b>"+o.height.toFixed(2)+" m</b><br>"+safeTsunamiMapText(o.time)+"<br><small>Warna menunjukkan tinggi observasi, bukan level evakuasi. Sumber: buletin InaTEWS.</small>")
    .addTo(tsunamiMapLayer);
  }));
 }
