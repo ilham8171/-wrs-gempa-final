@@ -2469,27 +2469,30 @@ async function load(showSpin, force = false) {
       : restoredAt
         ? "Katalog tersimpan " + new Date(restoredAt).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "medium" }) + " (bukan realtime)"
         : "Belum ada data berhasil diterima pada sesi ini";
-    // A brief network hiccup should not immediately turn the monitor OFFLINE.
-    // Preserve the last good events and markers while retrying.
-    // Jangan nyatakan server putus hanya karena beberapa timeout singkat di jaringan mobile.
-    // Tampilkan status menyambung ulang selama retry berlangsung; offline keras baru setelah 6 kegagalan beruntun.
-    if (consecutiveLoadFailures < 6 && hasCachedEvents) {
-      status(true, "MENYAMBUNG ULANG");
-      if (healthText) healthText.textContent = "KONEKSI TERGANGGU · MENCOBA ULANG";
-      if (healthTime) healthTime.textContent = lastOkText;
+    // Jangan ubah indikator koneksi pada satu-dua kegagalan sesaat.
+    // Pertahankan layar/marker dan status terakhir yang berhasil, sambil polling otomatis tetap berjalan.
+    // Setelah 6 kegagalan beruntun, jelaskan bahwa data yang tampil adalah data terakhir,
+    // tetapi jangan menampilkan status "OFFLINE" atau "MENYAMBUNG ULANG".
+    if (hasCachedEvents && consecutiveLoadFailures < 6) {
+      if (health) {
+        health.title = "Satu pembaruan gagal; data dan marker terakhir tetap tampil. Pemantauan mencoba kembali otomatis.";
+      }
+    } else if (hasCachedEvents) {
+      status(true, "DATA TERAKHIR · RETRY OTOMATIS");
+      if (healthText) healthText.textContent = "PEMBARUAN TERLAMBAT · DATA TERAKHIR DIPERTAHANKAN";
+      if (healthTime) healthTime.textContent = lastOkText + " · " + String(e?.message || e).slice(0, 85);
       if (health) {
         health.classList.add("is-error");
-        health.title = "Pembaruan sementara gagal. Data terakhir dan marker tetap dipertahankan sambil mencoba ulang.";
+        health.title = "Pembaruan belum berhasil setelah beberapa percobaan. Data dan marker terakhir tetap tampil; polling otomatis berlanjut. Penyebab terakhir: " + String(e?.message || e).slice(0, 180);
       }
     } else {
-      status(false, hasCachedEvents ? "DATA TERAKHIR" : "MENGHUBUNGKAN");
-      if (healthText) healthText.textContent = hasCachedEvents ? "SERVER DATA SEMENTARA TIDAK TERJANGKAU · DATA TERAKHIR DIPERTAHANKAN" : "SERVER DATA BELUM TERHUBUNG · MENCOBA ULANG";
-      if (healthTime) healthTime.textContent = lastOkText;
+      status(false, "MENUNGGU DATA");
+      if (healthText) healthText.textContent = "MENUNGGU DATA PERTAMA · MENCOBA OTOMATIS";
+      if (healthTime) healthTime.textContent = lastOkText + " · " + String(e?.message || e).slice(0, 85);
       if (health) {
         health.classList.add("is-error");
-        health.title = "Beberapa pembaruan berturut-turut gagal. Data yang sudah tampil tidak dihapus; aplikasi akan terus mencoba ulang. Penyebab terakhir: " + String(e?.message || e).slice(0, 180);
+        health.title = "Belum ada data berhasil diterima. Aplikasi akan terus mencoba otomatis. Penyebab terakhir: " + String(e?.message || e).slice(0, 180);
       }
-      if (healthTime) healthTime.textContent = lastOkText + " · " + String(e?.message || e).slice(0, 85);
     }
   } finally {
     // An older request must not clear the in-flight state of a newer request.
