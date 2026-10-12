@@ -22,6 +22,9 @@ let faultsVisible = true;
 let filterState = JSON.parse(localStorage.getItem("wrsFilterV1") || "null") || { mag: 1.5, age: 168, source: "ALL", depth: "ALL" };
 let lastRenderFingerprint = "";
 let loadInFlight = false;
+// Monotonically increasing token: responses from a previous mode/request must never
+// overwrite the screen after the user switches between simulation and operation.
+let loadRequestId = 0;
 let refreshTimer = null;
 let popupTimer = null;
 let userLocation = null;
@@ -2001,6 +2004,10 @@ function setWrsMode(mode) {
   clearSimulationTimer();
   simulationSequenceActive = false;
   simulationSequencePaused = false;
+  // Invalidate any request started before the mode change. Its response may arrive
+  // late and must not replace operational data or leave the UI stuck as "connecting".
+  loadRequestId++;
+  loadInFlight = false;
   const filter = $("#rtFilter");
   if (filter) filter.textContent = "Area Indonesia · Mag > 2 · 7 hari terakhir";
   status(false, "MENGHUBUNGKAN WRS");
@@ -2020,7 +2027,8 @@ function setWrsMode(mode) {
     drawMarkers(true);
     updateStats(getFilteredQuakes());
   }
-  load(true);
+  load(true, true);
+  scheduleRefresh();
 }
 document.querySelectorAll("[data-wrs-mode]").forEach(button => {
   button.addEventListener("click", () => setWrsMode(button.dataset.wrsMode));
@@ -2046,12 +2054,13 @@ function hideLoading() {
   if (el) el.classList.add("hidden");
 }
 
-async function load(showSpin) {
+async function load(showSpin, force = false) {
   if (wrsMode === "simulation") {
     if (!quakes.some(q => q.simulation)) applySimulationMode();
     return;
   }
-  if (loadInFlight) return;
+  if (loadInFlight && !force) return;
+  const requestId = ++loadRequestId;
   loadInFlight = true;
   if (showSpin) showLoading("Memuat data gempa…");
   try {
@@ -2060,6 +2069,9 @@ async function load(showSpin) {
       const r = await fetch(API + "?t=" + Date.now(), { cache: "no-store" });
       if (r.ok) d = await r.json();
     } catch { /* function offline */ }
+
+    // Ignore responses from an old mode or superseded request.
+    if (requestId !== loadRequestId || wrsMode === "simulation") return;
 
     // Cloudflare Pages API adalah satu-satunya jalur data aplikasi.
     // Jangan diam-diam mengganti API dengan fetch browser karena hasilnya bisa
@@ -2168,6 +2180,7 @@ async function load(showSpin) {
       }
     }
   } catch (e) {
+    if (requestId !== loadRequestId || wrsMode === "simulation") return;
     console.error(e);
     status(false, "OFFLINE");
     const healthText = $("#wrsHealthText");
@@ -2175,8 +2188,11 @@ async function load(showSpin) {
     if (healthText) healthText.textContent = "GAGAL MEMPERBARUI";
     if (health) { health.classList.add("is-error"); health.title = "Pembaruan gagal; data terakhir mungkin sudah lama"; }
   } finally {
-    loadInFlight = false;
-    hideLoading();
+    // An older request must not clear the in-flight state of a newer request.
+    if (requestId === loadRequestId) {
+      loadInFlight = false;
+      hideLoading();
+    }
   }
 }
 
