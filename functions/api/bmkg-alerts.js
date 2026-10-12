@@ -100,11 +100,20 @@ export async function onRequestGet() {
     area: (item.description.match(/(?:wilayah|daerah|kecamatan|kabupaten)[^.;]{0,180}/i) || [])[0] || "",
     severity: /sangat lebat|ekstrem|ekstrim|siaga/i.test(item.title + " " + item.description) ? "severe" : "active"
   })) : [];
-  const uniqueNews = outcomes[1].status === "fulfilled"
-    ? [...new Map(outcomes[1].value.map(item => [item.url, item])).values()].slice(0, 8)
-    : [];
-  // Summaries come from the official BMKG page description/intro, not invented.
-  const news = await Promise.all(uniqueNews.slice(0, 8).map(async item => {
+  const scrapedNews = outcomes[1].status === "fulfilled" ? outcomes[1].value : [];
+  // Prioritaskan siaran pers terbaru agar rilis kebencanaan tidak tenggelam oleh berita umum.
+  const featuredPress = [{
+    title: "BMKG Resmikan HF Radar Array Ujong Batee Aceh, Perkuat Observasi Maritim dan Mitigasi Bencana Pesisir",
+    url: "https://www.bmkg.go.id/siaran-pers/bmkg-resmikan-hf-radar-array-ujong-batee-aceh-perkuat-observasi-maritim-dan-mitigasi-bencana-pesisir",
+    category: "Siaran Pers BMKG",
+    publishedAt: "2026-10-08"
+  }].filter(item => Date.now() - new Date(item.publishedAt + "T00:00:00Z").getTime() < 14 * 24 * 60 * 60 * 1000);
+  const uniqueNews = [...new Map([...featuredPress, ...scrapedNews]
+    .map(item => [item.url, item])).values()]
+    .sort((a, b) => Number(String(b.category).toLowerCase().includes("siaran pers")) - Number(String(a.category).toLowerCase().includes("siaran pers")))
+    .slice(0, 8);
+  // Summaries and media come from the official BMKG page, not invented.
+  const news = await Promise.all(uniqueNews.map(async item => {
     try {
       const response = await fetch(item.url, { headers: { accept: "text/html" }, cf: { cacheTtl: 300, cacheEverything: true } });
       if (!response.ok) return { ...item, summary: "" };
