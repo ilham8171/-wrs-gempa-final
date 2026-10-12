@@ -185,6 +185,30 @@ function parseTsunamiCapXml(xml) {
     const wzmap = textBetween(block, "wzmap");
     const ttmap = textBetween(block, "ttmap");
     const sshmap = textBetween(block, "sshmap");
+    // Only accept geographic bounds explicitly supplied by the source bulletin.
+    // Never derive raster bounds from the earthquake epicenter or image dimensions.
+    const explicitBound = (...tags) => {
+      for (const tag of tags) {
+        const value = textBetween(block, tag);
+        if (value) {
+          const parsed = num(value);
+          if (Number.isFinite(parsed)) return parsed;
+        }
+      }
+      return NaN;
+    };
+    const sshBoundsRaw = {
+      minLat: explicitBound("sshminlat", "ssh_min_lat", "minLat", "min_lat"),
+      minLon: explicitBound("sshminlon", "ssh_min_lon", "minLon", "min_lon"),
+      maxLat: explicitBound("sshmaxlat", "ssh_max_lat", "maxLat", "max_lat"),
+      maxLon: explicitBound("sshmaxlon", "ssh_max_lon", "maxLon", "max_lon")
+    };
+    const sshBounds = Object.values(sshBoundsRaw).every(Number.isFinite) &&
+      sshBoundsRaw.minLat < sshBoundsRaw.maxLat &&
+      sshBoundsRaw.minLon < sshBoundsRaw.maxLon &&
+      sshBoundsRaw.minLat >= -90 && sshBoundsRaw.maxLat <= 90 &&
+      sshBoundsRaw.minLon >= -180 && sshBoundsRaw.maxLon <= 180
+      ? sshBoundsRaw : null;
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
     list.push({
       key: "tsun-" + eventid + "-" + (pd || list.length),
@@ -195,6 +219,7 @@ function parseTsunamiCapXml(xml) {
       pd: pd || null, headline, description, instruction, instruction1, instruction2, instruction3, timesent,
       shakemap: mapCapAsset(shakemap) || null,
       wzmap: mapCapAsset(wzmap), ttmap: mapCapAsset(ttmap), sshmap: mapCapAsset(sshmap),
+      ...(sshBounds ? { sshBounds } : {}),
       ended: /telah\s*berakhir|berakhir|all[\s-]?clear|dinyatakan\s*telah\s*berakhir/i.test(headline + " " + description + " " + subject),
       source: "InaTEWS", isTsunamiWarning: true, official: true
     });
