@@ -765,9 +765,29 @@ function renderTsunamiZoneTable(q) {
     rows;
 }
 
+function shakeMapSourceLabel(q) {
+  if (q?.shakemapSource) return String(q.shakemapSource);
+  if (q?.source === "USGS" || String(q?.key || "").startsWith("usgs|")) return "USGS ShakeMap";
+  return "BMKG / InaTEWS";
+}
+function updateShakeMapLabels(q) {
+  const label = shakeMapSourceLabel(q);
+  const mainHeading = $("#shakemapBox .rp-shakemap-h");
+  const modalHeading = $("#modalShakemapBox .mmi-h");
+  const tsunamiHeading = $("#tsunamiShakemapBox .mmi-h");
+  if (mainHeading) mainHeading.textContent = "ShakeMap (Peta Guncangan) · " + label;
+  if (modalHeading) modalHeading.textContent = "ShakeMap · " + label;
+  if (tsunamiHeading) tsunamiHeading.textContent = "ShakeMap · " + label;
+  const mainImage = $("#shakemapImg");
+  const modalImage = $("#modalShakemapImg");
+  if (mainImage) mainImage.alt = "ShakeMap MMI · " + label;
+  if (modalImage) modalImage.alt = "ShakeMap MMI · " + label;
+}
+
 function renderOfficial(q) {
   if (!q) return;
   currentOfficial = q;
+  updateShakeMapLabels(q);
   $("#offMag").textContent = q.magnitude.toFixed(1).replace(".", ",");
   $("#offTitle").textContent = q.felt || /dirasakan/i.test(q.potential || "")
     ? "INFO GEMPA DIRASAKAN"
@@ -1028,6 +1048,7 @@ async function loadUsgsProducts(q, forceFallback = false) {
 
 function openModal(q) {
   if (!q) return;
+  updateShakeMapLabels(q);
   // Jika potensi tsunami → buka modal tsunami khusus
   if (isTsunamiPotential(q.potential)) {
     openTsunamiModal(q);
@@ -1120,6 +1141,7 @@ function isTsunamiEnded(q) {
 
 function openTsunamiModal(q) {
   if (!q) return;
+  updateShakeMapLabels(q);
   window._modalQuake = q;
   const mag = Number(q.magnitude);
   $("#tsunamiMag").textContent = Number.isFinite(mag) ? mag.toFixed(1) : "—";
