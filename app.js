@@ -2018,6 +2018,12 @@ function updateModeButtons() {
   });
   const tools = $("#wrsTestTools");
   if (tools) tools.hidden = wrsMode !== "simulation";
+  // Tell the native shell whether live monitoring is active so simulated mode never speaks real alerts.
+  try {
+    if (window.AndroidWrs && typeof window.AndroidWrs.setMonitoringMode === "function") {
+      window.AndroidWrs.setMonitoringMode(wrsMode === "operational");
+    }
+  } catch (_) {}
 }
 
 /** Diagnostics are informational: never let a health-panel rendering failure interrupt monitoring. */
@@ -2487,28 +2493,38 @@ async function load(showSpin, force = false) {
     const newFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
     const clientFallback = d.sources?.clientFallback === true;
     const wrsFeedOk = d.sources?.wrs?.ok === true || (!clientFallback && d.sources?.wrs == null && !(d.sources?.errors || []).includes("InaTEWS QL"));
-    const usingFallback = clientFallback || !wrsFeedOk;
-    status(true, clientFallback
+    const fetchedAtMs = Date.parse(d.fetchedAt || "");
+    const apiAgeSeconds = Number.isFinite(fetchedAtMs) ? Math.max(0, Math.floor((Date.now() - fetchedAtMs) / 1000)) : null;
+    const apiDataStale = apiAgeSeconds == null || apiAgeSeconds > 45;
+    const usingFallback = clientFallback || !wrsFeedOk || apiDataStale;
+    status(true, apiDataStale ? "DATA LAMBAT" : clientFallback
       ? (wrsFeedOk ? "WRS CADANGAN LANGSUNG" : "SUMBER CADANGAN")
       : (wrsFeedOk ? "WRS LIVE" : "CADANGAN · WRS OFFLINE"));
     const healthText = $("#wrsHealthText");
     const healthTime = $("#wrsLastUpdated");
     const health = $("#wrsHealth");
     if (healthText) {
-      healthText.textContent = clientFallback
-        ? (wrsFeedOk ? "API UTAMA TERGANGGU · WRS LANGSUNG CADANGAN AKTIF" : "API UTAMA TERGANGGU · DATA CADANGAN BMKG/USGS")
-        : (wrsFeedOk ? ((d.sources?.errors?.length) ? "WRS TERHUBUNG · DATA PARSIAL" : "WRS REALTIME TERHUBUNG") : (quakes.length ? "WRS OFFLINE · DATA CADANGAN" : "WRS OFFLINE · DATA TIDAK TERSEDIA"));
+      healthText.textContent = apiDataStale
+        ? "PEMBARUAN TERLAMBAT · DATA TERAKHIR DIPERTAHANKAN"
+        : clientFallback
+          ? (wrsFeedOk ? "API UTAMA TERGANGGU · WRS LANGSUNG CADANGAN AKTIF" : "API UTAMA TERGANGGU · DATA CADANGAN BMKG/USGS")
+          : (wrsFeedOk ? ((d.sources?.errors?.length) ? "WRS TERHUBUNG · DATA PARSIAL" : "WRS REALTIME TERHUBUNG") : (quakes.length ? "WRS OFFLINE · DATA CADANGAN" : "WRS OFFLINE · DATA TIDAK TERSEDIA"));
     }
     if (healthTime) {
-      healthTime.textContent = (clientFallback ? "Data sumber cadangan " : (wrsFeedOk ? "WRS diperbarui " : "Pemeriksaan terakhir ")) +
-        new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) +
-        (clientFallback ? " · API: " + String(d.sources?.apiError || "gagal") : "");
+      const fetchedText = Number.isFinite(fetchedAtMs)
+        ? new Date(fetchedAtMs).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+        : "waktu sumber tidak tersedia";
+      healthTime.textContent = "Fetch API " + fetchedText +
+        (apiAgeSeconds == null ? "" : " · usia " + apiAgeSeconds + " dtk") +
+        (clientFallback ? " · API utama: " + String(d.sources?.apiError || "gagal") : "");
     }
     if (health) {
       health.classList.toggle("is-error", usingFallback || !!d.sources?.errors?.length);
-      health.title = clientFallback
-        ? "Endpoint API utama gagal diakses dari perangkat. Data ditarik langsung dari BMKG/WRS/USGS bila tersedia; mode cadangan tidak membuktikan API utama sehat. Penyebab: " + String(d.sources?.apiError || "tidak diketahui")
-        : (wrsFeedOk ? "Feed realtime InaTEWS/WRS diterima" : "Feed realtime InaTEWS/WRS tidak tersedia; katalog cadangan tetap ditampilkan jika ada.");
+      health.title = apiDataStale
+        ? "Respons API sudah berumur lebih dari 45 detik atau tidak memiliki waktu fetch yang valid. Data terakhir dipertahankan dan tidak dilabeli realtime."
+        : clientFallback
+          ? "Endpoint API utama gagal diakses dari perangkat. Data ditarik langsung dari BMKG/WRS/USGS bila tersedia; mode cadangan tidak membuktikan API utama sehat. Penyebab: " + String(d.sources?.apiError || "tidak diketahui")
+          : (wrsFeedOk ? "Feed realtime InaTEWS/WRS diterima" : "Feed realtime InaTEWS/WRS tidak tersedia; katalog cadangan tetap ditampilkan jika ada.");
     }
     const s = d.sources || {};
     updateDiagnostics(d);
