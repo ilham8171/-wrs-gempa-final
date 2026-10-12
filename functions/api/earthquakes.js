@@ -352,22 +352,67 @@ export async function onRequestGet({ request, waitUntil } = {}) {
       distanceKm(a, b) <= distanceWindow &&
       Math.abs(Number(a.magnitude) - Number(b.magnitude)) <= magnitudeWindow;
   };
+  // Deduplicate using a time index rather than scanning the entire catalogue for
+  // every event. The old O(n²) scan could consume too much edge CPU when BMKG, WRS,
+  // USGS global and USGS Indonesia all returned large catalogues, causing intermittent
+  // API 503s even though the upstream feeds themselves were reachable.
   const unique = [];
-  list.sort((a,b)=>validTime(b)-validTime(a)).forEach(q => {
-    const matches = unique.map((item, index) => ({item, index})).filter(({item}) => sameEvent(item, q));
+  const bucketWidthMs = 4 * 60 * 1000;
+  const timeBuckets = new Map();
+  const bucketFor = q => {
+    const t = validTime(q);
+    return Number.isFinite(t) ? Math.floor(t / bucketWidthMs) : null;
+  };
+  const addToTimeIndex = q => {
+    const bucket = bucketFor(q);
+    if (bucket === null) return;
+    if (!timeBuckets.has(bucket)) timeBuckets.set(bucket, []);
+    timeBuckets.get(bucket).push(q);
+  };
+  const removeFromTimeIndex = q => {
+    const bucket = bucketFor(q);
+    if (bucket === null) return;
+    const entries = timeBuckets.get(bucket);
+    if (!entries) return;
+    const index = entries.indexOf(q);
+    if (index >= 0) entries.splice(index, 1);
+    if (!entries.length) timeBuckets.delete(bucket);
+  };
+  list.sort((a,b) => {
+    const ta = validTime(a), tb = validTime(b);
+    return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+  }).forEach(q => {
+    const bucket = bucketFor(q);
+    const candidates = [];
+    if (bucket !== null) {
+      // A four-minute match window can cross at most one adjacent bucket on either side.
+      for (let b = bucket - 1; b <= bucket + 1; b++) {
+        const entries = timeBuckets.get(b);
+        if (entries) candidates.push(...entries);
+      }
+    }
+    const matches = candidates.filter(item => sameEvent(item, q));
     if (!matches.length) {
       unique.push(q);
+      addToTimeIndex(q);
       return;
     }
-    // Keep one event per real earthquake. BMKG's official record wins in Indonesia;
-    // InaTEWS is next; USGS is retained only when no matching higher-priority record exists.
-    const best = matches.reduce((winner, candidate) =>
-      eventPriority(candidate.item) > eventPriority(winner.item) ? candidate : winner, matches[0]);
-    if (eventPriority(q) > eventPriority(best.item)) {
-      const indexes = matches.map(match => match.index).sort((a,b)=>b-a);
-      indexes.forEach(index => unique.splice(index, 1));
-      unique.push(q);
+
+    // Keep one record per event: official BMKG first, live InaTEWS next, USGS last.
+    // Merge all matching duplicates, even when the current item is lower priority.
+    let winner = matches[0];
+    for (const candidate of matches.slice(1)) {
+      if (eventPriority(candidate) > eventPriority(winner)) winner = candidate;
     }
+    if (eventPriority(q) > eventPriority(winner)) winner = q;
+
+    for (const match of matches) {
+      removeFromTimeIndex(match);
+      const index = unique.indexOf(match);
+      if (index >= 0) unique.splice(index, 1);
+    }
+    unique.push(winner);
+    addToTimeIndex(winner);
   });
   const recent=unique.sort((a,b)=>validTime(b)-validTime(a)).slice(0,800);
   const inIndonesia = q => q.lat >= -11 && q.lat <= 6.5 && q.lon >= 94 && q.lon <= 141.5;
