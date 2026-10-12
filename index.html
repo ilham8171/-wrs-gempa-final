@@ -13,7 +13,7 @@
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
 <title>WRS Gempa — Earthquake Monitor</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="/styles.css?v=20261013-7">
+<link rel="stylesheet" href="/styles.css?v=20261013-8">
 <link rel="stylesheet" href="/ui-refresh.css">
 </head>
 <body>
@@ -70,7 +70,6 @@
     </div>
   </div>
   <div class="rt-coord" id="rtCoord">◎ —</div>
-  <div class="rt-update hidden" id="rtUpdate" role="status"></div>
   <div class="rt-place" id="rtPlace">—</div>
   <div class="rt-dist" id="rtDist">Jarak ke Anda: —</div>
   <div class="rt-src" id="rtSrc">Sumber: —</div>
@@ -225,6 +224,8 @@
     <b>Saran & Instruksi BMKG</b>
     <span>Waspadai kemungkinan gempa susulan.</span>
   </div>
+  <div class="detail-revision-title">PEMUTAKHIRAN PARAMETER GEMPA · 5 MENIT PERTAMA</div>
+  <div class="rt-update hidden" id="rtUpdate" role="status"></div>
   <div class="rp-links">
     <a href="https://inatews.bmkg.go.id/wrs/index.html" target="_blank" rel="noopener" class="ext-link">WRS Resmi</a>
     <a href="https://www.bmkg.go.id" target="_blank" rel="noopener" class="ext-link">BMKG</a>
@@ -503,7 +504,9 @@
   moreControls.className = 'mobile-more-controls';
   moreControls.innerHTML = '<h2>WRS TERHUBUNG</h2><p class="more-caption">Status pemantauan, alarm, lokasi, dan sumber data.</p>';
   legendPage.appendChild(moreControls);
-  const mapNodes = ['map','map-overlay','wrsHealth','worldClockPanel','mapStats','vToolbar','basemapMenu','cardRealtime'];
+  const healthStrip = document.getElementById('wrsHealth');
+  if (healthStrip) moreControls.appendChild(healthStrip);
+  const mapNodes = ['map','map-overlay','worldClockPanel','mapStats','vToolbar','basemapMenu','cardRealtime'];
   mapNodes.forEach(id => { const el=document.getElementById(id); if(el) mapPage.appendChild(el); });
   const panel = document.getElementById('rightPanel');
   const legend = document.querySelector('.left-bottom');
@@ -512,16 +515,6 @@
     ['.rp-links','.rp-quick','.rp-quick-opts','#alarmStatus','#locStatus','#pushStatus','.rp-live','.rp-foot'].forEach(selector => {
       Array.from(panel.querySelectorAll(selector)).forEach(node => moreControls.appendChild(node));
     });
-  }
-  const revisionBox = document.getElementById('rtUpdate');
-  const instructionBox = document.getElementById('offInstr');
-  if (revisionBox && instructionBox) {
-    const revisionHeading = document.createElement('div');
-    revisionHeading.className = 'detail-revision-title';
-    revisionHeading.textContent = 'PEMUTAKHIRAN PARAMETER GEMPA · 5 MENIT PERTAMA';
-    revisionBox.parentElement?.removeChild(revisionBox);
-    instructionBox.insertAdjacentElement('afterend', revisionHeading);
-    revisionHeading.insertAdjacentElement('afterend', revisionBox);
   }
   if (legend) { legendPage.appendChild(legend); legend.classList.add('legend-in-panel'); }
   const firstModal = document.getElementById('filterModal') || document.getElementById('historyModal');
@@ -750,6 +743,6 @@
   tick();setInterval(tick,1000);
 })();
 </script>
-<script src="/app.js?v=20261013-7"></script>
+<script src="/app.js?v=20261013-8"></script>
 </body>
 </html>
