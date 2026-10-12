@@ -503,14 +503,14 @@
   moreControls.className = 'mobile-more-controls';
   moreControls.innerHTML = '<h2>WRS TERHUBUNG</h2><p class="more-caption">Status pemantauan, alarm, lokasi, dan sumber data.</p>';
   legendPage.appendChild(moreControls);
-  const mapNodes = ['map','map-overlay','wrsHealth','mapStats','vToolbar','basemapMenu','cardRealtime'];
+  const mapNodes = ['map','map-overlay','wrsHealth','worldClockPanel','mapStats','vToolbar','basemapMenu','cardRealtime'];
   mapNodes.forEach(id => { const el=document.getElementById(id); if(el) mapPage.appendChild(el); });
   const panel = document.getElementById('rightPanel');
   const legend = document.querySelector('.left-bottom');
   if (panel) {
     infoPage.appendChild(panel);
-    ['rp-links','rp-quick','rp-quick-opts','alarmStatus','locStatus','pushStatus','rp-live','rp-foot'].forEach(cls => {
-      Array.from(panel.querySelectorAll('.'+cls)).forEach(node => moreControls.appendChild(node));
+    ['.rp-links','.rp-quick','.rp-quick-opts','#alarmStatus','#locStatus','#pushStatus','.rp-live','.rp-foot'].forEach(selector => {
+      Array.from(panel.querySelectorAll(selector)).forEach(node => moreControls.appendChild(node));
     });
   }
   const revisionBox = document.getElementById('rtUpdate');
