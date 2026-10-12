@@ -97,6 +97,8 @@ button:focus-visible, a:focus-visible, select:focus-visible {
 .wrs-health time { color: var(--wrs-muted); font-size: 10px; font-weight: 500; letter-spacing: 0; }
 .wrs-health.is-error { border-color: rgba(255,108,120,.42); }
 .wrs-health.is-error .health-led { background: var(--wrs-red); box-shadow: 0 0 0 4px rgba(255,108,120,.12); }
+.wrs-health.is-warning { border-color: rgba(245, 190, 75, .48); }
+.wrs-health.is-warning .health-led { background: #f5be4b; box-shadow: 0 0 0 4px rgba(245, 190, 75, .15); }
 
 .left-top {
   top: 72px; left: 18px;
