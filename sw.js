@@ -5,13 +5,13 @@
  * - Network-first untuk HTML/JS/CSS agar data dan kode tetap mudah diperbarui
  */
 
-const CACHE_NAME = "wrs-gempa-shell-v8-0-3";
+const CACHE_NAME = "wrs-gempa-shell-v8-0-4";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/styles.css",
   "/ui-refresh.css",
-  "/app.js",
+  "/app.js?v=20261012-2",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -65,7 +65,7 @@ self.addEventListener("fetch", (event) => {
     url.pathname === "/manifest.json"
   ) {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: "no-store" })
         .then((response) => {
           if (response.ok) {
             const copy = response.clone();
@@ -73,7 +73,7 @@ self.addEventListener("fetch", (event) => {
           }
           return response;
         })
-        .catch(() => caches.match(request).then((cached) => cached || caches.match("/index.html")))
+        .catch(() => caches.match(request).then((cached) => cached || caches.match(url.pathname === "/app.js" ? "/app.js?v=20261012-2" : request) || caches.match("/index.html")))
     );
     return;
   }
