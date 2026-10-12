@@ -1865,51 +1865,51 @@ function renderTsunamiMapControl(latestEvents,allEvents){
  el.innerHTML='<div class="wrs-tsu-map-title">TSUNAMI · InaTEWS</div><div class="wrs-tsu-map-events">'+rows+'</div>'+timelineHtml+areaHtml+obsHtml+assetHtml+
  '<div class="wrs-tsu-map-note">Titik berwarna = observasi dengan koordinat eksplisit. Produk Warning Zone/SSHmax adalah pratinjau resmi, bukan overlay geografis karena batas koordinat raster belum tersedia.</div>';
 }
+function removeTsunamiMapControl(){
+  // Buletin tidak ditempel sebagai tabel di atas peta operasional.
+  // Detail dan riwayat tetap tersedia lewat panel/modal tsunami yang sudah ada.
+  if(tsunamiMapControl&&map){
+   try{map.removeControl(tsunamiMapControl);}catch(_){}
+  }
+  tsunamiMapControl=null;
+  tsunamiMapControlNode=null;
+}
 function renderOfficialTsunamiMap(){
- if(!map||!tsunamiMapLayer)return;
- // The quake marker group is separate and is never cleared or recreated here.
- clearTsunamiMapLayer();
- if(wrsMode==="simulation"){
-  if(tsunamiMapControlNode){tsunamiMapControlNode.style.display="none";tsunamiMapControlNode.innerHTML="";}
-  return;
- }
- if(!Array.isArray(tsunamiHistory)||!tsunamiHistory.length){
-  renderTsunamiMapControl([],[]);
-  return;
- }
- // Keep the latest bulletin for each official event, so PD updates replace older
- // status for active-map purposes while the complete bulletin history stays available.
- const byEvent=new Map();
- tsunamiHistory.filter(q=>q&&q.isTsunamiWarning).forEach(q=>{
-  const id=String(q.eventid||q.key||"");
-  if(!id)return;
-  const prev=byEvent.get(id);
-  if(!prev||tsunamiBulletinTime(q)>tsunamiBulletinTime(prev))byEvent.set(id,q);
- });
- const latestEvents=[...byEvent.values()]
-  .sort((a,b)=>tsunamiBulletinTime(b)-tsunamiBulletinTime(a));
- // Show official bulletin status and product previews even when georeferenced bounds
- // are unavailable; the preview is not misrepresented as a map overlay.
- renderTsunamiMapControl(latestEvents.slice(0,4),tsunamiHistory);
- const active=latestEvents.filter(q=>{
-  const t=tsunamiBulletinTime(q);
-  return !isTsunamiEnded(q)&&Number.isFinite(t)&&t>0&&Date.now()-t<=6*60*60*1000;
- });
- const latest=active.find(q=>{
-  const b=q.sshBounds;
-  const url=safeTsunamiAssetUrl(q.sshmap);
-  return url&&b&&Number.isFinite(Number(b.minLat))&&Number.isFinite(Number(b.minLon))&&
-   Number.isFinite(Number(b.maxLat))&&Number.isFinite(Number(b.maxLon))&&
-   Number(b.minLat)<Number(b.maxLat)&&Number(b.minLon)<Number(b.maxLon)&&
-   Number(b.minLat)>=-90&&Number(b.maxLat)<=90&&Number(b.minLon)>=-180&&Number(b.maxLon)<=180;
- });
- if(!latest)return;
- const b=latest.sshBounds;
- // Non-interactive official raster sits beneath Leaflet markers; quake click targets remain intact.
- L.imageOverlay(safeTsunamiAssetUrl(latest.sshmap),[
-  [Number(b.minLat),Number(b.minLon)],
-  [Number(b.maxLat),Number(b.maxLon)]
- ],{opacity:0.62,interactive:false,alt:"Lapisan SSHmax resmi InaTEWS BMKG"}).addTo(tsunamiMapLayer);
+  if(!map||!tsunamiMapLayer)return;
+  // The quake marker group is separate and is never cleared or recreated here.
+  clearTsunamiMapLayer();
+  removeTsunamiMapControl();
+  if(wrsMode==="simulation"||!Array.isArray(tsunamiHistory)||!tsunamiHistory.length)return;
+
+  // Keep the latest bulletin for each official event for active-map purposes.
+  const byEvent=new Map();
+  tsunamiHistory.filter(q=>q&&q.isTsunamiWarning).forEach(q=>{
+   const id=String(q.eventid||q.key||"");
+   if(!id)return;
+   const prev=byEvent.get(id);
+   if(!prev||tsunamiBulletinTime(q)>tsunamiBulletinTime(prev))byEvent.set(id,q);
+  });
+  const latestEvents=[...byEvent.values()]
+   .sort((a,b)=>tsunamiBulletinTime(b)-tsunamiBulletinTime(a));
+  const active=latestEvents.filter(q=>{
+   const t=tsunamiBulletinTime(q);
+   return !isTsunamiEnded(q)&&Number.isFinite(t)&&t>0&&Date.now()-t<=6*60*60*1000;
+  });
+  const latest=active.find(q=>{
+   const b=q.sshBounds;
+   const url=safeTsunamiAssetUrl(q.sshmap);
+   return url&&b&&Number.isFinite(Number(b.minLat))&&Number.isFinite(Number(b.minLon))&&
+    Number.isFinite(Number(b.maxLat))&&Number.isFinite(Number(b.maxLon))&&
+    Number(b.minLat)<Number(b.maxLat)&&Number(b.minLon)<Number(b.maxLon)&&
+    Number(b.minLat)>=-90&&Number(b.maxLat)<=90&&Number(b.minLon)>=-180&&Number(b.maxLon)<=180;
+  });
+  if(!latest)return;
+  const b=latest.sshBounds;
+  // Non-interactive official raster sits beneath Leaflet markers; quake click targets remain intact.
+  L.imageOverlay(safeTsunamiAssetUrl(latest.sshmap),[
+   [Number(b.minLat),Number(b.minLon)],
+   [Number(b.maxLat),Number(b.maxLon)]
+  ],{opacity:0.62,interactive:false,alt:"Lapisan SSHmax resmi InaTEWS BMKG"}).addTo(tsunamiMapLayer);
 }
 
 function simulationQuake(scenarioIndex = simulationScenarioIndex, overrides = {}) {
@@ -2279,8 +2279,13 @@ async function load(showSpin, force = false) {
   try {
     let d = null;
     try {
-      const r = await fetch(API + "?t=" + Date.now(), { cache: "no-store" });
-      if (r.ok) d = await r.json();
+      const r = await fetch(API + "?t=" + Date.now(), {
+        cache: "no-store",
+        headers: { accept: "application/json", "cache-control": "no-cache" },
+        signal: AbortSignal.timeout(12000)
+      });
+      if (!r.ok) throw new Error("API gempa HTTP " + r.status);
+      d = await r.json();
     } catch { /* function offline */ }
 
     // Ignore responses from an old mode or superseded request.
@@ -2418,7 +2423,7 @@ async function load(showSpin, force = false) {
       }
     } else {
       status(false, hasCachedEvents ? "DATA TERAKHIR" : "MENGHUBUNGKAN");
-      if (healthText) healthText.textContent = hasCachedEvents ? "WRS SEMENTARA TIDAK TERJANGKAU · DATA TERAKHIR DIPERTAHANKAN" : "BELUM TERHUBUNG · MENCOBA ULANG";
+      if (healthText) healthText.textContent = hasCachedEvents ? "SERVER DATA SEMENTARA TIDAK TERJANGKAU · DATA TERAKHIR DIPERTAHANKAN" : "SERVER DATA BELUM TERHUBUNG · MENCOBA ULANG";
       if (healthTime) healthTime.textContent = lastOkText;
       if (health) {
         health.classList.add("is-error");
