@@ -801,9 +801,13 @@ function renderOfficial(q) {
     `Info Gempa Mag:${q.magnitude.toFixed(1)}, ${fmtTime(q)}, Lok:${fmtCoord(q)} (${q.place}), Kedlmn:${q.depth} Km ::${q.source || "BMKG"}`;
   $("#offDesc").textContent = desc;
 
+  const isUsgsEvent = q.source === "USGS" || String(q.key || "").startsWith("usgs|");
+  const isInatewsEvent = /INATEWS|WRS/i.test(String(q.source || ""));
   const pot = q.potential && q.potential !== "—"
     ? q.potential
-    : q.felt ? "Gempa ini dirasakan untuk diteruskan pada masyarakat" : "Tidak ada potensi tsunami";
+    : isUsgsEvent
+      ? "USGS tidak menandai kejadian terkait tsunami pada data ini. Ini bukan konfirmasi ketiadaan risiko; periksa peringatan resmi setempat."
+      : q.felt ? "Gempa ini dirasakan untuk diteruskan pada masyarakat" : "Tidak ada potensi tsunami menurut informasi yang tersedia.";
   const potEl = $("#offPot");
   potEl.textContent = pot;
   if (isTsunamiPotential(pot)) {
@@ -818,8 +822,13 @@ function renderOfficial(q) {
     potEl.style.animation = "none";
   }
 
-  $("#offInstr span").textContent =
-    q.instruction || "Hati-hati terhadap gempabumi susulan yang mungkin terjadi";
+  const offInstrHeading = $("#offInstr b");
+  if (offInstrHeading) offInstrHeading.textContent = isUsgsEvent
+    ? "Saran keselamatan (USGS)"
+    : isInatewsEvent ? "Informasi dari InaTEWS / WRS" : "Saran & Instruksi BMKG";
+  $("#offInstr span").textContent = q.instruction || (isUsgsEvent
+    ? "Waspadai gempa susulan dan ikuti arahan otoritas kebencanaan setempat. Data USGS bukan pengganti peringatan resmi."
+    : "Hati-hati terhadap gempabumi susulan yang mungkin terjadi");
 
   const smBox = $("#shakemapBox");
   const smImg = $("#shakemapImg");
@@ -1068,17 +1077,24 @@ function openModal(q) {
   $("#modalRegion").textContent = q.place;
   $("#modalSrc").textContent = q.source || "BMKG";
 
+  const isGlobalUsgs = q.source === "USGS" || String(q.key || "").startsWith("usgs|");
   const pot = q.potential && q.potential !== "—"
     ? q.potential
-    : "tidak ada potensi TSUNAMI";
+    : isGlobalUsgs
+      ? "USGS tidak menandai potensi tsunami pada data event ini; periksa peringatan resmi otoritas setempat."
+      : "tidak ada potensi TSUNAMI";
   const tsEl = $("#modalTsunami");
   $("#modalTsunamiText").textContent = pot;
   if (isTsunamiPotential(pot)) tsEl.classList.remove("safe");
   else tsEl.classList.add("safe");
 
-  const isGlobalUsgs = q.source === "USGS" || String(q.key || "").startsWith("usgs|");
   // Untuk kejadian global, jangan menampilkan saran/status BMKG seolah-olah
   // berasal dari USGS. Status USGS akan diperbarui setelah detail event dimuat.
+  const modalInstrHeading = $("#modalInstr b");
+  if (modalInstrHeading) modalInstrHeading.textContent = isGlobalUsgs
+    ? "Saran keselamatan (USGS):"
+    : /INATEWS|WRS/i.test(String(q.source || "")) ? "Informasi dari InaTEWS / WRS:"
+    : "Saran dan Instruksi dari BMKG:";
   $("#modalInstrText").textContent = isGlobalUsgs
     ? "Sumber informasi: USGS ComCat. Waspadai gempa susulan dan ikuti arahan otoritas kebencanaan setempat."
     : (q.instruction || "Waspadai kemungkinan gempa susulan. Ikuti informasi dan arahan resmi BMKG.");
