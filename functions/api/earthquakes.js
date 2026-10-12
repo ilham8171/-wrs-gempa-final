@@ -378,7 +378,7 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   // every event. The old O(n²) scan could consume too much edge CPU when BMKG, WRS,
   // USGS global and USGS Indonesia all returned large catalogues, causing intermittent
   // API 503s even though the upstream feeds themselves were reachable.
-  const unique = [];
+  const unique = new Set();
   const bucketWidthMs = 4 * 60 * 1000;
   const timeBuckets = new Map();
   const bucketFor = q => {
@@ -415,7 +415,7 @@ export async function onRequestGet({ request, waitUntil } = {}) {
     }
     const matches = candidates.filter(item => sameEvent(item, q));
     if (!matches.length) {
-      unique.push(q);
+      unique.add(q);
       addToTimeIndex(q);
       return;
     }
@@ -430,13 +430,12 @@ export async function onRequestGet({ request, waitUntil } = {}) {
 
     for (const match of matches) {
       removeFromTimeIndex(match);
-      const index = unique.indexOf(match);
-      if (index >= 0) unique.splice(index, 1);
+      unique.delete(match);
     }
-    unique.push(winner);
+    unique.add(winner);
     addToTimeIndex(winner);
   });
-  const recent=unique.sort((a,b)=>validTime(b)-validTime(a)).slice(0,800);
+  const recent=[...unique].sort((a,b)=>validTime(b)-validTime(a)).slice(0,800);
   const inIndonesia = q => q.lat >= -11 && q.lat <= 6.5 && q.lon >= 94 && q.lon <= 141.5;
   const official=recent.find(q=>q.source === "BMKG" && q.official && inIndonesia(q)) ||
     recent.find(q=>q.official) || null;
