@@ -483,10 +483,10 @@
   const legendPage = document.createElement('section');
   legendPage.id = 'mobilePageLegend';
   legendPage.className = 'mobile-page';
-  const newsPage = document.createElement('section');
-  newsPage.id = 'mobilePageNews';
-  newsPage.className = 'mobile-page';
-  newsPage.innerHTML = '<header class="mobile-page-title"><span>BERITA & INFORMASI BMKG</span><small>Berita resmi, siaran pers, gempa, tsunami, dan peringatan dini cuaca</small></header><div class="wrs-news-toolbar"><span id="wrsNewsUpdated">Memuat berita resmi…</span><button id="wrsNewsRefresh" type="button">↻ Segarkan</button></div><div class="wrs-news-filters"><button type="button" data-news-filter="all" class="active">Semua</button><button type="button" data-news-filter="hazard">Kebencanaan</button><button type="button" data-news-filter="press">Siaran Pers</button><button type="button" data-news-filter="weather">Peringatan Cuaca</button></div><div id="wrsNewsList" class="wrs-news-list"><div class="wrs-news-loading">Menghubungkan ke sumber resmi BMKG…</div></div><p class="wrs-news-footnote">Sumber utama: BMKG. Informasi berita bukan pengganti peringatan darurat resmi InaTEWS/BMKG.</p>';
+  const alertPage = document.createElement('section');
+  alertPage.id = 'mobilePageAlerts';
+  alertPage.className = 'mobile-page';
+  alertPage.innerHTML = '<header class="mobile-page-title"><span>PERINGATAN DINI BMKG</span><small>Peringatan cuaca aktif dan informasi resmi kebencanaan</small></header><div class="wrs-alert-intro"><span class="wrs-alert-pulse"></span><div><strong>Informasi resmi BMKG</strong><small>Memuat peringatan aktif Indonesia</small></div><button id="wrsAlertRefresh" type="button" aria-label="Segarkan peringatan">↻</button></div><div id="wrsAlertList" class="wrs-alert-list"><div class="wrs-alert-empty">Memeriksa peringatan dini aktif…</div></div><div class="wrs-alert-section-title">INFO & SIARAN PERS TERKAIT</div><div id="wrsAlertNews" class="wrs-alert-news"><div class="wrs-alert-empty">Memuat informasi resmi BMKG…</div></div><p class="wrs-alert-footnote">Sumber: BMKG. Informasi ini melengkapi, bukan menggantikan, peringatan resmi dan arahan petugas setempat.</p>';
   const title = document.createElement('header');
   title.className = 'mobile-page-title';
   title.innerHTML = '<span>WRS GEMPA</span><small>Legenda & panduan peta</small>';
@@ -502,15 +502,15 @@
   body.insertBefore(mapPage, anchor || null);
   body.insertBefore(infoPage, anchor || null);
   body.insertBefore(legendPage, anchor || null);
-  body.insertBefore(newsPage, anchor || null);
+  body.insertBefore(alertPage, anchor || null);
   const nav = document.createElement('nav');
   nav.className = 'mobile-bottom-nav';
   nav.setAttribute('aria-label','Navigasi utama');
-  nav.innerHTML = '<button type="button" data-page="map" class="active"><span class="nav-symbol" aria-hidden="true">⌖</span><span>Peta</span></button><button type="button" data-page="info"><span class="nav-symbol" aria-hidden="true">▤</span><span>Detail</span></button><button type="button" data-page="news"><span class="nav-symbol" aria-hidden="true">▧</span><span>Berita</span></button><button type="button" data-page="alerts"><span class="nav-symbol" aria-hidden="true">!</span><span>Notifikasi</span></button><button type="button" data-page="more"><span class="nav-symbol" aria-hidden="true">•••</span><span>Lainnya</span></button>';
+  nav.innerHTML = '<button type="button" data-page="map" class="active"><span class="nav-symbol" aria-hidden="true">⌖</span><span>Peta</span></button><button type="button" data-page="info"><span class="nav-symbol" aria-hidden="true">▤</span><span>Detail</span></button><button type="button" data-page="alerts"><span class="nav-symbol" aria-hidden="true">!</span><span>Notifikasi</span></button><button type="button" data-page="more"><span class="nav-symbol" aria-hidden="true">•••</span><span>Lainnya</span></button>';
   body.appendChild(nav);
   function showPage(name) {
-    const screen = name === 'alerts' ? 'info' : name === 'more' ? 'legend' : name;
-    [mapPage,infoPage,legendPage,newsPage].forEach((p,i)=>p.classList.toggle('active',['map','info','legend','news'][i]===screen));
+    const screen = name === 'more' ? 'legend' : name;
+    [mapPage,infoPage,legendPage,alertPage].forEach((p,i)=>p.classList.toggle('active',['map','info','legend','alerts'][i]===screen));
     nav.querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.page===name));
     body.dataset.mobilePage=name;
     if (panel) {
@@ -519,14 +519,8 @@
       panel.scrollTop=0;
     }
     if (name === 'alerts') {
-      setTimeout(() => {
-        const target = panel && (panel.querySelector('.rp-quick') || panel.querySelector('#btnPush') || panel.querySelector('#pushStatus'));
-        if (target) target.scrollIntoView({block:'center',behavior:'smooth'});
-        refreshMapSizes();
-      }, 120);
-    } else if (name === 'news') {
-      loadWrsBmkgNews();
-      newsPage.scrollTop=0;
+      loadWrsBmkgAlerts();
+      alertPage.scrollTop=0;
     } else if (name === 'more') {
       const legendTitle = legendPage.querySelector('.mobile-page-title');
       if (legendTitle) legendTitle.innerHTML = '<span>LAINNYA</span><small>Legenda, panduan, dan sumber data</small>';
@@ -549,38 +543,34 @@
   window.addEventListener('resize',()=>{ if(window.matchMedia('(min-width: 901px)').matches) location.reload(); },{passive:true});
   showPage('map');
 
-  let newsFilter = 'all';
-  let newsItems = [];
-  const newsList = document.getElementById('wrsNewsList');
-  const newsUpdated = document.getElementById('wrsNewsUpdated');
-  function renderNews() {
-    if (!newsList) return;
-    const items = newsItems.filter(item => newsFilter === 'all' || (newsFilter === 'hazard' && /gempa|tsunami|bencana|tektonik|vulkan|guncangan/i.test(item.title)) || (newsFilter === 'press' && /siaran-pers|siaran pers/i.test(item.category + ' ' + item.url)) || (newsFilter === 'weather' && /cuaca|hujan|angin|iklim|peringatan dini/i.test(item.title + ' ' + item.category)));
-    newsList.innerHTML = items.length ? items.map(item => '<a class="wrs-news-card" href="' + item.url + '" target="_blank" rel="noopener noreferrer"><span class="wrs-news-category">' + item.category + '</span><strong>' + item.title.replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch])) + '</strong><small>' + (item.date || 'BMKG · Artikel resmi') + '</small><span class="wrs-news-open">Baca selengkapnya ↗</span></a>').join('') : '<div class="wrs-news-loading">Belum ada artikel untuk kategori ini. Coba segarkan atau buka sumber resmi BMKG.</div>';
-  }
-  async function loadWrsBmkgNews() {
-    if (!newsList) return;
-    if (!newsItems.length) newsList.innerHTML = '<div class="wrs-news-loading">Memuat berita resmi BMKG…</div>';
-    if (newsUpdated) newsUpdated.textContent = 'Memeriksa sumber resmi…';
+  const alertList = document.getElementById('wrsAlertList');
+  const alertNews = document.getElementById('wrsAlertNews');
+  let alertBusy = false;
+  const escAlert = value => String(value || '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+  async function loadWrsBmkgAlerts() {
+    if (alertBusy) return;
+    alertBusy = true;
+    if (alertList && !alertList.dataset.loaded) alertList.innerHTML='<div class="wrs-alert-empty">Memeriksa peringatan dini aktif…</div>';
     try {
-      const response = await fetch('/api/bmkg-news?_= ' .trim() + Date.now(), {cache:'no-store'});
-      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const response = await fetch('/api/bmkg-alerts?t='+Date.now(), {cache:'no-store'});
+      if (!response.ok) throw new Error('HTTP '+response.status);
       const payload = await response.json();
-      newsItems = Array.isArray(payload.items) ? payload.items : [];
-      renderNews();
-      if (newsUpdated) newsUpdated.textContent = 'Diperbarui ' + new Date().toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}) + ' · Sumber BMKG';
+      const items = Array.isArray(payload.alerts) ? payload.alerts : [];
+      if (alertList) {
+        alertList.dataset.loaded='1';
+        alertList.innerHTML = items.length ? items.map(item=>'<article class="wrs-alert-card '+escAlert((item.severity||'').toLowerCase())+'"><div class="wrs-alert-card-top"><span class="wrs-alert-badge">PERINGATAN AKTIF</span><time>'+escAlert(item.updated||'BMKG')+'</time></div><h3>'+escAlert(item.title)+'</h3><p>'+escAlert(item.description)+'</p><div class="wrs-alert-area">📍 '+escAlert(item.area||'Wilayah terdampak tercantum pada rilis BMKG')+'</div><a href="'+escAlert(item.url)+'" target="_blank" rel="noopener noreferrer">Detail resmi BMKG ↗</a></article>').join('') : '<div class="wrs-alert-empty"><span class="wrs-alert-safe">✓</span><strong>Tidak ada peringatan dini cuaca aktif yang ditemukan.</strong><small>Ini bukan jaminan bebas risiko. Periksa kembali jika kondisi cuaca berubah.</small></div>';
+      }
+      if (alertNews) {
+        const news = Array.isArray(payload.news) ? payload.news : [];
+        alertNews.innerHTML = news.length ? news.slice(0,5).map(item=>'<a class="wrs-alert-news-card" href="'+escAlert(item.url)+'" target="_blank" rel="noopener noreferrer"><span>'+escAlert(item.category||'INFO BMKG')+'</span><strong>'+escAlert(item.title)+'</strong><small>'+escAlert(item.date||'Sumber resmi BMKG')+'</small><em>Baca ringkasan ↗</em></a>').join('') : '<div class="wrs-alert-empty">Belum ada siaran pers terkait yang berhasil dimuat.</div>';
+      }
     } catch (_) {
-      newsList.innerHTML = '<div class="wrs-news-loading">Sumber berita sementara tidak terjangkau.<br><a href="https://www.bmkg.go.id/berita" target="_blank" rel="noopener noreferrer">Buka Berita BMKG</a> · <a href="https://www.bmkg.go.id/siaran-pers" target="_blank" rel="noopener noreferrer">Siaran Pers</a></div>';
-      if (newsUpdated) newsUpdated.textContent = 'Koneksi berita bermasalah';
-    }
+      if (alertList) alertList.innerHTML='<div class="wrs-alert-empty">Peringatan dini belum dapat dimuat saat ini.<br><a href="https://www.bmkg.go.id/alerts/nowcast/id" target="_blank" rel="noopener noreferrer">Buka peringatan resmi BMKG ↗</a></div>';
+      if (alertNews) alertNews.innerHTML='<div class="wrs-alert-empty">Informasi berita sementara tidak tersedia.<br><a href="https://www.bmkg.go.id/berita" target="_blank" rel="noopener noreferrer">Berita BMKG</a> · <a href="https://www.bmkg.go.id/siaran-pers" target="_blank" rel="noopener noreferrer">Siaran pers</a></div>';
+    } finally { alertBusy=false; }
   }
-  document.getElementById('wrsNewsRefresh')?.addEventListener('click', loadWrsBmkgNews);
-  document.querySelectorAll('[data-news-filter]').forEach(button => button.addEventListener('click', () => {
-    newsFilter = button.dataset.newsFilter;
-    document.querySelectorAll('[data-news-filter]').forEach(b => b.classList.toggle('active', b === button));
-    renderNews();
-  }));
-  setInterval(() => { if (document.body.dataset.mobilePage === 'news') loadWrsBmkgNews(); }, 5 * 60 * 1000);
+  document.getElementById('wrsAlertRefresh')?.addEventListener('click',loadWrsBmkgAlerts);
+  setInterval(()=>{if(document.body.dataset.mobilePage==='alerts')loadWrsBmkgAlerts();},5*60*1000);
 })();
 </script>
 
