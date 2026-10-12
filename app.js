@@ -2187,6 +2187,7 @@ function setWrsMode(mode) {
   updateModeButtons();
   if (wrsMode === "simulation") {
     clearTsunamiMapLayer();
+    if (tsunamiMapControlNode) tsunamiMapControlNode.style.display = "none";
     const testStatus = $("#wrsTestStatus");
     if (testStatus) testStatus.textContent = "Mode Tes aktif · data uji saja";
     clearSimulationTimer();
