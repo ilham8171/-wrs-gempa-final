@@ -13,7 +13,7 @@
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
 <title>WRS Gempa — Earthquake Monitor</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="/styles.css?v=20261013-4">
+<link rel="stylesheet" href="/styles.css?v=20261013-5">
 <link rel="stylesheet" href="/ui-refresh.css">
 </head>
 <body>
@@ -21,6 +21,13 @@
 <div class="map-overlay"></div>
 <div class="wrs-health" id="wrsHealth" role="status" aria-live="polite"><span class="health-led"></span><span class="health-brand">WRS</span><span class="health-divider" aria-hidden="true"></span><span id="wrsHealthText">MENYIAPKAN PEMANTAUAN</span><time id="wrsLastUpdated">Menunggu pembaruan</time></div>
 
+<div id="worldClockPanel" class="world-clock-panel" role="timer" aria-label="Jam Indonesia dan UTC">
+  <div class="world-clock-head"><span class="world-clock-led"></span> WAKTU STANDAR</div>
+  <div class="world-clock-grid">
+    <div><small>INDONESIA · WIB (UTC+7)</small><strong id="clockWIB">--:--:--</strong><time id="clockWIBDate">Memuat tanggal…</time></div>
+    <div><small>UTC · UNIVERSAL TIME</small><strong id="clockUTC">--:--:--</strong><time id="clockUTCDate">Loading date…</time></div>
+  </div>
+</div>
 <div class="map-stats glass-panel" id="mapStats">
   <button type="button" class="stat-btn" data-stat="all" title="Daftar semua event"><b id="statTotal">0</b><span>EVENT</span></button>
   <button type="button" class="stat-btn" data-stat="strong" title="Daftar M≥4"><b id="statStrong">0</b><span>M≥4</span></button>
@@ -489,13 +496,33 @@
   alertPage.innerHTML = '<header class="mobile-page-title"><span>PERINGATAN DINI BMKG</span><small>Peringatan cuaca aktif dan informasi resmi kebencanaan</small></header><div class="wrs-alert-intro"><span class="wrs-alert-pulse"></span><div><strong>Informasi resmi BMKG</strong><small>Memuat peringatan aktif Indonesia</small></div><button id="wrsAlertRefresh" type="button" aria-label="Segarkan peringatan">↻</button></div><div id="wrsAlertList" class="wrs-alert-list"><div class="wrs-alert-empty">Memeriksa peringatan dini aktif…</div></div><div class="wrs-alert-section-title">INFO & SIARAN PERS TERKAIT</div><div id="wrsAlertNews" class="wrs-alert-news"><div class="wrs-alert-empty">Memuat informasi resmi BMKG…</div></div><p class="wrs-alert-footnote">Sumber: BMKG. Informasi ini melengkapi, bukan menggantikan, peringatan resmi dan arahan petugas setempat.</p>';
   const title = document.createElement('header');
   title.className = 'mobile-page-title';
-  title.innerHTML = '<span>WRS GEMPA</span><small>Legenda & panduan peta</small>';
+  title.innerHTML = '<span>LAINNYA</span><small>Pengaturan WRS, koneksi, sumber data, dan legenda</small>';
   legendPage.appendChild(title);
+  const moreControls = document.createElement('section');
+  moreControls.id = 'mobileMoreControls';
+  moreControls.className = 'mobile-more-controls';
+  moreControls.innerHTML = '<h2>WRS TERHUBUNG</h2><p class="more-caption">Status pemantauan, alarm, lokasi, dan sumber data.</p>';
+  legendPage.appendChild(moreControls);
   const mapNodes = ['map','map-overlay','wrsHealth','mapStats','vToolbar','basemapMenu','cardRealtime'];
   mapNodes.forEach(id => { const el=document.getElementById(id); if(el) mapPage.appendChild(el); });
   const panel = document.getElementById('rightPanel');
   const legend = document.querySelector('.left-bottom');
-  if (panel) infoPage.appendChild(panel);
+  if (panel) {
+    infoPage.appendChild(panel);
+    ['rp-links','rp-quick','rp-quick-opts','alarmStatus','locStatus','pushStatus','rp-live','rp-foot'].forEach(cls => {
+      Array.from(panel.querySelectorAll('.'+cls)).forEach(node => moreControls.appendChild(node));
+    });
+  }
+  const revisionBox = document.getElementById('rtUpdate');
+  const instructionBox = document.getElementById('offInstr');
+  if (revisionBox && instructionBox) {
+    const revisionHeading = document.createElement('div');
+    revisionHeading.className = 'detail-revision-title';
+    revisionHeading.textContent = 'PEMUTAKHIRAN PARAMETER GEMPA · 5 MENIT PERTAMA';
+    revisionBox.parentElement?.removeChild(revisionBox);
+    instructionBox.insertAdjacentElement('afterend', revisionHeading);
+    revisionHeading.insertAdjacentElement('afterend', revisionBox);
+  }
   if (legend) { legendPage.appendChild(legend); legend.classList.add('legend-in-panel'); }
   const firstModal = document.getElementById('filterModal') || document.getElementById('historyModal');
   const anchor = firstModal || document.getElementById('loadingOverlay');
@@ -563,11 +590,11 @@
       activeNewsItems = Array.isArray(payload.news) ? payload.news.slice(0,8) : [];
       if (alertList) {
         alertList.dataset.loaded='1';
-        alertList.innerHTML = items.length ? items.map((item,index)=>'<article class="wrs-alert-card '+escAlert((item.severity||'').toLowerCase())+'"><div class="wrs-alert-card-top"><span class="wrs-alert-badge">PERINGATAN AKTIF</span><time>'+escAlert(item.updated||'BMKG')+'</time></div><h3>'+escAlert(item.title)+'</h3><p>'+escAlert(item.description)+'</p><div class="wrs-alert-area">📍 '+escAlert(item.area||'Wilayah terdampak tercantum pada rilis BMKG')+'</div><div class="wrs-alert-actions"><button type="button" data-alert-detail="alert" data-alert-index="'+index+'">Lihat detail</button><button type="button" data-alert-image="alert" data-alert-index="'+index+'">Unduh gambar</button><button type="button" data-alert-share="alert" data-alert-index="'+index+'">Bagikan</button></div><small class="wrs-alert-source">Sumber: BMKG · '+escAlert(item.url)+'</small></article>').join('') : '<div class="wrs-alert-empty"><span class="wrs-alert-safe">✓</span><strong>Tidak ada peringatan dini cuaca aktif yang ditemukan.</strong><small>Ini bukan jaminan bebas risiko. Periksa kembali jika kondisi cuaca berubah.</small></div>';
+        alertList.innerHTML = items.length ? items.map((item,index)=>'<article class="wrs-alert-card '+escAlert((item.severity||'').toLowerCase())+'">'+(item.image?'<img class="wrs-alert-card-image" src="'+escAlert(item.image)+'" alt="Gambar resmi BMKG" loading="lazy">':'')+'<div class="wrs-alert-card-top"><span class="wrs-alert-badge">PERINGATAN AKTIF</span><time>'+escAlert(item.updated||'BMKG')+'</time></div><h3>'+escAlert(item.title)+'</h3><p>'+escAlert(item.description)+'</p><div class="wrs-alert-area">📍 '+escAlert(item.area||'Wilayah terdampak tercantum pada rilis BMKG')+'</div><div class="wrs-alert-actions"><button type="button" data-alert-detail="alert" data-alert-index="'+index+'">Lihat detail</button><button type="button" data-alert-image="alert" data-alert-index="'+index+'">Unduh gambar</button><button type="button" data-alert-share="alert" data-alert-index="'+index+'">Bagikan</button></div><small class="wrs-alert-source">Sumber: BMKG · '+escAlert(item.url)+'</small></article>').join('') : '<div class="wrs-alert-empty"><span class="wrs-alert-safe">✓</span><strong>Tidak ada peringatan dini cuaca aktif yang ditemukan.</strong><small>Ini bukan jaminan bebas risiko. Periksa kembali jika kondisi cuaca berubah.</small></div>';
       }
       if (alertNews) {
         const news = Array.isArray(payload.news) ? payload.news : [];
-        alertNews.innerHTML = news.length ? news.slice(0,8).map((item,index)=>'<article class="wrs-alert-news-card"><span>'+escAlert(item.category||'INFO BMKG')+'</span><strong>'+escAlert(item.title)+'</strong>'+(item.summary?'<p>'+escAlert(item.summary)+'</p>':'<p>Ringkasan singkat belum tersedia. Detail sumber tetap dapat dilihat dari panel informasi.</p>')+'<small>'+escAlert(item.date||'Ringkasan dari halaman resmi BMKG')+'</small><div class="wrs-alert-actions"><button type="button" data-alert-detail="news" data-alert-index="'+index+'">Lihat detail</button><button type="button" data-alert-image="news" data-alert-index="'+index+'">Unduh gambar</button><button type="button" data-alert-share="news" data-alert-index="'+index+'">Bagikan</button></div><small class="wrs-alert-source">Sumber: BMKG</small></article>').join('') : '<div class="wrs-alert-empty">Belum ada siaran pers terkait yang berhasil dimuat.</div>';
+        alertNews.innerHTML = news.length ? news.slice(0,8).map((item,index)=>'<article class="wrs-alert-news-card">'+(item.image?'<img class="wrs-alert-card-image" src="'+escAlert(item.image)+'" alt="Gambar resmi BMKG" loading="lazy">':'')+'<span>'+escAlert(item.category||'INFO BMKG')+'</span><strong>'+escAlert(item.title)+'</strong>'+(item.summary?'<p>'+escAlert(item.summary)+'</p>':'<p>Ringkasan singkat belum tersedia. Detail sumber tetap dapat dilihat dari panel informasi.</p>')+'<small>'+escAlert(item.date||'Ringkasan dari halaman resmi BMKG')+'</small><div class="wrs-alert-actions"><button type="button" data-alert-detail="news" data-alert-index="'+index+'">Lihat detail</button><button type="button" data-alert-image="news" data-alert-index="'+index+'">Unduh gambar</button><button type="button" data-alert-share="news" data-alert-index="'+index+'">Bagikan</button></div><small class="wrs-alert-source">Sumber: BMKG</small></article>').join('') : '<div class="wrs-alert-empty">Belum ada siaran pers terkait yang berhasil dimuat.</div>';
       }
     } catch (_) {
       if (alertList) alertList.innerHTML='<div class="wrs-alert-empty">Peringatan dini belum dapat dimuat saat ini.<br><a href="https://www.bmkg.go.id/alerts/nowcast/id" target="_blank" rel="noopener noreferrer">Buka peringatan resmi BMKG ↗</a></div>';
@@ -676,11 +703,12 @@
 <script>
 (function(){
   function pick(kind,index){const list=kind==='alert'?window.wrsBmkgAlertItems:window.wrsBmkgNewsItems;return list&&list[index];}
-  function text(item,kind){return {title:item.title||'Informasi BMKG',body:item.description||item.summary||'',kind:kind==='alert'?'PERINGATAN DINI BMKG':(item.category||'BERITA / SIARAN PERS BMKG'),url:item.url||'https://www.bmkg.go.id'};}
+  function text(item,kind){const tables=Array.isArray(item.tables)?item.tables:[];const tableText=tables.map((t,i)=>'\\nTABEL WILAYAH '+(i+1)+'\\n'+(t.rows||[]).map(r=>r.join(' | ')).join('\\n')).join('\\n');return {title:item.title||'Informasi BMKG',body:(item.description||item.summary||'Rincian lengkap belum tersedia pada feed ringkas BMKG.')+tableText,kind:kind==='alert'?'PERINGATAN DINI BMKG':(item.category||'BERITA / SIARAN PERS BMKG'),url:item.url||'https://www.bmkg.go.id',image:item.image||'',tables};}
+  function structuredHtml(item){const esc=v=>String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));let out='';if(item.image)out+='<figure class="wrs-bmkg-image"><img src="'+esc(item.image)+'" alt="Gambar resmi BMKG" loading="lazy"><figcaption>Gambar dari sumber resmi BMKG</figcaption></figure>';for(const t of (item.tables||[])){const rows=Array.isArray(t.rows)?t.rows:[];if(!rows.length)continue;out+='<div class="wrs-bmkg-table-wrap"><table><tbody>'+rows.map((r,ri)=>'<tr>'+r.map(cell=>ri===0?'<th>'+esc(cell)+'</th>':'<td>'+esc(cell)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';}return out;}
   function showDetail(item,kind){
     const d=text(item,kind);let m=document.getElementById('wrsBMKGDetail');
     if(!m){m=document.createElement('div');m.id='wrsBMKGDetail';m.className='wrs-bmkg-detail';m.innerHTML='<section><button type="button" class="close">Tutup ×</button><div class="content"></div></section>';document.body.appendChild(m);m.querySelector('.close').onclick=()=>m.classList.remove('open');m.onclick=e=>{if(e.target===m)m.classList.remove('open')};}
-    m.querySelector('.content').innerHTML='<small>'+d.kind+'</small><h2>'+d.title.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</h2><p>'+d.body.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</p><p class="source">Sumber: BMKG<br>'+d.url.replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]))+'</p><button type="button" class="download">Unduh gambar 9:16</button> <button type="button" class="share">Bagikan</button>';
+    m.querySelector('.content').innerHTML='<small>'+d.kind+'</small><h2>'+d.title.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</h2>'+(item.summary?'<p class="wrs-bmkg-summary">'+item.summary.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</p>':'')+structuredHtml(item)+'<p>'+d.body.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</p><p class="source">Sumber: BMKG<br>'+d.url.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</p><button type="button" class="download">Unduh gambar 9:16</button> <button type="button" class="share">Bagikan</button>';
     m.classList.add('open');m.querySelector('.download').onclick=()=>download(item,kind);m.querySelector('.share').onclick=()=>share(item,kind);
   }
   function bodyPages(body){
@@ -688,30 +716,40 @@
     for(const word of words){if((line+' '+word).trim().length>780&&line){pages.push(line);line=word;}else line=(line+' '+word).trim();}
     if(line)pages.push(line);return pages.length?pages:[''];
   }
-  function makeImage(item,kind,pageIndex=0){
+  async function makeImage(item,kind,pageIndex=0){
     const d=text(item,kind),parts=bodyPages(d.body),canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1920;
     const c=canvas.getContext('2d'),g=c.createLinearGradient(0,0,1080,1920);g.addColorStop(0,'#07111f');g.addColorStop(1,'#12344a');c.fillStyle=g;c.fillRect(0,0,1080,1920);
     c.fillStyle='#49cbe8';c.fillRect(64,84,120,10);c.fillStyle='#a6e9fa';c.font='bold 30px Arial';c.fillText('WRS GEMPA · INFORMASI BMKG',64,150);
     c.fillStyle='#78dff5';c.font='bold 26px Arial';c.fillText(d.kind.toUpperCase().slice(0,45),64,230);
     c.fillStyle='#f3f8ff';c.font='bold 54px Arial';let y=320;
     function wrap(str,size,color,limit,lh){c.font=(size==='54'?'bold ':'')+size+'px Arial';c.fillStyle=color;let line='';for(const w of String(str||'').split(/\s+/)){let t=line?line+' '+w:w;if(c.measureText(t).width>limit&&line){c.fillText(line,64,y);y+=lh;line=w;}else line=t;}if(line){c.fillText(line,64,y);y+=lh;}}
-    wrap(d.title,'54','#f3f8ff',950,68);y+=30;wrap(parts[pageIndex]||'', '30','#d6e6f1',950,48);
+    wrap(d.title,'54','#f3f8ff',950,68);y+=20;
+    if(item.image){try{const img=await new Promise((resolve,reject)=>{const im=new Image();im.crossOrigin='anonymous';im.onload=()=>resolve(im);im.onerror=reject;im.src=item.image;});const h=Math.min(320,Math.round(img.height*(950/img.width)));c.drawImage(img,64,y,950,h);y+=h+20;}catch{c.fillStyle='#153449';c.fillRect(64,y,950,70);c.fillStyle='#a6e9fa';c.font='bold 22px Arial';c.fillText('Gambar resmi tersedia di detail WRS GEMPA',82,y+43);y+=92;}}
+    wrap(parts[pageIndex]||'', '30','#d6e6f1',950,42);
     c.fillStyle='#87aabe';c.font='24px Arial';c.fillText('Sumber: BMKG · '+(pageIndex+1)+'/'+parts.length,64,1760);c.font='20px Arial';c.fillText(d.url.slice(0,72),64,1810);c.fillText('Ikuti peringatan resmi dan arahan petugas setempat.',64,1870);
     return {canvas,d,parts};
   }
   async function download(item,kind){
-    const first=makeImage(item,kind),total=first.parts.length;
+    const first=await makeImage(item,kind),total=first.parts.length;
     for(let i=0;i<total;i++){
-      const o=makeImage(item,kind,i),blob=await new Promise(resolve=>o.canvas.toBlob(resolve,'image/png'));if(!blob)continue;
+      const o=await makeImage(item,kind,i),blob=await new Promise(resolve=>o.canvas.toBlob(resolve,'image/png'));if(!blob)continue;
       const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='wrs-bmkg-'+kind+'-'+(i+1)+'-dari-'+total+'.png';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),30000);
       if(i<total-1)await new Promise(resolve=>setTimeout(resolve,350));
     }
   }
-  async function share(item,kind){const o=makeImage(item,kind),d=o.d;const msg=d.kind+'\n'+d.title+'\n\n'+d.body+'\n\nSumber BMKG: '+d.url;try{if(navigator.share){const b=await new Promise(r=>o.canvas.toBlob(r,'image/png'));if(b&&window.File){const f=new File([b],'wrs-bmkg.png',{type:'image/png'});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({title:d.title,text:msg,files:[f]});return;}}await navigator.share({title:d.title,text:msg,url:d.url});}else{await navigator.clipboard.writeText(msg);alert('Ringkasan dan sumber disalin.');}}catch(e){if(e.name!=='AbortError')alert('Berbagi tidak tersedia. Gunakan Unduh gambar.');}}
+  async function share(item,kind){const o=await makeImage(item,kind),d=o.d;const msg=d.kind+'\n'+d.title+'\n\n'+d.body+'\n\nSumber BMKG: '+d.url;try{if(navigator.share){const b=await new Promise(r=>o.canvas.toBlob(r,'image/png'));if(b&&window.File){const f=new File([b],'wrs-bmkg.png',{type:'image/png'});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({title:d.title,text:msg,files:[f]});return;}}await navigator.share({title:d.title,text:msg,url:d.url});}else{await navigator.clipboard.writeText(msg);alert('Ringkasan dan sumber disalin.');}}catch(e){if(e.name!=='AbortError')alert('Berbagi tidak tersedia. Gunakan Unduh gambar.');}}
   document.addEventListener('click',e=>{const b=e.target.closest('[data-alert-detail],[data-alert-image],[data-alert-share]');if(!b)return;const kind=b.dataset.alertDetail||b.dataset.alertImage||b.dataset.alertShare;const item=pick(kind,Number(b.dataset.alertIndex));if(!item)return;if(b.dataset.alertDetail)showDetail(item,kind);else if(b.dataset.alertImage)download(item,kind);else share(item,kind);});
 })();
 </script>
 
-<script src="/app.js?v=20261013-4"></script>
+<script>
+(function(){
+  const fmtTime=(zone)=>new Intl.DateTimeFormat('id-ID',{timeZone:zone,hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
+  const fmtDate=(zone)=>new Intl.DateTimeFormat('id-ID',{timeZone:zone,weekday:'short',day:'2-digit',month:'short',year:'numeric'});
+  function tick(){const now=new Date();[['WIB','Asia/Jakarta'],['UTC','UTC']].forEach(([id,zone])=>{const t=document.getElementById('clock'+id),d=document.getElementById('clock'+id+'Date');if(t)t.textContent=fmtTime(zone).format(now);if(d)d.textContent=fmtDate(zone).format(now)+(id==='WIB'?' · UTC+7':' · Z');});}
+  tick();setInterval(tick,1000);
+})();
+</script>
+<script src="/app.js?v=20261013-5"></script>
 </body>
 </html>
