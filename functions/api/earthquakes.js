@@ -253,8 +253,9 @@ function qlFeatures(value) {
   return [];
 }
 export async function onRequestGet({ request, waitUntil } = {}) {
-  // Cache API response briefly at the Cloudflare edge. Strip the client's cache-buster
-  // so multiple devices share one upstream refresh, but never cache longer than 4s.
+  // Share a single upstream refresh across clients in the same Cloudflare edge location.
+  // The browser polls every 4s; this 7s freshness window lets the next poll reuse the
+  // same response, while a later poll refreshes the upstream feeds roughly every 8s.
   const edgeCache = typeof caches !== "undefined" ? caches.default : null;
   let edgeCacheKey = null;
   let staleEdgeData = null;
@@ -273,7 +274,7 @@ export async function onRequestGet({ request, waitUntil } = {}) {
         if (cachedData?.ok === true && Array.isArray(cachedData.recent) && cachedData.recent.length &&
             Number.isFinite(fetchedAtMs) && ageMs >= 0) {
           // Serve the edge copy immediately only while it is genuinely fresh.
-          if (ageMs <= 4000) {
+          if (ageMs <= 7000) {
             const cachedHeaders = new Headers(cached.headers);
             cachedHeaders.set("cache-control", "no-store");
             cachedHeaders.set("x-wrs-cache", "HIT");
