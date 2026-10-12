@@ -560,8 +560,22 @@ function drawMarkers(force = false) {
         zIndexOffset: 3000,
       }).addTo(latestStarLayer);
 
-      // Cincin merah beradius kilometer dihapus: tidak boleh membuat area gempa tampak
-      // seperti zona bahaya atau menutupi citra peta saat pengguna melakukan zoom.
+      // Dua cincin berbasis piksel menandai gempa terbaru tanpa membentuk halo geografis.
+      // Radius layar tetap kecil saat zoom dan tidak menyerupai radius dampak/tsunami.
+      [size + 8, size + 17].forEach((ringRadius, ringIndex) => {
+        L.circleMarker([q.lat, q.lon], {
+          radius: ringRadius,
+          color: "#ff354f",
+          weight: ringIndex === 0 ? 2.2 : 1.5,
+          opacity: ringIndex === 0 ? 0.95 : 0.72,
+          fill: false,
+          fillOpacity: 0,
+          interactive: false,
+          bubblingMouseEvents: false,
+          renderer: L.svg(),
+          className: ringIndex === 0 ? "eq-pulse-ring eq-pulse-ring-inner" : "eq-pulse-ring eq-pulse-ring-outer",
+        }).addTo(radiusLayer);
+      });
     }
   });
   if (userLocation) updateUserMarker(false);
