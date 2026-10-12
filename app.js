@@ -1865,13 +1865,39 @@ function renderTsunamiMapControl(latestEvents,allEvents){
 }
 function renderOfficialTsunamiMap(){
  if(!map||!tsunamiMapLayer)return;
- // Titik gempa utama dikelola oleh drawMarkers() dan harus tetap bisa diklik
- // untuk membuka detail. Jangan menambahkan titik buletin/observasi lain di atasnya.
+ // Titik gempa utama dikelola oleh drawMarkers() dan tidak disentuh di sini.
+ // SSHmax hanya boleh ditempelkan bila feed resmi memberikan batas raster eksplisit.
  clearTsunamiMapLayer();
  if(tsunamiMapControlNode){
   tsunamiMapControlNode.style.display="none";
   tsunamiMapControlNode.innerHTML="";
  }
+ if(wrsMode==="simulation"||!Array.isArray(tsunamiHistory)||!tsunamiHistory.length)return;
+ const byEvent=new Map();
+ tsunamiHistory.filter(q=>q&&q.isTsunamiWarning).forEach(q=>{
+  const id=String(q.eventid||q.key||"");
+  if(!id)return;
+  const prev=byEvent.get(id);
+  if(!prev||tsunamiBulletinTime(q)>tsunamiBulletinTime(prev))byEvent.set(id,q);
+ });
+ const active=[...byEvent.values()]
+  .filter(q=>!isTsunamiEnded(q)&&Date.now()-tsunamiBulletinTime(q)<=6*60*60*1000)
+  .sort((a,b)=>tsunamiBulletinTime(b)-tsunamiBulletinTime(a));
+ const latest=active.find(q=>{
+  const b=q.sshBounds;
+  const url=safeTsunamiAssetUrl(q.sshmap);
+  return url&&b&&Number.isFinite(Number(b.minLat))&&Number.isFinite(Number(b.minLon))&&
+   Number.isFinite(Number(b.maxLat))&&Number.isFinite(Number(b.maxLon))&&
+   Number(b.minLat)<Number(b.maxLat)&&Number(b.minLon)<Number(b.maxLon)&&
+   Number(b.minLat)>=-90&&Number(b.maxLat)<=90&&Number(b.minLon)>=-180&&Number(b.maxLon)<=180;
+ });
+ if(!latest)return;
+ const b=latest.sshBounds;
+ // Non-interactive raster sits beneath Leaflet markers; quake click targets remain intact.
+ L.imageOverlay(safeTsunamiAssetUrl(latest.sshmap),[
+  [Number(b.minLat),Number(b.minLon)],
+  [Number(b.maxLat),Number(b.maxLon)]
+ ],{opacity:0.62,interactive:false,alt:"Lapisan SSHmax resmi InaTEWS BMKG"}).addTo(tsunamiMapLayer);
 }
 
 
