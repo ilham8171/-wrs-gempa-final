@@ -22,6 +22,8 @@ let faultsVisible = true;
 let filterState = JSON.parse(localStorage.getItem("wrsFilterV1") || "null") || { mag: 1.5, age: 168, source: "ALL", depth: "ALL" };
 let lastRenderFingerprint = "";
 let loadInFlight = false;
+let consecutiveLoadFailures = 0;
+let lastSuccessfulLoadAt = 0;
 // Monotonically increasing token: responses from a previous mode/request must never
 // overwrite the screen after the user switches between simulation and operation.
 let loadRequestId = 0;
@@ -2281,6 +2283,9 @@ async function load(showSpin, force = false) {
     if (!d || d.ok !== true || !Array.isArray(d.recent)) {
       throw new Error("API gempa tidak mengembalikan respons yang valid");
     }
+    // Reset only after receiving a structurally valid API response.
+    consecutiveLoadFailures = 0;
+    lastSuccessfulLoadAt = Date.now();
 
     const incoming = d.recent;
     operationalQuakes = incoming;
@@ -2383,12 +2388,34 @@ async function load(showSpin, force = false) {
     }
   } catch (e) {
     if (requestId !== loadRequestId || wrsMode === "simulation") return;
-    console.error(e);
-    status(false, "OFFLINE");
+    consecutiveLoadFailures += 1;
+    console.warn("WRS refresh gagal; percobaan ulang dijadwalkan.", e);
     const healthText = $("#wrsHealthText");
+    const healthTime = $("#wrsLastUpdated");
     const health = $("#wrsHealth");
-    if (healthText) healthText.textContent = "GAGAL MEMPERBARUI";
-    if (health) { health.classList.add("is-error"); health.title = "Pembaruan gagal; data terakhir mungkin sudah lama"; }
+    const hasCachedEvents = quakes.length > 0;
+    const lastOkText = lastSuccessfulLoadAt
+      ? "Data terakhir berhasil diterima " + new Date(lastSuccessfulLoadAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      : "Belum ada data berhasil diterima pada sesi ini";
+    // A brief network hiccup should not immediately turn the monitor OFFLINE.
+    // Preserve the last good events and markers while retrying.
+    if (consecutiveLoadFailures < 3 && hasCachedEvents) {
+      status(true, "MENYAMBUNG ULANG");
+      if (healthText) healthText.textContent = "KONEKSI TERGANGGU · MENCOBA ULANG";
+      if (healthTime) healthTime.textContent = lastOkText;
+      if (health) {
+        health.classList.add("is-error");
+        health.title = "Pembaruan sementara gagal. Data terakhir dan marker tetap dipertahankan sambil mencoba ulang.";
+      }
+    } else {
+      status(false, hasCachedEvents ? "DATA TERAKHIR" : "MENGHUBUNGKAN");
+      if (healthText) healthText.textContent = hasCachedEvents ? "WRS SEMENTARA TIDAK TERJANGKAU · DATA TERAKHIR DIPERTAHANKAN" : "BELUM TERHUBUNG · MENCOBA ULANG";
+      if (healthTime) healthTime.textContent = lastOkText;
+      if (health) {
+        health.classList.add("is-error");
+        health.title = "Beberapa pembaruan berturut-turut gagal. Data yang sudah tampil tidak dihapus; aplikasi akan terus mencoba ulang.";
+      }
+    }
   } finally {
     // An older request must not clear the in-flight state of a newer request.
     if (requestId === loadRequestId) {
@@ -3152,10 +3179,13 @@ function openSharedEventFromUrl() {
 setTimeout(openSharedEventFromUrl, 1200);
 function scheduleRefresh() {
   clearTimeout(refreshTimer);
+  const retryDelay = consecutiveLoadFailures > 0
+    ? Math.min(30000, 2000 * (2 ** Math.min(consecutiveLoadFailures - 1, 4)))
+    : currentInterval();
   refreshTimer = setTimeout(async () => {
     await load(false);
     scheduleRefresh();
-  }, currentInterval());
+  }, retryDelay);
 }
 updateModeButtons();
 if (wrsMode === "simulation") applySimulationMode();
