@@ -38,8 +38,9 @@ jobs:
           if (data?.ok !== true) throw new Error("API did not return ok=true");
           if (!Array.isArray(data.recent)) throw new Error("recent must be an array");
           if (!Array.isArray(data.realtimeEvents)) throw new Error("realtimeEvents must be an array");
+          console.log("API refreshSeconds=" + String(data.refreshSeconds) + " fetchedAt=" + String(data.fetchedAt));
           if (!Number.isFinite(Number(data.refreshSeconds)) || Number(data.refreshSeconds) > 10) {
-            throw new Error("API refresh interval must be 10 seconds or less");
+            throw new Error("API refresh interval must be 10 seconds or less; received " + String(data.refreshSeconds));
           }
           if (!data.sources?.wrs || typeof data.sources.wrs.ok !== "boolean") {
             throw new Error("WRS health status is missing");
