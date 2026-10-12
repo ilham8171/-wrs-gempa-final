@@ -2461,7 +2461,9 @@ async function load(showSpin, force = false) {
         : "Belum ada data berhasil diterima pada sesi ini";
     // A brief network hiccup should not immediately turn the monitor OFFLINE.
     // Preserve the last good events and markers while retrying.
-    if (consecutiveLoadFailures < 3 && hasCachedEvents) {
+    // Jangan nyatakan server putus hanya karena beberapa timeout singkat di jaringan mobile.
+    // Tampilkan status menyambung ulang selama retry berlangsung; offline keras baru setelah 6 kegagalan beruntun.
+    if (consecutiveLoadFailures < 6 && hasCachedEvents) {
       status(true, "MENYAMBUNG ULANG");
       if (healthText) healthText.textContent = "KONEKSI TERGANGGU · MENCOBA ULANG";
       if (healthTime) healthTime.textContent = lastOkText;
