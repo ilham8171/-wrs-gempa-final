@@ -2524,15 +2524,19 @@ async function load(showSpin, force = false) {
       const partialSources = !!d.sources?.errors?.length;
       health.classList.toggle("is-error", apiDataStale || clientFallback || !wrsFeedOk);
       health.classList.toggle("is-warning", !apiDataStale && !clientFallback && wrsFeedOk && partialSources);
+      const sourceErrors = Array.isArray(d.sources?.errors) ? d.sources.errors : [];
+      const sourceErrorDetail = sourceErrors.length
+        ? " Sumber yang gagal: " + sourceErrors.join("; ") + "."
+        : "";
       health.title = apiDataStale
-        ? "Respons API sudah berumur lebih dari 45 detik atau tidak memiliki waktu fetch yang valid. Data terakhir dipertahankan dan tidak dilabeli realtime."
+        ? "Respons API berumur lebih dari 45 detik atau waktu fetch tidak valid. Data terakhir dipertahankan dan tidak dianggap realtime."
         : clientFallback
-          ? "Endpoint API utama gagal diakses dari perangkat. Data ditarik langsung dari BMKG/WRS/USGS bila tersedia; mode cadangan tidak membuktikan API utama sehat. Penyebab: " + String(d.sources?.apiError || "tidak diketahui")
+          ? "Endpoint API utama gagal diakses dari perangkat. Jalur cadangan BMKG/WRS/USGS dicoba bila tersedia. Penyebab: " + String(d.sources?.apiError || "tidak diketahui")
           : !wrsFeedOk
-            ? "Feed realtime InaTEWS/WRS tidak tersedia; katalog cadangan tetap ditampilkan jika ada."
+            ? "Feed realtime InaTEWS/WRS tidak tersedia; katalog cadangan tetap ditampilkan jika ada." + sourceErrorDetail
             : partialSources
-              ? "Feed WRS realtime terhubung, tetapi sebagian sumber/data pendukung belum tersedia. Status parsial tidak berarti koneksi utama putus."
-              : "Feed realtime InaTEWS/WRS diterima; sumber yang dilaporkan tersedia.";
+              ? "Feed WRS realtime masih terhubung, tetapi minimal satu sumber pendukung gagal. Ini tidak otomatis berarti WRS offline." + sourceErrorDetail
+              : "Feed realtime InaTEWS/WRS diterima; tidak ada kegagalan sumber yang dilaporkan.";
     }
     const s = d.sources || {};
     updateDiagnostics(d);
