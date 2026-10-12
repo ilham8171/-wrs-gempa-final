@@ -13,7 +13,7 @@
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
 <title>WRS Gempa — Earthquake Monitor</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="/styles.css?v=20261013-8">
+<link rel="stylesheet" href="/styles.css?v=20261013-9">
 <link rel="stylesheet" href="/ui-refresh.css">
 </head>
 <body>
@@ -21,13 +21,7 @@
 <div class="map-overlay"></div>
 <div class="wrs-health" id="wrsHealth" role="status" aria-live="polite"><span class="health-led"></span><span class="health-brand">WRS</span><span class="health-divider" aria-hidden="true"></span><span id="wrsHealthText">MENYIAPKAN PEMANTAUAN</span><time id="wrsLastUpdated">Menunggu pembaruan</time></div>
 
-<div id="worldClockPanel" class="world-clock-panel" role="timer" aria-label="Jam Indonesia dan UTC">
-  <div class="world-clock-head"><span class="world-clock-led"></span> WAKTU STANDAR</div>
-  <div class="world-clock-grid">
-    <div><small>INDONESIA · WIB (UTC+7)</small><strong id="clockWIB">--:--:--</strong><time id="clockWIBDate">Memuat tanggal…</time></div>
-    <div><small>UTC · UNIVERSAL TIME</small><strong id="clockUTC">--:--:--</strong><time id="clockUTCDate">Loading date…</time></div>
-  </div>
-</div>
+
 <div class="map-stats glass-panel" id="mapStats">
   <button type="button" class="stat-btn" data-stat="all" title="Daftar semua event"><b id="statTotal">0</b><span>EVENT</span></button>
   <button type="button" class="stat-btn" data-stat="strong" title="Daftar M≥4"><b id="statStrong">0</b><span>M≥4</span></button>
@@ -73,6 +67,13 @@
   <div class="rt-place" id="rtPlace">—</div>
   <div class="rt-dist" id="rtDist">Jarak ke Anda: —</div>
   <div class="rt-src" id="rtSrc">Sumber: —</div>
+  <div id="worldClockPanel" class="world-clock-panel" role="timer" aria-label="Jam Indonesia dan UTC">
+    <div class="world-clock-head"><span class="world-clock-led"></span> WAKTU STANDAR</div>
+    <div class="world-clock-grid">
+      <div><small>INDONESIA · WIB (UTC+7)</small><strong id="clockWIB">--:--:--</strong><time id="clockWIBDate">Memuat tanggal…</time></div>
+      <div><small>UTC · UNIVERSAL TIME</small><strong id="clockUTC">--:--:--</strong><time id="clockUTCDate">Loading date…</time></div>
+    </div>
+  </div>
 </aside>
 
 <!-- Panel Legenda Seismik (Kiri Bawah) -->
@@ -506,7 +507,7 @@
   legendPage.appendChild(moreControls);
   const healthStrip = document.getElementById('wrsHealth');
   if (healthStrip) moreControls.appendChild(healthStrip);
-  const mapNodes = ['map','map-overlay','worldClockPanel','mapStats','vToolbar','basemapMenu','cardRealtime'];
+  const mapNodes = ['map','map-overlay','mapStats','vToolbar','basemapMenu','cardRealtime'];
   mapNodes.forEach(id => { const el=document.getElementById(id); if(el) mapPage.appendChild(el); });
   const panel = document.getElementById('rightPanel');
   const legend = document.querySelector('.left-bottom');
@@ -743,6 +744,6 @@
   tick();setInterval(tick,1000);
 })();
 </script>
-<script src="/app.js?v=20261013-8"></script>
+<script src="/app.js?v=20261013-9"></script>
 </body>
 </html>
