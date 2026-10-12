@@ -1867,14 +1867,18 @@ function renderTsunamiMapControl(latestEvents,allEvents){
 }
 function renderOfficialTsunamiMap(){
  if(!map||!tsunamiMapLayer)return;
- // Titik gempa utama dikelola oleh drawMarkers() dan tidak disentuh di sini.
- // SSHmax hanya boleh ditempelkan bila feed resmi memberikan batas raster eksplisit.
+ // The quake marker group is separate and is never cleared or recreated here.
  clearTsunamiMapLayer();
- if(tsunamiMapControlNode){
-  tsunamiMapControlNode.style.display="none";
-  tsunamiMapControlNode.innerHTML="";
+ if(wrsMode==="simulation"){
+  if(tsunamiMapControlNode){tsunamiMapControlNode.style.display="none";tsunamiMapControlNode.innerHTML="";}
+  return;
  }
- if(wrsMode==="simulation"||!Array.isArray(tsunamiHistory)||!tsunamiHistory.length)return;
+ if(!Array.isArray(tsunamiHistory)||!tsunamiHistory.length){
+  renderTsunamiMapControl([],[]);
+  return;
+ }
+ // Keep the latest bulletin for each official event, so PD updates replace older
+ // status for active-map purposes while the complete bulletin history stays available.
  const byEvent=new Map();
  tsunamiHistory.filter(q=>q&&q.isTsunamiWarning).forEach(q=>{
   const id=String(q.eventid||q.key||"");
@@ -1882,9 +1886,15 @@ function renderOfficialTsunamiMap(){
   const prev=byEvent.get(id);
   if(!prev||tsunamiBulletinTime(q)>tsunamiBulletinTime(prev))byEvent.set(id,q);
  });
- const active=[...byEvent.values()]
-  .filter(q=>!isTsunamiEnded(q)&&Date.now()-tsunamiBulletinTime(q)<=6*60*60*1000)
+ const latestEvents=[...byEvent.values()]
   .sort((a,b)=>tsunamiBulletinTime(b)-tsunamiBulletinTime(a));
+ // Show official bulletin status and product previews even when georeferenced bounds
+ // are unavailable; the preview is not misrepresented as a map overlay.
+ renderTsunamiMapControl(latestEvents.slice(0,4),tsunamiHistory);
+ const active=latestEvents.filter(q=>{
+  const t=tsunamiBulletinTime(q);
+  return !isTsunamiEnded(q)&&Number.isFinite(t)&&t>0&&Date.now()-t<=6*60*60*1000;
+ });
  const latest=active.find(q=>{
   const b=q.sshBounds;
   const url=safeTsunamiAssetUrl(q.sshmap);
@@ -1895,13 +1905,12 @@ function renderOfficialTsunamiMap(){
  });
  if(!latest)return;
  const b=latest.sshBounds;
- // Non-interactive raster sits beneath Leaflet markers; quake click targets remain intact.
+ // Non-interactive official raster sits beneath Leaflet markers; quake click targets remain intact.
  L.imageOverlay(safeTsunamiAssetUrl(latest.sshmap),[
   [Number(b.minLat),Number(b.minLon)],
   [Number(b.maxLat),Number(b.maxLon)]
  ],{opacity:0.62,interactive:false,alt:"Lapisan SSHmax resmi InaTEWS BMKG"}).addTo(tsunamiMapLayer);
 }
-
 
 function simulationQuake(scenarioIndex = simulationScenarioIndex, overrides = {}) {
   const preset = WRS_TEST_SCENARIOS[((scenarioIndex % WRS_TEST_SCENARIOS.length) + WRS_TEST_SCENARIOS.length) % WRS_TEST_SCENARIOS.length];
