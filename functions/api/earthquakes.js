@@ -292,8 +292,10 @@ export async function onRequestGet({ request, waitUntil } = {}) {
     ...BMKG_URLS.map(url=>getJson(url)),
     getJson(GCS+"/lastQL.json", true, 3500),
     getJson(GCS+"/gempaQL.json"),
-    getJson(USGS),
-    getJson(usgsIndonesiaUrl()),
+    // USGS can respond slower than the local BMKG feeds; allow a little more
+    // time before marking the optional backup source unavailable.
+    getJson(USGS, false, 6500),
+    getJson(usgsIndonesiaUrl(), false, 6500),
     getText("https://cdn.bmkg.go.id/last30tsunamievent.xml")
   ]);
   const list=[];
@@ -317,10 +319,10 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   // Jangan pernah menyamarkan katalog historis sebagai feed realtime bila lastQL gagal/kosong.
   const usgs=results[5];
   if(usgs.status==="fulfilled") (usgs.value.features||[]).forEach(f=>{const q=mapUSGS(f, 5);if(q)list.push(q);});
-  else errors.push("USGS global");
+  else errors.push("USGS global: " + String(usgs.reason?.message || "permintaan gagal").slice(0,120));
   const usgsIndonesia=results[6];
   if(usgsIndonesia.status==="fulfilled") (usgsIndonesia.value.features||[]).forEach(f=>{const q=mapUSGS(f, 2);if(q)list.push(q);});
-  else errors.push("USGS Indonesia");
+  else errors.push("USGS Indonesia: " + String(usgsIndonesia.reason?.message || "permintaan gagal").slice(0,120));
   // Jangan menunggu permintaan detail ShakeMap USGS untuk mengirim katalog.
   // Peta USGS dimuat on-demand ketika pengguna membuka detail event; ini menjaga
   // polling operasional tetap cepat dan tidak membebani feed pada setiap refresh.
