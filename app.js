@@ -560,20 +560,8 @@ function drawMarkers(force = false) {
         zIndexOffset: 3000,
       }).addTo(latestStarLayer);
 
-      // Pulse ring dibuat dengan SVG renderer agar animasinya berjalan stabil.
-      [12000, 24000].forEach((meters, index) => {
-        L.circle([q.lat, q.lon], {
-          radius: meters,
-          color: "#ff3030",
-          weight: 2,
-          opacity: 0.8,
-          fillColor: "#ff3030",
-          fillOpacity: 0.035,
-          interactive: false,
-          className: "eq-radius-ring",
-          renderer: L.svg(),
-        }).addTo(radiusLayer);
-      });
+      // Cincin merah beradius kilometer dihapus: tidak boleh membuat area gempa tampak
+      // seperti zona bahaya atau menutupi citra peta saat pengguna melakukan zoom.
     }
   });
   if (userLocation) updateUserMarker(false);
@@ -2574,6 +2562,31 @@ async function load(showSpin, force = false) {
     if (oldFingerprint !== newFingerprint || showSpin) drawMarkers(true);
     else updateStats(getFilteredQuakes());
     processNew();
+
+    // Saat website pertama kali dibuka, pusatkan peta ke titik kejadian terbaru.
+    // Jangan menimpa koordinat jika halaman dibuka dari tautan gempa tertentu.
+    if (!window.__wrsInitialLatestFocused) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const isDeepLink = urlParams.has("quake") || urlParams.has("event") ||
+        (urlParams.has("lat") && urlParams.has("lon"));
+      if (!isDeepLink && map) {
+        const validFocus = q => q &&
+          Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon)) &&
+          Number(q.lat) >= -90 && Number(q.lat) <= 90 &&
+          Number(q.lon) >= -180 && Number(q.lon) <= 180;
+        const latestFocus = validFocus(primaryRealtimeQuake())
+          ? primaryRealtimeQuake()
+          : quakes.filter(validFocus).sort((x,y) =>
+              new Date(y.time || 0).getTime() - new Date(x.time || 0).getTime())[0];
+        if (validFocus(latestFocus)) {
+          map.invalidateSize({ animate: false });
+          map.setView([Number(latestFocus.lat), Number(latestFocus.lon)], 6, { animate: false });
+          window.__wrsInitialLatestFocused = true;
+        }
+      } else if (isDeepLink) {
+        window.__wrsInitialLatestFocused = true;
+      }
+    }
 
     // Push deep link: resolve the exact event after fresh data has arrived.
     const params = new URLSearchParams(window.location.search);
