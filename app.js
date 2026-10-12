@@ -3500,7 +3500,8 @@ updateModeButtons();
 if (wrsMode === "simulation") applySimulationMode();
 scheduleRefresh();
 setInterval(() => {
-  $("#clock").textContent = new Date().toLocaleString("id-ID", {
+  const legacyClock = $("#clock");
+  if (legacyClock) legacyClock.textContent = new Date().toLocaleString("id-ID", {
     timeZone: "Asia/Jakarta",
     day: "numeric", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit", second: "2-digit",
