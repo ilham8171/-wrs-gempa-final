@@ -2084,7 +2084,7 @@ function applySimulationMode(options = {}) {
   if (healthTime) healthTime.textContent = "Feed operasional tidak ditampilkan";
   updateDiagnostics(null, null, true);
   if (health) {
-    health.classList.remove("is-error");
+    health.classList.remove("is-error", "is-warning");
     health.title = "Mode tes WRS: hanya menampilkan data simulasi, bukan kejadian gempa nyata.";
   }
   updateModeButtons();
@@ -2519,12 +2519,20 @@ async function load(showSpin, force = false) {
         (clientFallback ? " · API utama: " + String(d.sources?.apiError || "gagal") : "");
     }
     if (health) {
-      health.classList.toggle("is-error", usingFallback || !!d.sources?.errors?.length);
+      // Data parsial saat feed realtime masih aktif adalah peringatan, bukan kegagalan total.
+      // Merah hanya untuk data basi, API utama gagal, atau feed WRS realtime tidak tersedia.
+      const partialSources = !!d.sources?.errors?.length;
+      health.classList.toggle("is-error", apiDataStale || clientFallback || !wrsFeedOk);
+      health.classList.toggle("is-warning", !apiDataStale && !clientFallback && wrsFeedOk && partialSources);
       health.title = apiDataStale
         ? "Respons API sudah berumur lebih dari 45 detik atau tidak memiliki waktu fetch yang valid. Data terakhir dipertahankan dan tidak dilabeli realtime."
         : clientFallback
           ? "Endpoint API utama gagal diakses dari perangkat. Data ditarik langsung dari BMKG/WRS/USGS bila tersedia; mode cadangan tidak membuktikan API utama sehat. Penyebab: " + String(d.sources?.apiError || "tidak diketahui")
-          : (wrsFeedOk ? "Feed realtime InaTEWS/WRS diterima" : "Feed realtime InaTEWS/WRS tidak tersedia; katalog cadangan tetap ditampilkan jika ada.");
+          : !wrsFeedOk
+            ? "Feed realtime InaTEWS/WRS tidak tersedia; katalog cadangan tetap ditampilkan jika ada."
+            : partialSources
+              ? "Feed WRS realtime terhubung, tetapi sebagian sumber/data pendukung belum tersedia. Status parsial tidak berarti koneksi utama putus."
+              : "Feed realtime InaTEWS/WRS diterima; sumber yang dilaporkan tersedia.";
     }
     const s = d.sources || {};
     updateDiagnostics(d);
