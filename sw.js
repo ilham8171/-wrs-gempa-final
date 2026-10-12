@@ -5,7 +5,7 @@
  * - Network-first untuk HTML/JS/CSS agar data dan kode tetap mudah diperbarui
  */
 
-const CACHE_NAME = "wrs-gempa-shell-v8-0-1";
+const CACHE_NAME = "wrs-gempa-shell-v8-0-2";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -31,7 +31,7 @@ self.addEventListener("activate", (event) => {
     caches.keys()
       .then((keys) => Promise.all(
         keys
-          .filter((key) => key.startsWith("pantau-gempa-shell-") && key !== CACHE_NAME)
+          .filter((key) => key.startsWith("wrs-gempa-shell-") && key !== CACHE_NAME)
           .map((key) => caches.delete(key))
       ))
       .then(() => self.clients.claim())
