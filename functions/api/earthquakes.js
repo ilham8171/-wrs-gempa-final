@@ -250,8 +250,8 @@ export async function onRequestGet() {
   const historyEvents = historyQL.status === "fulfilled" ? qlFeatures(historyQL.value).map(mapQL).filter(Boolean) : [];
   if (historyQL.status !== "fulfilled") errors.push("InaTEWS gempaQL");
   liveQL.forEach(q => { q.source = "InaTEWS WRS"; q.wrsRealtime = true; list.push(q); });
-  historyEvents.forEach(q => { q.source = "InaTEWS"; q.wrsRealtime = true; list.push(q); });
-  qlEvents.push(...liveQL, ...historyEvents);
+  historyEvents.forEach(q => { q.source = "InaTEWS"; q.wrsRealtime = false; list.push(q); });
+  qlEvents.push(...liveQL);
   // Jangan pernah menyamarkan katalog historis sebagai feed realtime bila lastQL gagal/kosong.
   const usgs=results[5];
   if(usgs.status==="fulfilled") (usgs.value.features||[]).forEach(f=>{const q=mapUSGS(f, 5);if(q)list.push(q);});
@@ -276,7 +276,9 @@ export async function onRequestGet() {
   const tsunami=results[7];
   const tsunamiHistory=tsunami.status==="fulfilled" ? parseTsunamiCapXml(tsunami.value) : [];
   if(tsunami.status!=="fulfilled") errors.push("InaTEWS tsunami");
-  const eventPriority = q => q.source === "BMKG" && q.official ? 3 : q.source === "InaTEWS" ? 2 : q.source === "USGS" ? 1 : 0;
+  // Prioritaskan data resmi BMKG, lalu feed WRS live, katalog InaTEWS, dan USGS.
+  const eventPriority = q => q.source === "BMKG" && q.official ? 4 :
+    q.source === "InaTEWS WRS" ? 3 : q.source === "InaTEWS" ? 2 : q.source === "USGS" ? 1 : 0;
   const validTime = q => {
     const t = new Date(q.time || 0).getTime();
     return Number.isFinite(t) && t > 0 ? t : NaN;
@@ -323,7 +325,9 @@ export async function onRequestGet() {
     recent.find(q=>q.official) || null;
   // Keep the WRS/InaTEWS realtime stream separate from the merged catalog.
   // The catalog deduplicates records and prefers BMKG; it must not replace the WRS event.
-  const realtimeEvents=qlEvents
+  // realtimeEvents hanya boleh berisi feed lastQL live. Katalog gempaQL
+  // tidak boleh dipakai sebagai pengganti diam-diam ketika feed live kosong.
+  const realtimeEvents=liveQL
     .filter(q=>Number.isFinite(validTime(q)) && inIndonesia(q))
     .sort((a,b)=>validTime(b)-validTime(a))
     .filter((q,index,all)=>all.findIndex(item=>item.key===q.key)===index);
