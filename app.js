@@ -2278,28 +2278,38 @@ async function load(showSpin, force = false) {
   if (showSpin) showLoading("Memuat data gempa…");
   try {
     let d = null;
-    try {
-      // Jangan gunakan AbortSignal.timeout(): sebagian Android WebView lama tidak
-      // mendukungnya dan akan gagal sebelum request API benar-benar dikirim.
-      // AbortController + setTimeout lebih kompatibel, termasuk browser mobile.
-      const controller = typeof AbortController === "function" ? new AbortController() : null;
-      const timeoutId = setTimeout(() => {
-        try { controller?.abort(); } catch {}
-      }, 25000);
-      try {
-        const r = await fetch(API + "?t=" + Date.now(), {
-          cache: "no-store",
-          headers: { accept: "application/json", "cache-control": "no-cache", pragma: "no-cache" },
-          ...(controller ? { signal: controller.signal } : {})
-        });
-        if (!r.ok) throw new Error("API gempa HTTP " + r.status);
-        d = await r.json();
-      } finally {
-        clearTimeout(timeoutId);
+    {
+      // Android/mobile sering mengalami satu request gagal sesaat. Ulangi sekali
+      // sebelum menganggap polling gagal, supaya gangguan singkat tidak mengubah status.
+      let lastApiError = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const controller = typeof AbortController === "function" ? new AbortController() : null;
+        const timeoutId = setTimeout(() => {
+          try { controller?.abort(); } catch {}
+        }, 12000);
+        try {
+          const r = await fetch(API + "?t=" + Date.now(), {
+            cache: "no-store",
+            headers: { accept: "application/json", "cache-control": "no-cache", pragma: "no-cache" },
+            ...(controller ? { signal: controller.signal } : {})
+          });
+          if (!r.ok) throw new Error("API gempa HTTP " + r.status);
+          d = await r.json();
+          lastApiError = null;
+          break;
+        } catch (apiError) {
+          lastApiError = apiError;
+          if (attempt === 0) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        } finally {
+          clearTimeout(timeoutId);
+        }
       }
-    } catch (apiError) {
-      // Simpan penyebab agar status di layar bisa membedakan HTTP, timeout, dan jaringan.
-      throw new Error("API gempa gagal: " + String(apiError?.message || apiError).slice(0, 120));
+      if (lastApiError) {
+        // Simpan penyebab agar status di layar bisa membedakan HTTP, timeout, dan jaringan.
+        throw new Error("API gempa gagal setelah 2 percobaan: " + String(lastApiError?.message || lastApiError).slice(0, 120));
+      }
     }
 
     // Ignore responses from an old mode or superseded request.
