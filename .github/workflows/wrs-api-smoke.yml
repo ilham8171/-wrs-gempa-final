@@ -1,0 +1,61 @@
+name: WRS API smoke test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "functions/api/earthquakes.js"
+      - "app.js"
+      - ".github/workflows/wrs-api-smoke.yml"
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wrs-api-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check production API contract
+        env:
+          API_URL: https://wrs-gempa-final.pages.dev/api/earthquakes
+        run: |
+          node --input-type=module <<'NODE'
+          const url = process.env.API_URL + "?smoke=" + Date.now();
+          const response = await fetch(url, {
+            headers: { accept: "application/json", "cache-control": "no-cache" },
+            signal: AbortSignal.timeout(25000)
+          });
+          if (!response.ok) throw new Error("Earthquake API HTTP " + response.status);
+          const data = await response.json();
+          if (data?.ok !== true) throw new Error("API did not return ok=true");
+          if (!Array.isArray(data.recent)) throw new Error("recent must be an array");
+          if (!Array.isArray(data.realtimeEvents)) throw new Error("realtimeEvents must be an array");
+          if (!data.sources?.wrs || typeof data.sources.wrs.ok !== "boolean") {
+            throw new Error("WRS health status is missing");
+          }
+          if (data.realtime != null) {
+            if (data.realtime.source !== "InaTEWS WRS" || data.realtime.wrsRealtime !== true) {
+              throw new Error("realtime is not from the dedicated live WRS feed");
+            }
+          }
+          for (const event of data.realtimeEvents) {
+            if (event?.source !== "InaTEWS WRS" || event?.wrsRealtime !== true) {
+              throw new Error("realtimeEvents contains a historical or non-WRS event");
+            }
+          }
+          console.log(JSON.stringify({
+            ok: data.ok,
+            recentCount: data.recent.length,
+            realtimeCount: data.realtimeEvents.length,
+            wrsConnected: data.sources.wrs.ok,
+            upstreamErrors: data.sources.errors || []
+          }, null, 2));
+          NODE
