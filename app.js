@@ -213,7 +213,9 @@ async function fetchClientSide() {
   const pub = [];
   await Promise.all(urls.map(async (url) => {
     try {
-      const r = await fetch(url + "?t=" + Date.now(), { headers: UA, cache: "no-store" });
+      const r = await fetch(url + "?t=" + Date.now(), {
+        headers: UA, cache: "no-store", signal: AbortSignal.timeout(5000)
+      });
       if (!r.ok) return;
       const j = await r.json();
       const g = j?.Infogempa?.gempa;
@@ -222,9 +224,28 @@ async function fetchClientSide() {
     } catch { /* skip */ }
   }));
 
+  // Jalur langsung cadangan: coba feed live lastQL, bukan hanya katalog gempaQL.
+  let wrsLive = [];
+  let wrsFeedOk = false;
+  try {
+    const r = await fetch("https://bmkg-content-inatews.storage.googleapis.com/lastQL.json?t=" + Date.now(), {
+      headers: UA, cache: "no-store", signal: AbortSignal.timeout(5000)
+    });
+    if (r.ok) {
+      wrsFeedOk = true;
+      const j = await r.json();
+      const features = Array.isArray(j?.features) ? j.features : j?.type === "Feature" ? [j] : Array.isArray(j) ? j : [];
+      wrsLive = features.map(normQL).filter(Boolean).map(q => ({
+        ...q, source: "InaTEWS WRS", status: "InaTEWS WRS", wrsRealtime: true
+      }));
+    }
+  } catch { /* feed live cadangan opsional */ }
+
   let ql = [];
   try {
-    const r = await fetch("https://bmkg-content-inatews.storage.googleapis.com/gempaQL.json?t=" + Date.now(), { headers: UA, cache: "no-store" });
+    const r = await fetch("https://bmkg-content-inatews.storage.googleapis.com/gempaQL.json?t=" + Date.now(), {
+      headers: UA, cache: "no-store", signal: AbortSignal.timeout(5000)
+    });
     if (r.ok) {
       const j = await r.json();
       ql = (j.features || []).map(normQL).filter(Boolean);
@@ -235,7 +256,9 @@ async function fetchClientSide() {
   // events and events flagged by USGS as tsunami-related.
   let usgs = [];
   try {
-    const r = await fetch("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson?t=" + Date.now(), { headers: UA, cache: "no-store" });
+    const r = await fetch("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson?t=" + Date.now(), {
+      headers: UA, cache: "no-store", signal: AbortSignal.timeout(5000)
+    });
     if (r.ok) {
       const j = await r.json();
       usgs = (j.features || []).flatMap((f) => {
@@ -262,7 +285,7 @@ async function fetchClientSide() {
 
   const byKey = new Map();
   const sig = new Set();
-  const all = [...pub, ...ql, ...usgs].sort((a, b) => new Date(b.time) - new Date(a.time));
+  const all = [...wrsLive, ...pub, ...ql, ...usgs].sort((a, b) => new Date(b.time) - new Date(a.time));
   for (const q of all) {
     if (byKey.has(q.key)) continue;
     const s = `${q.magnitude.toFixed(1)}|${(q.place || "").slice(0, 30)}|${String(q.time).slice(0, 16)}`;
@@ -272,11 +295,20 @@ async function fetchClientSide() {
   }
   const recent = [...byKey.values()].sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 600);
   const official = pub.filter((q) => q.official).sort((a, b) => new Date(b.time) - new Date(a.time));
+  const realtimeEvents = wrsLive
+    .filter(q => Number.isFinite(q.lat) && Number.isFinite(q.lon) && q.lat >= -11 && q.lat <= 6.5 && q.lon >= 94 && q.lon <= 141.5)
+    .sort((a, b) => new Date(b.time) - new Date(a.time));
   return {
     ok: true, recent,
     official: official[0] || recent.find((q) => q.official) || recent[0] || null,
+    realtime: realtimeEvents[0] || null,
+    realtimeEvents,
     count: recent.length,
-    sources: { client: true, public: pub.length, inaQL: ql.length },
+    sources: {
+      client: true, public: pub.length, inaQL: ql.length,
+      wrs: { ok: wrsFeedOk, eventCount: realtimeEvents.length },
+      errors: wrsFeedOk ? [] : ["Feed realtime WRS langsung belum terverifikasi"]
+    },
   };
 }
 
@@ -2307,8 +2339,29 @@ async function load(showSpin, force = false) {
         }
       }
       if (lastApiError) {
-        // Simpan penyebab agar status di layar bisa membedakan HTTP, timeout, dan jaringan.
-        throw new Error("API gempa gagal setelah 2 percobaan: " + String(lastApiError?.message || lastApiError).slice(0, 120));
+        // Endpoint utama gagal dari perangkat: coba BMKG, WRS lastQL, dan USGS langsung.
+        // Ini adalah mode cadangan berlabel, bukan klaim bahwa API utama sehat.
+        const apiFailure = String(lastApiError?.message || lastApiError).slice(0, 120);
+        const fallback = await fetchClientSide();
+        if (Array.isArray(fallback.recent) && fallback.recent.length) {
+          d = {
+            ...fallback,
+            ok: true,
+            count: fallback.recent.length,
+            realtime: fallback.realtime || null,
+            realtimeEvents: Array.isArray(fallback.realtimeEvents) ? fallback.realtimeEvents : [],
+            tsunamiHistory: Array.isArray(tsunamiHistory) ? tsunamiHistory : [],
+            sources: {
+              ...(fallback.sources || {}),
+              clientFallback: true,
+              apiError: apiFailure,
+              errors: [...new Set([...(fallback.sources?.errors || []), "API utama gagal dari perangkat: " + apiFailure])]
+            }
+          };
+          lastApiError = null;
+        } else {
+          throw new Error("API utama gagal dan sumber cadangan belum mengirim data: " + apiFailure);
+        }
       }
     }
 
@@ -2370,17 +2423,30 @@ async function load(showSpin, force = false) {
       }
     }
     const newFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
-    const wrsFeedOk = d.sources?.wrs?.ok === true || (d.sources?.wrs == null && !(d.sources?.errors || []).includes("InaTEWS QL"));
-    const usingFallback = !wrsFeedOk;
-    status(true, wrsFeedOk ? "WRS LIVE" : "CADANGAN · WRS OFFLINE");
+    const clientFallback = d.sources?.clientFallback === true;
+    const wrsFeedOk = d.sources?.wrs?.ok === true || (!clientFallback && d.sources?.wrs == null && !(d.sources?.errors || []).includes("InaTEWS QL"));
+    const usingFallback = clientFallback || !wrsFeedOk;
+    status(true, clientFallback
+      ? (wrsFeedOk ? "WRS CADANGAN LANGSUNG" : "SUMBER CADANGAN")
+      : (wrsFeedOk ? "WRS LIVE" : "CADANGAN · WRS OFFLINE"));
     const healthText = $("#wrsHealthText");
     const healthTime = $("#wrsLastUpdated");
     const health = $("#wrsHealth");
-    if (healthText) healthText.textContent = wrsFeedOk ? ((d.sources?.errors?.length) ? "WRS TERHUBUNG · DATA PARSIAL" : "WRS REALTIME TERHUBUNG") : (quakes.length ? "WRS OFFLINE · DATA CADANGAN" : "WRS OFFLINE · DATA TIDAK TERSEDIA");
-    if (healthTime) healthTime.textContent = (wrsFeedOk ? "WRS diperbarui " : "Pemeriksaan terakhir ") + new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    if (healthText) {
+      healthText.textContent = clientFallback
+        ? (wrsFeedOk ? "API UTAMA TERGANGGU · WRS LANGSUNG CADANGAN AKTIF" : "API UTAMA TERGANGGU · DATA CADANGAN BMKG/USGS")
+        : (wrsFeedOk ? ((d.sources?.errors?.length) ? "WRS TERHUBUNG · DATA PARSIAL" : "WRS REALTIME TERHUBUNG") : (quakes.length ? "WRS OFFLINE · DATA CADANGAN" : "WRS OFFLINE · DATA TIDAK TERSEDIA"));
+    }
+    if (healthTime) {
+      healthTime.textContent = (clientFallback ? "Data sumber cadangan " : (wrsFeedOk ? "WRS diperbarui " : "Pemeriksaan terakhir ")) +
+        new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) +
+        (clientFallback ? " · API: " + String(d.sources?.apiError || "gagal") : "");
+    }
     if (health) {
       health.classList.toggle("is-error", usingFallback || !!d.sources?.errors?.length);
-      health.title = wrsFeedOk ? "Feed realtime InaTEWS/WRS diterima" : "Feed realtime InaTEWS/WRS tidak tersedia; katalog cadangan tetap ditampilkan jika ada.";
+      health.title = clientFallback
+        ? "Endpoint API utama gagal diakses dari perangkat. Data ditarik langsung dari BMKG/WRS/USGS bila tersedia; mode cadangan tidak membuktikan API utama sehat. Penyebab: " + String(d.sources?.apiError || "tidak diketahui")
+        : (wrsFeedOk ? "Feed realtime InaTEWS/WRS diterima" : "Feed realtime InaTEWS/WRS tidak tersedia; katalog cadangan tetap ditampilkan jika ada.");
     }
     const s = d.sources || {};
     const sourceSummary = [`${d.count ?? quakes.length} event`];
