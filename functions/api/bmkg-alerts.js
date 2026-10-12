@@ -4,57 +4,58 @@ const BMKG_NEWS_PAGES = [
   ["https://www.bmkg.go.id/siaran-pers", "Siaran Pers BMKG"]
 ];
 const strip = value => String(value || "")
-  .replace(/<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>/g, "$1")
-  .replace(/<script[\\s\\S]*?<\\/script>/gi, " ")
-  .replace(/<style[\\s\\S]*?<\\/style>/gi, " ")
+  .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+  .replace(/<script[\s\S]*?<\/script>/gi, " ")
+  .replace(/<style[\s\S]*?<\/style>/gi, " ")
   .replace(/<[^>]+>/g, " ")
   .replace(/&nbsp;|&#160;/gi, " ")
   .replace(/&amp;/gi, "&").replace(/&quot;/gi, '"')
   .replace(/&#39;|&apos;/gi, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
-  .replace(/&#(\\d+);/g, (_, n) => String.fromCodePoint(Number(n) || 32))
-  .replace(/\\s+/g, " ").trim();
+  .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n) || 32))
+  .replace(/\s+/g, " ").trim();
 function tag(xml, name) {
-  const re = new RegExp("<" + name + "(?:\\\\s[^>]*)?>([\\\\s\\\\S]*?)<\\\\/" + name + ">", "i");
+  const re = new RegExp("<" + name + "(?:\\s[^>]*)?>([\\s\\S]*?)<\\/" + name + ">", "i");
   return (xml.match(re) || [, ""])[1];
 }
 function parseRss(xml) {
-  const items = xml.match(/<item\\b[\\s\\S]*?<\\/item>/gi) || [];
+  const items = xml.match(/<item\b[\s\S]*?<\/item>/gi) || [];
   return items.map(item => {
     const title = strip(tag(item, "title"));
     const url = strip(tag(item, "link"));
     const description = strip(tag(item, "description"));
     const updated = strip(tag(item, "pubDate"));
-    if (!title || !/^https:\\/\\/(www\\.)?bmkg\\.go\\.id\\//i.test(url)) return null;
+    if (!title || !/^https:\/\/(www\.)?bmkg\.go\.id\//i.test(url)) return null;
     return { title, description, url, updated };
   }).filter(Boolean).slice(0, 100);
 }
 function articleSummary(html) {
-  const meta = html.match(/<meta\\b[^>]*(?:name|property)=[\"'](?:description|og:description)[\"'][^>]*>/i) ||
-    html.match(/<meta\\b[^>]*content=[\"'][^\"']+[\"'][^>]*(?:name|property)=[\"'](?:description|og:description)[\"'][^>]*>/i);
-  let summary = "";
-  if (meta) summary = (meta[0].match(/content=[\"']([\\s\\S]*?)[\"']/i) || [, ""])[1];
+  const metas = html.match(/<meta\b[^>]*>/gi) || [];
+  const meta = metas.find(tag => /(?:name|property)=["'](?:description|og:description)["']/i.test(tag));
+  let summary = meta ? ((meta.match(/content=["']([\s\S]*?)["']/i) || [, ""])[1]) : "";
   if (!summary) {
-    const paragraphs = html.match(/<p\\b[^>]*>[\\s\\S]*?<\\/p>/gi) || [];
+    const paragraphs = html.match(/<p\b[^>]*>[\s\S]*?<\/p>/gi) || [];
     summary = paragraphs.map(strip).find(p => p.length >= 60 && !/cookie|copyright|ikuti kami|baca juga/i.test(p)) || "";
   }
-  summary = strip(summary).replace(/^(?:siaran pers|berita bmkg)\\s*[:—-]\\s*/i, "");
-  if (summary.length > 320) summary = summary.slice(0, 317).replace(/\\s+\\S*$/, "") + "…";
+  summary = strip(summary).replace(/^(?:siaran pers|berita bmkg)\s*[:—-]\s*/i, "");
+  if (summary.length > 320) summary = summary.slice(0, 317).replace(/\s+\S*$/, "") + "…";
   return summary;
 }
 async function fetchNewsPage([pageUrl, category]) {
   const response = await fetch(pageUrl, { headers: { accept: "text/html" }, cf: { cacheTtl: 180, cacheEverything: true } });
   if (!response.ok) throw new Error("BMKG news HTTP " + response.status);
   const html = await response.text();
-  const anchors = html.match(/<a\\b[^>]*href=[\"'][^\"']+[\"'][^>]*>[\\s\\S]*?<\\/a>/gi) || [];
+  const anchors = html.match(/<a\b[^>]*href=["'][^"']+["'][^>]*>[\s\S]*?<\/a>/gi) || [];
   return anchors.map(anchor => {
-    const match = anchor.match(/href=[\"']([^\"']+)[\"']/i);
+    const match = anchor.match(/href=["']([^"']+)["']/i);
     if (!match) return null;
     let url;
     try { url = new URL(match[1], "https://www.bmkg.go.id"); } catch { return null; }
     const title = strip(anchor);
-    if (!/^(?:www\\.)?bmkg\\.go\\.id$/i.test(url.hostname) ||
-        !/\\/(?:berita|siaran-pers)\\//i.test(url.pathname) ||
-        title.length < 22 || title.length > 200 || url.pathname.replace(/\\/$/, "") === new URL(pageUrl).pathname.replace(/\\/$/, "")) return null;
+    const path = url.pathname.replace(/\/$/, "");
+    if (!/^(?:www\.)?bmkg\.go\.id$/i.test(url.hostname) ||
+        !/\/(?:berita|siaran-pers)\//i.test(url.pathname) ||
+        title.length < 22 || title.length > 200 ||
+        path === new URL(pageUrl).pathname.replace(/\/$/, "")) return null;
     return { title, url: url.href, category: /siaran-pers/i.test(url.pathname) ? "Siaran Pers BMKG" : category };
   }).filter(Boolean);
 }
@@ -73,7 +74,7 @@ export async function onRequestGet() {
   const uniqueNews = outcomes[1].status === "fulfilled"
     ? [...new Map(outcomes[1].value.map(item => [item.url, item])).values()].slice(0, 8)
     : [];
-  // Summaries are taken from the official BMKG page description/intro, not invented.
+  // Summaries come from the official BMKG page description/intro, not invented.
   const news = await Promise.all(uniqueNews.slice(0, 6).map(async item => {
     try {
       const response = await fetch(item.url, { headers: { accept: "text/html" }, cf: { cacheTtl: 300, cacheEverything: true } });
