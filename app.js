@@ -680,22 +680,24 @@ function showRealtimeUpdate(info, append = false) {
     }
     lastRevisionInfo = info;
   }
-  if (!revisionHistory.length) {
+  const activeRevisions = revisionHistory.filter(item => {
+    const ageMs = Date.now() - new Date(item.time).getTime();
+    return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 5 * 60 * 1000;
+  });
+  if (!activeRevisions.length) {
     el.classList.add("hidden");
     el.innerHTML = "";
     return;
   }
   el.classList.remove("hidden");
-  el.classList.toggle("rev-big", revisionHistory.some(item => item.significant));
+  el.classList.toggle("rev-big", activeRevisions.some(item => item.significant));
   const escapeRealtimeText = value => String(value == null ? "—" : value).replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
-  const rows = revisionHistory.map((item) => {
-    const ageMs = Date.now() - new Date(item.time).getTime();
-    const active = Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 5 * 60 * 1000;
-    const tag = active ? (item.significant ? "REVISI BESAR" : "PEMUTAKHIRAN") : "";
+  const rows = activeRevisions.map((item) => {
+    const tag = item.significant ? "REVISI BESAR" : "PEMUTAKHIRAN";
     const stamp = new Date(item.time).toLocaleTimeString("id-ID", {hour:"2-digit",minute:"2-digit",second:"2-digit"});
-    return `<div class="rt-upd-row"><span class="rt-upd-tag ${active ? "" : "is-expired"}">${tag}</span><span class="rt-upd-txt">${escapeRealtimeText(item.place)} · ${item.parts.map(escapeRealtimeText).join(" · ")}</span><time class="rt-upd-time">${stamp}</time></div>`;
+    return `<div class="rt-upd-row"><span class="rt-upd-tag">${tag}</span><span class="rt-upd-txt">${escapeRealtimeText(item.place)} · ${item.parts.map(escapeRealtimeText).join(" · ")}</span><time class="rt-upd-time">${stamp}</time></div>`;
   }).join("");
-  el.innerHTML = `<div class="rt-upd-heading">RIWAYAT PEMUTAKHIRAN PARAMETER · ${revisionHistory.length}</div>${rows}`;
+  el.innerHTML = `<div class="rt-upd-heading">PEMUTAKHIRAN 5 MENIT TERAKHIR · ${activeRevisions.length}</div>${rows}`;
 }
 
 function primaryRealtimeQuake() {
