@@ -2279,15 +2279,28 @@ async function load(showSpin, force = false) {
   try {
     let d = null;
     try {
-      const r = await fetch(API + "?t=" + Date.now(), {
-        cache: "no-store",
-        headers: { accept: "application/json", "cache-control": "no-cache" },
-        // Allow slow mobile networks / a busy edge worker more time before marking data offline.
-        signal: AbortSignal.timeout(25000)
-      });
-      if (!r.ok) throw new Error("API gempa HTTP " + r.status);
-      d = await r.json();
-    } catch { /* function offline */ }
+      // Jangan gunakan AbortSignal.timeout(): sebagian Android WebView lama tidak
+      // mendukungnya dan akan gagal sebelum request API benar-benar dikirim.
+      // AbortController + setTimeout lebih kompatibel, termasuk browser mobile.
+      const controller = typeof AbortController === "function" ? new AbortController() : null;
+      const timeoutId = setTimeout(() => {
+        try { controller?.abort(); } catch {}
+      }, 25000);
+      try {
+        const r = await fetch(API + "?t=" + Date.now(), {
+          cache: "no-store",
+          headers: { accept: "application/json", "cache-control": "no-cache", pragma: "no-cache" },
+          ...(controller ? { signal: controller.signal } : {})
+        });
+        if (!r.ok) throw new Error("API gempa HTTP " + r.status);
+        d = await r.json();
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch (apiError) {
+      // Simpan penyebab agar status di layar bisa membedakan HTTP, timeout, dan jaringan.
+      throw new Error("API gempa gagal: " + String(apiError?.message || apiError).slice(0, 120));
+    }
 
     // Ignore responses from an old mode or superseded request.
     if (requestId !== loadRequestId || wrsMode === "simulation") return;
@@ -2428,8 +2441,9 @@ async function load(showSpin, force = false) {
       if (healthTime) healthTime.textContent = lastOkText;
       if (health) {
         health.classList.add("is-error");
-        health.title = "Beberapa pembaruan berturut-turut gagal. Data yang sudah tampil tidak dihapus; aplikasi akan terus mencoba ulang.";
+        health.title = "Beberapa pembaruan berturut-turut gagal. Data yang sudah tampil tidak dihapus; aplikasi akan terus mencoba ulang. Penyebab terakhir: " + String(e?.message || e).slice(0, 180);
       }
+      if (healthTime) healthTime.textContent = lastOkText + " · " + String(e?.message || e).slice(0, 85);
     }
   } finally {
     // An older request must not clear the in-flight state of a newer request.
