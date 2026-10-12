@@ -639,3 +639,11 @@ button:focus-visible, a:focus-visible, select:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Operational diagnostics panel: compact, readable, and safe on mobile layouts. */
+.wrs-diagnostics{margin-top:10px;border:1px solid rgba(148,163,184,.22);border-radius:10px;background:rgba(7,17,31,.55);color:#dbe7f5;font-size:11px}
+.wrs-diagnostics summary{cursor:pointer;padding:10px 11px;font-weight:700;letter-spacing:.02em}
+.wrs-diagnostics dl{display:grid;grid-template-columns:minmax(105px,.8fr) minmax(0,1.2fr);gap:7px 10px;margin:0;padding:0 11px 10px}
+.wrs-diagnostics dt{color:#9fb0c6}
+.wrs-diagnostics dd{margin:0;overflow-wrap:anywhere;color:#e5edf7}
+.wrs-diagnostics p{margin:0;padding:0 11px 10px;color:#9fb0c6;line-height:1.45}
