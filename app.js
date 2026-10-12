@@ -2019,6 +2019,47 @@ function updateModeButtons() {
   const tools = $("#wrsTestTools");
   if (tools) tools.hidden = wrsMode !== "simulation";
 }
+
+/** Diagnostics are informational: never let a health-panel rendering failure interrupt monitoring. */
+function updateDiagnostics(data = null, error = null, simulation = false) {
+  const put = (id, value) => {
+    const node = document.getElementById(id);
+    if (node) node.textContent = String(value ?? "—");
+  };
+  try {
+    if (simulation || wrsMode === "simulation") {
+      put("diagConnection", "MODE SIMULASI — data sintetis lokal");
+      put("diagSources", "Feed operasional sengaja disembunyikan saat simulasi");
+      put("diagFetchAge", "Tidak berlaku");
+      put("diagLastSuccess", "Tidak ditampilkan pada mode simulasi");
+      put("diagRetries", "0");
+      put("diagError", "Tidak ada permintaan data operasional pada mode simulasi");
+      return;
+    }
+    const fetchedAt = Date.parse(data?.fetchedAt || "");
+    const ageSeconds = Number.isFinite(fetchedAt) ? Math.max(0, Math.floor((Date.now() - fetchedAt) / 1000)) : null;
+    const source = data?.sources || {};
+    const sourceErrors = Array.isArray(source.errors) ? source.errors : [];
+    const isFallback = source.clientFallback === true || source.wrs?.ok === false;
+    const stale = ageSeconds == null || ageSeconds > 45;
+    put("diagConnection", error ? "GAGAL MEMUAT — mempertahankan data terakhir" :
+      stale ? "DATA LAMBAT / WAKTU SUMBER TIDAK VALID" :
+      isFallback ? "SUMBER CADANGAN / DATA PARSIAL" :
+      sourceErrors.length ? "TERHUBUNG — SEBAGIAN SUMBER BERMASALAH" : "TERHUBUNG");
+    const sourceParts = [];
+    if (source.wrs) sourceParts.push("InaTEWS realtime: " + (source.wrs.ok ? "OK" : "gagal"));
+    if (source.public != null) sourceParts.push("BMKG: " + source.public + "/3 feed");
+    if (source.usgs != null) sourceParts.push("USGS: " + source.usgs + " event");
+    if (source.tsunami != null) sourceParts.push("Buletin tsunami: " + source.tsunami);
+    put("diagSources", sourceParts.join(" · ") || "Status sumber belum tersedia");
+    put("diagFetchAge", ageSeconds == null ? "Waktu fetch tidak tersedia" : ageSeconds + " detik sejak fetch API");
+    put("diagLastSuccess", lastSuccessfulLoadAt ? new Date(lastSuccessfulLoadAt).toLocaleString("id-ID") : "Belum ada fetch sukses sejak halaman dibuka");
+    put("diagRetries", consecutiveLoadFailures);
+    put("diagError", error ? String(error.message || error).slice(0, 180) :
+      sourceErrors.length ? sourceErrors.join(" · ").slice(0, 180) :
+      source.apiError ? String(source.apiError).slice(0, 180) : "Tidak ada error pada pemeriksaan terakhir");
+  } catch (_) { /* Diagnostics must never interfere with data refresh. */ }
+}
 function applySimulationMode(options = {}) {
   const sample = simulationQuake(simulationScenarioIndex, options);
   quakes = [sample];
@@ -2035,6 +2076,7 @@ function applySimulationMode(options = {}) {
   const health = $("#wrsHealth");
   if (healthText) healthText.textContent = "MODE TES AKTIF · DATA SIMULASI SAJA";
   if (healthTime) healthTime.textContent = "Feed operasional tidak ditampilkan";
+  updateDiagnostics(null, null, true);
   if (health) {
     health.classList.remove("is-error");
     health.title = "Mode tes WRS: hanya menampilkan data simulasi, bukan kejadian gempa nyata.";
@@ -2469,6 +2511,7 @@ async function load(showSpin, force = false) {
         : (wrsFeedOk ? "Feed realtime InaTEWS/WRS diterima" : "Feed realtime InaTEWS/WRS tidak tersedia; katalog cadangan tetap ditampilkan jika ada.");
     }
     const s = d.sources || {};
+    updateDiagnostics(d);
     const sourceSummary = [`${d.count ?? quakes.length} event`];
     if (s.public != null) sourceSummary.push(`BMKG ${s.public}/3`);
     if (s.usgs != null) sourceSummary.push(`USGS ${s.usgs}`);
@@ -2525,6 +2568,7 @@ async function load(showSpin, force = false) {
   } catch (e) {
     if (requestId !== loadRequestId || wrsMode === "simulation") return;
     consecutiveLoadFailures += 1;
+    updateDiagnostics(null, e);
     console.warn("WRS refresh gagal; percobaan ulang dijadwalkan.", e);
     const healthText = $("#wrsHealthText");
     const healthTime = $("#wrsLastUpdated");
