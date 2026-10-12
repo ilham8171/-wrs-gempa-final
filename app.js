@@ -857,6 +857,8 @@ function renderOfficial(q) {
   $("#offTitle").textContent = q.felt || /dirasakan/i.test(q.potential || "")
     ? "INFO GEMPA DIRASAKAN"
     : q.magnitude >= 5 ? "INFO GEMPA M≥5" : "INFO GEMPA";
+  const feltPanel = document.getElementById("rightPanel");
+  if (feltPanel) feltPanel.classList.toggle("felt-event-pulse", Boolean(q.felt || /dirasakan/i.test(q.potential || "")));
   $("#offSent").textContent = q.timesent ? "waktu kirim: " + q.timesent : fmtTime(q);
   $("#offTime").textContent = fmtTime(q);
   $("#offCoord").textContent = fmtCoord(q);
