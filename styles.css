@@ -1447,3 +1447,56 @@ body.battery-saver *,body.battery-saver *::before,body.battery-saver *::after{sc
  .mobile-bottom-nav{grid-template-columns:repeat(4,minmax(0,1fr))!important}
  #mobilePageAlerts{padding:calc(10px + env(safe-area-inset-top,0px)) 12px calc(100px + env(safe-area-inset-bottom,0px))!important;overflow-y:auto!important;overflow-x:hidden!important;-webkit-overflow-scrolling:touch!important;overscroll-behavior-y:contain!important}
 }
+
+
+/* Dual digital clocks: WIB and UTC are always visible on the main map dashboard. */
+.world-clock-panel{
+  position:absolute;z-index:330;top:64px;right:378px;width:min(390px,calc(100vw - 410px));
+  padding:11px 13px;border:1px solid rgba(87,190,224,.34);border-radius:14px;
+  color:#e6f6ff;background:linear-gradient(145deg,rgba(7,24,39,.94),rgba(7,15,29,.92));
+  box-shadow:0 12px 32px rgba(0,0,0,.24);backdrop-filter:blur(16px);
+}
+.world-clock-head{display:flex;align-items:center;gap:7px;color:#8de6f7;font-size:9px;font-weight:900;letter-spacing:.15em;margin-bottom:9px}
+.world-clock-led{width:6px;height:6px;border-radius:50%;background:#35e0a1;box-shadow:0 0 9px rgba(53,224,161,.7)}
+.world-clock-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.world-clock-grid>div+div{border-left:1px solid rgba(137,178,209,.2);padding-left:12px}
+.world-clock-grid small{display:block;color:#91aabd;font-size:8px;font-weight:800;letter-spacing:.06em}
+.world-clock-grid strong{display:block;margin:4px 0 2px;color:#f1fbff;font:800 24px/1.1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.03em;font-variant-numeric:tabular-nums}
+.world-clock-grid time{display:block;color:#8ba9bd;font-size:9px}
+.mobile-more-controls{display:grid;gap:10px;margin:0 0 16px;padding:14px;border:1px solid rgba(103,180,211,.2);border-radius:15px;background:linear-gradient(150deg,rgba(13,34,52,.95),rgba(7,20,33,.96));color:#e2f4ff}
+.mobile-more-controls h2{margin:0;color:#82e1f2;font-size:14px;letter-spacing:.08em}
+.mobile-more-controls .more-caption{margin:-4px 0 3px;color:#91aabd;font-size:11px;line-height:1.5}
+.mobile-more-controls .rp-links{display:flex;flex-wrap:wrap;gap:7px}
+.mobile-more-controls .ext-link{margin:0;padding:8px 10px;border:1px solid rgba(106,202,232,.24);border-radius:9px;background:rgba(12,46,65,.65)}
+.mobile-more-controls .rp-quick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.mobile-more-controls .qbtn{min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 5px;border:1px solid rgba(106,202,232,.23);border-radius:10px;background:#102b3d;color:#d9f5ff}
+.mobile-more-controls .rp-quick-opts{display:flex;gap:18px;flex-wrap:wrap}
+.mobile-more-controls .rp-quick-status{display:block;padding:8px 9px;border-radius:8px;background:rgba(6,16,27,.65);color:#a9c5d6;font-size:11px;line-height:1.45}
+.mobile-more-controls .rp-live{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;border:1px solid rgba(55,203,164,.22);border-radius:9px;background:rgba(7,38,35,.45)}
+.mobile-more-controls .rp-foot{font-size:10px;line-height:1.7;color:#91aabd}
+.detail-revision-title{margin:12px 12px 5px;padding:10px 11px;border:1px solid rgba(84,192,225,.24);border-radius:10px 10px 0 0;background:rgba(8,43,61,.72);color:#8fe6f5;font-size:10px;font-weight:900;letter-spacing:.06em}
+#mobilePageInfo #rtUpdate{margin:0 12px 14px!important;padding:10px!important;border:1px solid rgba(84,192,225,.24)!important;border-top:0!important;border-radius:0 0 10px 10px!important;background:rgba(6,20,33,.88)!important}
+.wrs-alert-card-image{display:block;width:100%;max-height:250px;object-fit:contain;border-radius:9px;background:#fff;margin:0 0 7px}
+.wrs-bmkg-image{margin:12px 0;padding:8px;border:1px solid rgba(103,163,202,.2);border-radius:12px;background:#f8fafc}
+.wrs-bmkg-image img{display:block;width:100%;max-height:420px;object-fit:contain}
+.wrs-bmkg-image figcaption{padding:7px 2px 0;color:#516579;font-size:10px}
+.wrs-bmkg-summary{padding:11px;border-left:3px solid #44c8e8;background:rgba(36,148,183,.1);border-radius:0 8px 8px 0}
+.wrs-bmkg-table-wrap{max-width:100%;overflow-x:auto;margin:12px 0;border:1px solid rgba(103,163,202,.25);border-radius:10px}
+.wrs-bmkg-table-wrap table{width:100%;border-collapse:collapse;font-size:12px}
+.wrs-bmkg-table-wrap th,.wrs-bmkg-table-wrap td{padding:9px 10px;border-bottom:1px solid rgba(103,163,202,.18);text-align:left;vertical-align:top}
+.wrs-bmkg-table-wrap th{background:#12354a;color:#9fe9f8;font-weight:850}
+.wrs-bmkg-table-wrap td{color:inherit}
+@media(max-width:1200px){
+  .world-clock-panel{top:calc(62px + env(safe-area-inset-top,0px));right:12px;width:min(320px,calc(100vw - 24px));padding:9px 10px}
+  .world-clock-grid strong{font-size:21px}
+  #mobilePageMap .world-clock-panel{position:absolute!important;z-index:35!important}
+  #mobilePageLegend .mobile-more-controls{margin-bottom:14px}
+}
+@media(max-width:480px){
+  .world-clock-panel{width:min(300px,calc(100vw - 24px))}
+  .world-clock-grid{gap:7px}
+  .world-clock-grid>div+div{padding-left:8px}
+  .world-clock-grid strong{font-size:18px}
+  .world-clock-grid small{font-size:7px}
+  .world-clock-grid time{font-size:8px}
+}
