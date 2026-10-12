@@ -1739,20 +1739,11 @@ const SIMULATION_TSUNAMI_STAGES = [
 function tsunamiLevelForHeight(h){return h>3?{label:"AWAS",color:"#ef4444"}:h>=.5?{label:"SIAGA",color:"#f97316"}:{label:"WASPADA",color:"#eab308"}}
 function clearTsunamiMapLayer(){if(tsunamiMapLayer)tsunamiMapLayer.clearLayers()}
 function renderSimulationTsunamiMap(q,index){
- if(!map||!tsunamiMapLayer)return;clearTsunamiMapLayer();
- if(!q?.simulation||!q?.isTsunamiWarning||index<0)return;
- const stage=SIMULATION_TSUNAMI_STAGES[Math.min(index,SIMULATION_TSUNAMI_STAGES.length-1)];
- if(stage.level==="ended")return;
- const loc=document.querySelector("#wrsTestLocation")?.value||"sulawesi";
- (SIMULATION_COASTS[loc]||SIMULATION_COASTS.sulawesi).forEach(area=>{
-  const height=Math.max(.05,area[3]*stage.multiplier),level=tsunamiLevelForHeight(height);
-  // Lingkaran berwarna adalah ilustrasi latihan, bukan batas genangan sebenarnya.
-  L.circle([area[1],area[2]],{radius:6500+height*3500,color:level.color,weight:1,opacity:.75,fillColor:level.color,fillOpacity:.2,interactive:false}).addTo(tsunamiMapLayer);
-  L.circleMarker([area[1],area[2]],{radius:8+Math.min(height*3,8),color:"#fff",weight:2,fillColor:level.color,fillOpacity:.92})
-   .bindTooltip("<b>"+area[0]+"</b><br>SIMULASI · "+height.toFixed(2)+" m<br>"+level.label,{sticky:true})
-   .bindPopup("<strong>"+area[0]+"</strong><br>"+level.label+" · tinggi gelombang latihan <b>"+height.toFixed(2)+" m</b><br><small>Angka dan zona fiktif untuk latihan, bukan prakiraan BMKG.</small>")
-   .addTo(tsunamiMapLayer);
- });
+ // Jangan gambar lingkaran/area genangan buatan di peta utama.
+ // Visualisasi latihan tetap ada pada panel tahap PD; peta utama disisakan
+ // untuk titik gempa asli yang bisa diklik dan dibuka detailnya.
+ if(!map||!tsunamiMapLayer)return;
+ clearTsunamiMapLayer();
 }
 function renderTsunamiStagePanel(index,q){
  const box=document.querySelector("#wrsTsunamiStage");if(!box)return;
@@ -1873,40 +1864,14 @@ function renderTsunamiMapControl(latestEvents,allEvents){
  '<div class="wrs-tsu-map-note">Titik berwarna = observasi dengan koordinat eksplisit. Produk Warning Zone/SSHmax adalah pratinjau resmi, bukan overlay geografis karena batas koordinat raster belum tersedia.</div>';
 }
 function renderOfficialTsunamiMap(){
- if(!map||!tsunamiMapLayer||wrsMode==="simulation")return;
+ if(!map||!tsunamiMapLayer)return;
+ // Titik gempa utama dikelola oleh drawMarkers() dan harus tetap bisa diklik
+ // untuk membuka detail. Jangan menambahkan titik buletin/observasi lain di atasnya.
  clearTsunamiMapLayer();
- const events=Array.isArray(tsunamiHistory)?tsunamiHistory:[];
- const latestByEvent=new Map();
- events.forEach(q=>{
-  if(!q)return;
-  const id=String(q.eventid||q.key||q.place||"event"),old=latestByEvent.get(id);
-  if(!old||tsunamiBulletinTime(q)>tsunamiBulletinTime(old))latestByEvent.set(id,q);
- });
- const latestEvents=[...latestByEvent.values()].sort((a,b)=>tsunamiBulletinTime(b)-tsunamiBulletinTime(a));
- renderTsunamiMapControl(latestEvents,events);
- // Maksimum 10 episenter buletin terbaru. Buletin lama diberi abu-abu agar
- // tidak keliru terbaca sebagai peringatan yang baru/aktif.
- latestEvents.slice(0,10).forEach(q=>{
-  if(!Number.isFinite(Number(q.lat))||!Number.isFinite(Number(q.lon)))return;
-  const ended=isTsunamiEnded(q),age=Date.now()-tsunamiBulletinTime(q),stale=!ended&&age>6*3600000;
-  const color=ended?"#22c55e":stale?"#94a3b8":"#f97316";
-  const pd=q.pd?"PD-"+q.pd:"Buletin tsunami";
-  L.circleMarker([Number(q.lat),Number(q.lon)],{radius:ended?7:10,color:"#fff",weight:2,fillColor:color,fillOpacity:.92})
-   .bindTooltip(safeTsunamiMapText(pd)+(ended?" · BERAKHIR":stale?" · STATUS PERLU VERIFIKASI":" · BUletin terbaru"),{sticky:true})
-   .bindPopup("<strong>"+safeTsunamiMapText(q.place||"Lokasi gempa")+"</strong><br>"+safeTsunamiMapText(pd)+"<br>"+(ended?"Peringatan dinyatakan berakhir menurut buletin.":stale?"Buletin sudah lama; status terkini perlu diverifikasi.":"Buletin terbaru yang tersedia; ikuti arahan resmi BMKG.")+"<br><small>Sumber: InaTEWS · "+safeTsunamiMapText(q.timesent||"waktu kirim tidak tersedia")+"</small>")
-   .addTo(tsunamiMapLayer);
- });
- // Hanya titik observasi yang punya koordinat eksplisit dalam buletin yang dipetakan.
- const observedSeen=new Set();
- latestEvents.slice(0,6).forEach(q=>parseTsunamiObservations(q).forEach(o=>{
-  const key=[o.name,o.lat.toFixed(3),o.lon.toFixed(3),o.height].join("|");
-  if(observedSeen.has(key))return;observedSeen.add(key);
-  const color=o.height>=1?"#dc2626":o.height>=.3?"#f97316":"#eab308";
-  L.circleMarker([o.lat,o.lon],{radius:8+Math.min(o.height*2,8),color:"#fff",weight:2,fillColor:color,fillOpacity:.95})
-   .bindTooltip("<b>"+safeTsunamiMapText(o.name)+"</b><br>Observasi: "+o.height.toFixed(2)+" m",{sticky:true})
-   .bindPopup("<strong>"+safeTsunamiMapText(o.name)+"</strong><br>Tinggi muka laut yang tercantum: <b>"+o.height.toFixed(2)+" m</b><br>"+safeTsunamiMapText(o.time)+"<br><small>Warna menunjukkan tinggi observasi, bukan level evakuasi. Sumber: buletin InaTEWS.</small>")
-   .addTo(tsunamiMapLayer);
- }));
+ if(tsunamiMapControlNode){
+  tsunamiMapControlNode.style.display="none";
+  tsunamiMapControlNode.innerHTML="";
+ }
 }
 
 
