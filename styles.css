@@ -1536,3 +1536,45 @@ body.battery-saver *,body.battery-saver *::before,body.battery-saver *::after{sc
   .world-clock-panel{width:calc(100vw - 48px)!important;bottom:calc(162px + env(safe-area-inset-bottom,0px))!important}
   .world-clock-grid strong{font-size:15px!important}
 }
+
+/* Latest card: compact WIB/UTC neon clock embedded in the panel, never floating over the map. */
+#cardRealtime #worldClockPanel.world-clock-panel{
+  position:relative!important;inset:auto!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;
+  transform:none!important;width:calc(100% - 24px)!important;max-width:none!important;
+  margin:2px 12px 12px!important;padding:7px 9px!important;box-sizing:border-box!important;
+  border:1px solid rgba(64,213,255,.3)!important;border-radius:10px!important;
+  background:linear-gradient(135deg,rgba(6,35,54,.86),rgba(5,19,35,.9))!important;
+  box-shadow:inset 0 0 12px rgba(0,183,255,.045),0 0 8px rgba(0,177,255,.055)!important;
+  backdrop-filter:blur(8px)!important;
+}
+#cardRealtime .world-clock-head{
+  margin:0 0 4px!important;font-size:8px!important;letter-spacing:.13em!important;
+  color:#68e5ff!important;text-shadow:0 0 7px rgba(0,204,255,.35)!important;
+}
+#cardRealtime .world-clock-led{
+  width:5px!important;height:5px!important;background:#39e9ff!important;
+  box-shadow:0 0 5px #00d9ff,0 0 9px rgba(0,217,255,.55)!important;
+}
+#cardRealtime .world-clock-grid{gap:8px!important}
+#cardRealtime .world-clock-grid>div+div{padding-left:8px!important;border-left-color:rgba(80,202,238,.16)!important}
+#cardRealtime .world-clock-grid small{font-size:7px!important;color:#7fa8c0!important;letter-spacing:.045em!important}
+#cardRealtime .world-clock-grid strong{
+  font-size:15px!important;line-height:1.15!important;letter-spacing:.02em!important;
+  margin:2px 0!important;color:#80eaff!important;
+  text-shadow:0 0 5px rgba(0,190,255,.28)!important;
+}
+#cardRealtime .world-clock-grid time{font-size:7px!important;color:#7595ab!important}
+#cardRealtime .world-clock-panel{pointer-events:auto!important}
+#cardRealtime .eq-radius-ring,.eq-radius-ring{animation:none!important;display:none!important;opacity:0!important;fill-opacity:0!important;stroke-opacity:0!important}
+/* Latest earthquake star: crisp red locator, subtle pulse only, without a huge red halo. */
+.eq-star{
+  font-size:27px!important;line-height:34px!important;color:#ff515b!important;
+  text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 3px rgba(255,45,60,.5)!important;
+  animation:starPulse 1.8s ease-in-out infinite!important;
+  transform-origin:center center!important;
+}
+@keyframes starPulse{
+  0%,100%{transform:scale(1);opacity:1;filter:none}
+  50%{transform:scale(1.1);opacity:.9;filter:drop-shadow(0 0 3px rgba(255,52,67,.35))}
+}
+.eq-star-marker{filter:none!important;box-shadow:none!important}
