@@ -2316,6 +2316,18 @@ async function load(showSpin, force = false) {
     lastSuccessfulLoadAt = Date.now();
 
     const incoming = d.recent;
+    // Persist the last structurally valid catalogue so a page reload during an outage
+    // can still show the last known events without pretending they are live.
+    try {
+      localStorage.setItem("wrsLastGoodCatalogV1", JSON.stringify({
+        savedAt: Date.now(),
+        recent: incoming,
+        realtimeEvents: Array.isArray(d.realtimeEvents) ? d.realtimeEvents : [],
+        tsunamiHistory: Array.isArray(d.tsunamiHistory) ? d.tsunamiHistory : []
+      }));
+    } catch (storageError) {
+      console.warn("Katalog WRS tidak dapat disimpan ke penyimpanan lokal.", storageError);
+    }
     operationalQuakes = incoming;
     realtimeEvents = Array.isArray(d.realtimeEvents) ? d.realtimeEvents : [];
     if (!incoming.length) {
@@ -2421,10 +2433,32 @@ async function load(showSpin, force = false) {
     const healthText = $("#wrsHealthText");
     const healthTime = $("#wrsLastUpdated");
     const health = $("#wrsHealth");
+    // Restore the last good catalogue after a reload if every live request fails.
+    // Its age is shown explicitly below; it is never labelled as a live feed.
+    if (!quakes.length) {
+      try {
+        const saved = JSON.parse(localStorage.getItem("wrsLastGoodCatalogV1") || "null");
+        if (saved && Array.isArray(saved.recent) && saved.recent.length) {
+          quakes = saved.recent;
+          operationalQuakes = saved.recent;
+          realtimeEvents = Array.isArray(saved.realtimeEvents) ? saved.realtimeEvents : [];
+          if (Array.isArray(saved.tsunamiHistory)) tsunamiHistory = saved.tsunamiHistory;
+          const savedAt = Number(saved.savedAt);
+          window.__wrsRestoredCatalogAt = Number.isFinite(savedAt) ? savedAt : null;
+          if (map) drawMarkers(true);
+          updateStats(getFilteredQuakes());
+        }
+      } catch (storageError) {
+        console.warn("Katalog WRS tersimpan tidak dapat dipulihkan.", storageError);
+      }
+    }
     const hasCachedEvents = quakes.length > 0;
+    const restoredAt = Number(window.__wrsRestoredCatalogAt || 0);
     const lastOkText = lastSuccessfulLoadAt
       ? "Data terakhir berhasil diterima " + new Date(lastSuccessfulLoadAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-      : "Belum ada data berhasil diterima pada sesi ini";
+      : restoredAt
+        ? "Katalog tersimpan " + new Date(restoredAt).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "medium" }) + " (bukan realtime)"
+        : "Belum ada data berhasil diterima pada sesi ini";
     // A brief network hiccup should not immediately turn the monitor OFFLINE.
     // Preserve the last good events and markers while retrying.
     if (consecutiveLoadFailures < 3 && hasCachedEvents) {
