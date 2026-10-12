@@ -1378,3 +1378,39 @@ body.battery-saver *,body.battery-saver *::before,body.battery-saver *::after{sc
 .wrs-export-preview{flex:0 0 92px;margin:0;scroll-snap-align:start}
 .wrs-export-preview img{display:block;width:92px;height:164px;object-fit:cover;border:1px solid #ffffff25;border-radius:8px;background:#f8fafc;box-shadow:0 5px 15px #0005}
 .wrs-export-preview figcaption{margin-top:6px;color:#8faec5;font-size:9px;line-height:1.35;text-align:center;overflow-wrap:anywhere}
+
+
+/* BMKG warnings live inside the existing Notifications tab; no extra navigation item */
+.wrs-alert-intro{display:flex;align-items:center;gap:11px;margin:12px 0 14px;padding:13px;border:1px solid rgba(73,188,217,.2);border-radius:14px;background:linear-gradient(135deg,#10263a,#0a1828)}
+.wrs-alert-pulse{width:9px;height:9px;flex:0 0 9px;border-radius:50%;background:#36d6ad;box-shadow:0 0 0 5px #36d6ad18,0 0 14px #36d6ad66}
+.wrs-alert-intro>div{display:grid;gap:4px;flex:1;min-width:0}
+.wrs-alert-intro strong{font-size:12px;color:#d9f5ff}
+.wrs-alert-intro small{font-size:10px;color:#89a9bd}
+.wrs-alert-intro button{width:34px;height:34px;border:1px solid #28516a;border-radius:10px;background:#102d43;color:#82e4fa;font-size:19px}
+.wrs-alert-list,.wrs-alert-news{display:grid;gap:10px}
+.wrs-alert-card{padding:15px;border:1px solid rgba(245,158,11,.28);border-radius:15px;background:linear-gradient(145deg,#2b251b,#171b23);color:#f3e6ca}
+.wrs-alert-card.severe{border-color:rgba(248,113,113,.4);background:linear-gradient(145deg,#351d24,#171923)}
+.wrs-alert-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.wrs-alert-badge{padding:4px 7px;border:1px solid #d7a84c44;border-radius:6px;color:#f5ca78;font-size:9px;font-weight:900;letter-spacing:.06em}
+.wrs-alert-card time{font-size:9px;color:#a79a84}
+.wrs-alert-card h3{margin:0 0 7px;font-size:14px;line-height:1.45;color:#fff0d0}
+.wrs-alert-card p{margin:0 0 11px;font-size:12px;line-height:1.65;color:#d4c6ae}
+.wrs-alert-area{margin-bottom:12px;font-size:11px;line-height:1.5;color:#e5d0a9}
+.wrs-alert-card>a{display:inline-flex;padding:8px 10px;border:1px solid #80673b;border-radius:9px;color:#ffda8a;font-size:10px;font-weight:850;text-decoration:none}
+.wrs-alert-section-title{margin:22px 0 10px;color:#9bb7ca;font-size:10px;font-weight:900;letter-spacing:.1em}
+.wrs-alert-news-card{display:grid;gap:7px;padding:13px;border:1px solid rgba(103,163,202,.19);border-radius:13px;background:linear-gradient(150deg,#102338,#0a1726);color:#e6f5ff;text-decoration:none}
+.wrs-alert-news-card>span{color:#75d9ed;font-size:9px;font-weight:900;letter-spacing:.06em;text-transform:uppercase}
+.wrs-alert-news-card strong{font-size:12px;line-height:1.5}
+.wrs-alert-news-card small{color:#819bb0;font-size:9px}
+.wrs-alert-news-card em{color:#70d7f0;font-size:10px;font-style:normal;font-weight:850}
+.wrs-alert-empty{display:grid;gap:8px;justify-items:center;padding:22px 15px;border:1px dashed rgba(110,169,207,.25);border-radius:14px;background:#0b1a2a;color:#a9bfd2;text-align:center;font-size:11px;line-height:1.65}
+.wrs-alert-empty strong{color:#cfe5f2;font-size:12px}
+.wrs-alert-empty small{color:#839eb3;font-size:10px}
+.wrs-alert-empty a{color:#78dff4;font-weight:800}
+.wrs-alert-safe{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#0c3c32;color:#68edc3;font-size:19px}
+.wrs-alert-footnote{margin:14px 0;color:#7f99ae;font-size:9px;line-height:1.6}
+@media(max-width:900px){
+ .mobile-bottom-nav{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+ #mobilePageAlerts{padding:10px 12px calc(100px + env(safe-area-inset-bottom,0px))!important}
+ .mobile-bottom-nav button{font-size:10px!important}
+}
