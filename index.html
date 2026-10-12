@@ -13,7 +13,7 @@
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
 <title>WRS Gempa — Earthquake Monitor</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="/styles.css?v=20261013-1">
+<link rel="stylesheet" href="/styles.css?v=20261013-2">
 <link rel="stylesheet" href="/ui-refresh.css">
 </head>
 <body>
@@ -517,6 +517,8 @@
       panel.classList.remove('sheet-collapsed');
       panel.style.height=''; panel.style.maxHeight='';
       panel.scrollTop=0;
+      if (name === 'alerts') alertPage.appendChild(panel);
+      else infoPage.appendChild(panel);
     }
     if (name === 'alerts') {
       loadWrsBmkgAlerts();
@@ -574,6 +576,6 @@
 })();
 </script>
 
-<script src="/app.js?v=20261013-1"></script>
+<script src="/app.js?v=20261013-2"></script>
 </body>
 </html>
