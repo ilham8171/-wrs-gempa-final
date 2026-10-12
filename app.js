@@ -661,13 +661,28 @@ function primaryRealtimeQuake() {
   const valid = q => q && Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon));
   // The realtime card follows the dedicated InaTEWS/WRS feed, not the newest
   // record in the merged BMKG/USGS catalog.
-  return valid(currentRealtime) ? currentRealtime :
-    valid(currentOfficial) ? currentOfficial : quakes[0] || null;
+  // Jangan menyamarkan katalog/riwayat sebagai kejadian realtime.
+  return valid(currentRealtime) ? currentRealtime : null;
 }
 
 function renderRealtime(q) {
-  if (!q) return;
   const el = $("#rtMag");
+  if (!q) {
+    if (el) {
+      el.textContent = "—";
+      el.style.background = "linear-gradient(145deg, #33415555, #0d2038)";
+      el.style.borderColor = "#64748b";
+      el.style.color = "#cbd5e1";
+    }
+    if ($("#rtDate")) $("#rtDate").textContent = "Feed realtime belum tersedia";
+    if ($("#rtAgo")) $("#rtAgo").textContent = "Menunggu data live";
+    if ($("#rtCoord")) $("#rtCoord").textContent = "—";
+    if ($("#rtPlace")) $("#rtPlace").textContent = "Belum ada event dari feed realtime InaTEWS/WRS";
+    if ($("#rtSrc")) $("#rtSrc").textContent = "Sumber: menunggu feed realtime";
+    updateRealtimeDistance();
+    return;
+  }
+  if (!el) return;
   el.textContent = q.magnitude.toFixed(1);
   el.style.background = `linear-gradient(145deg, ${magColor(q.magnitude)}55, #0d2038)`;
   el.style.borderColor = magColor(q.magnitude);
@@ -1962,7 +1977,7 @@ function setWrsMode(mode) {
     currentRealtime = realtimeEvents.find(q => !q.simulation) || null;
     currentOfficial = quakes.find(q => q.official) || null;
     const primary = primaryRealtimeQuake();
-    if (primary) renderRealtime(primary);
+    renderRealtime(primary);
     if (currentOfficial) renderOfficial(currentOfficial);
     drawMarkers(true);
     updateStats(getFilteredQuakes());
@@ -2073,7 +2088,7 @@ async function load(showSpin) {
     // Keep WRS realtime and the official/catalog card as separate event streams.
     currentRealtime = d.realtime || realtimeEvents[0] || null;
     const primary = primaryRealtimeQuake();
-    if (primary) renderRealtime(primary);
+    renderRealtime(primary);
     const rtFilter = $("#rtFilter");
     if (rtFilter) rtFilter.textContent = "Area Indonesia · Mag > 2 · 7 hari terakhir";
     updateModeButtons();
