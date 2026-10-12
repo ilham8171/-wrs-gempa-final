@@ -531,7 +531,8 @@ function drawMarkers(force = false) {
 
     const marker = L.circleMarker([q.lat, q.lon], {
       radius: size,
-      color: latest ? "#ffffff" : edge,
+      // Warna tepi selalu mengikuti kedalaman; bintang terpisah menandai gempa terbaru.
+      color: edge,
       weight: latest ? 2.5 : 1.5,
       opacity: 1,
       fillColor: fill,
@@ -2832,9 +2833,10 @@ function openHistory(mode = "all") {
       .forEach((q) => {
         L.circleMarker([q.lat, q.lon], {
           radius: Math.max(4, q.magnitude),
-          color: isTsunamiPotential(q.potential) ? "#fecaca" : "#fff",
-          fillColor: isTsunamiPotential(q.potential) ? "#dc2626" : depthColor(q.depth),
-          fillOpacity: 0.85,
+          // Samakan legenda peta riwayat: isi = magnitudo, tepi = kedalaman.
+          color: depthColor(q.depth),
+          fillColor: magColor(q.magnitude),
+          fillOpacity: 0.9,
           weight: 1.5,
         })
           .addTo(histMap)
