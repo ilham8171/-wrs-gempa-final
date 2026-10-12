@@ -2282,7 +2282,8 @@ async function load(showSpin, force = false) {
       const r = await fetch(API + "?t=" + Date.now(), {
         cache: "no-store",
         headers: { accept: "application/json", "cache-control": "no-cache" },
-        signal: AbortSignal.timeout(12000)
+        // Allow slow mobile networks / a busy edge worker more time before marking data offline.
+        signal: AbortSignal.timeout(25000)
       });
       if (!r.ok) throw new Error("API gempa HTTP " + r.status);
       d = await r.json();
