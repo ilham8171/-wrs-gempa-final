@@ -172,10 +172,13 @@ async function runPush(env) {
   const now = Date.now();
   const warnings = (Array.isArray(root.tsunamiHistory) ? root.tsunamiHistory : [])
     .map(item => activeTsunamiPayload(item, now)).filter(Boolean).slice(0, 1);
+  // Scheduled every minute: reject old catalog records so a delayed worker run
+  // cannot announce a historic earthquake as if it had just happened.
+  const MAX_QUAKE_ALERT_AGE_MS = 5 * 60 * 1000;
   const quakes = (Array.isArray(root.recent) ? root.recent : [])
     .filter(q => {
       const age = now - eventTime(q);
-      if (age < -60000 || age > 10 * 60 * 1000) return false;
+      if (age < -60000 || age > MAX_QUAKE_ALERT_AGE_MS) return false;
       const mag = Number(q.magnitude || 0);
       return isIndonesia(q) ? mag >= 4.0 : mag >= 5.0;
     })
