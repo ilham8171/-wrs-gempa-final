@@ -7,6 +7,7 @@ on:
     paths:
       - "functions/api/earthquakes.js"
       - "app.js"
+      - "workers/push-cron.js"
       - ".github/workflows/wrs-api-smoke.yml"
   schedule:
     - cron: "*/15 * * * *"
@@ -21,8 +22,19 @@ concurrency:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check app.js
+          cp functions/api/earthquakes.js /tmp/earthquakes.mjs
+          cp workers/push-cron.js /tmp/push-cron.mjs
+          node --check /tmp/earthquakes.mjs
+          node --check /tmp/push-cron.mjs
+
       - name: Check production API contract
         env:
           API_URL: https://wrs-gempa-final.pages.dev/api/earthquakes
@@ -38,6 +50,8 @@ jobs:
           if (data?.ok !== true) throw new Error("API did not return ok=true");
           if (!Array.isArray(data.recent)) throw new Error("recent must be an array");
           if (!Array.isArray(data.realtimeEvents)) throw new Error("realtimeEvents must be an array");
+          if (!Array.isArray(data.tsunamiHistory)) throw new Error("tsunamiHistory must be an array");
+          if (!data.sources || typeof data.sources !== "object") throw new Error("Source health summary is missing");
           console.log("API refreshSeconds=" + String(data.refreshSeconds) + " fetchedAt=" + String(data.fetchedAt));
           if (!Number.isFinite(Number(data.refreshSeconds)) || Number(data.refreshSeconds) > 10) {
             throw new Error("API refresh interval must be 10 seconds or less; received " + String(data.refreshSeconds));
@@ -55,10 +69,25 @@ jobs:
               throw new Error("realtimeEvents contains a historical or non-WRS event");
             }
           }
+          for (const item of data.tsunamiHistory) {
+            if (item?.isTsunamiWarning !== true || !item?.source) {
+              throw new Error("tsunamiHistory contains an event without official warning/source labels");
+            }
+            if (item.sshBounds != null) {
+              const b = item.sshBounds;
+              if (![b.minLat,b.minLon,b.maxLat,b.maxLon].every(v => Number.isFinite(Number(v)))) {
+                throw new Error("SSHmax bounds are incomplete");
+              }
+              if (!(Number(b.minLat) < Number(b.maxLat) && Number(b.minLon) < Number(b.maxLon))) {
+                throw new Error("SSHmax bounds are invalid");
+              }
+            }
+          }
           console.log(JSON.stringify({
             ok: data.ok,
             recentCount: data.recent.length,
             realtimeCount: data.realtimeEvents.length,
+            tsunamiBulletinCount: data.tsunamiHistory.length,
             wrsConnected: data.sources.wrs.ok,
             upstreamErrors: data.sources.errors || []
           }, null, 2));
