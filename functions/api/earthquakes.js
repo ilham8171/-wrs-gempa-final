@@ -108,10 +108,10 @@ async function attachUSGSShakemaps(events) {
   const candidates = events
     .filter(q => q.source === "USGS" && q.detailUrl && q.magnitude >= 4)
     .sort((a,b) => Number(indonesia(b))-Number(indonesia(a)) || b.magnitude-a.magnitude || new Date(b.time||0)-new Date(a.time||0))
-    .slice(0, 12);
+    .slice(0, 4);
   await Promise.all(candidates.map(async q => {
     try {
-      const detail = await getJson(q.detailUrl);
+      const detail = await getJson(q.detailUrl, false, 1800);
       const products = detail?.properties?.products?.shakemap || [];
       const product = products.find(p => p?.contents) || products[0];
       const contents = product?.contents || {};
@@ -201,8 +201,9 @@ function parseTsunamiCapXml(xml) {
   }
   return list.sort((a,b) => new Date(b.time || 0) - new Date(a.time || 0));
 }
-async function getText(url) {
+async function getText(url, timeoutMs = 5000) {
   const res = await fetch(url, {
+    signal: AbortSignal.timeout(timeoutMs),
     headers: { accept: "application/xml,text/xml,*/*", referer: "https://inatews.bmkg.go.id/web/tsunami" },
     cf: { cacheTtl: 30, cacheEverything: true }
   });
@@ -210,9 +211,10 @@ async function getText(url) {
   return res.text();
 }
 
-async function getJson(url, live = false) {
+async function getJson(url, live = false, timeoutMs = 5000) {
   const requestUrl = live ? url + (url.includes("?") ? "&" : "?") + "_wrs_ts=" + Date.now() : url;
   const res = await fetch(requestUrl, {
+    signal: AbortSignal.timeout(timeoutMs),
     headers: { accept: "application/json", ...(live ? { "cache-control": "no-cache" } : {}) },
     ...(live ? { cf: { cacheTtl: 0, cacheEverything: false } } : { cf: { cacheTtl: 10, cacheEverything: true } })
   });
