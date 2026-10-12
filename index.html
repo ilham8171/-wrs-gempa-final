@@ -564,7 +564,7 @@
       }
       if (alertNews) {
         const news = Array.isArray(payload.news) ? payload.news : [];
-        alertNews.innerHTML = news.length ? news.slice(0,5).map(item=>'<a class="wrs-alert-news-card" href="'+escAlert(item.url)+'" target="_blank" rel="noopener noreferrer"><span>'+escAlert(item.category||'INFO BMKG')+'</span><strong>'+escAlert(item.title)+'</strong><small>'+escAlert(item.date||'Sumber resmi BMKG')+'</small><em>Baca ringkasan ↗</em></a>').join('') : '<div class="wrs-alert-empty">Belum ada siaran pers terkait yang berhasil dimuat.</div>';
+        alertNews.innerHTML = news.length ? news.slice(0,5).map(item=>'<article class="wrs-alert-news-card"><span>'+escAlert(item.category||'INFO BMKG')+'</span><strong>'+escAlert(item.title)+'</strong>'+(item.summary?'<p>'+escAlert(item.summary)+'</p>':'<p>Ringkasan singkat belum tersedia. Buka sumber resmi untuk membaca isi lengkap.</p>')+'<small>'+escAlert(item.date||'Ringkasan dari halaman resmi BMKG')+'</small><a href="'+escAlert(item.url)+'" target="_blank" rel="noopener noreferrer">Baca sumber resmi ↗</a></article>').join('') : '<div class="wrs-alert-empty">Belum ada siaran pers terkait yang berhasil dimuat.</div>';
       }
     } catch (_) {
       if (alertList) alertList.innerHTML='<div class="wrs-alert-empty">Peringatan dini belum dapat dimuat saat ini.<br><a href="https://www.bmkg.go.id/alerts/nowcast/id" target="_blank" rel="noopener noreferrer">Buka peringatan resmi BMKG ↗</a></div>';
