@@ -472,7 +472,7 @@
 <script>
 /* Mobile app navigation: Peta / Info Gempa / Legenda. Desktop DOM remains unchanged. */
 (function () {
-  if (!window.matchMedia('(max-width: 900px)').matches) return;
+  if (!window.matchMedia('(max-width: 1200px)').matches) return;
   const body = document.body;
   const mapPage = document.createElement('section');
   mapPage.id = 'mobilePageMap';
@@ -517,8 +517,7 @@
       panel.classList.remove('sheet-collapsed');
       panel.style.height=''; panel.style.maxHeight='';
       panel.scrollTop=0;
-      if (name === 'alerts') alertPage.appendChild(panel);
-      else infoPage.appendChild(panel);
+      if (panel.parentElement !== infoPage) infoPage.appendChild(panel);
     }
     if (name === 'alerts') {
       loadWrsBmkgAlerts();
@@ -542,7 +541,7 @@
     } catch (e) { console.warn('Mobile map resize failed', e); }
   }
   nav.addEventListener('click',e=>{const b=e.target.closest('button[data-page]');if(b)showPage(b.dataset.page);});
-  window.addEventListener('resize',()=>{ if(window.matchMedia('(min-width: 901px)').matches) location.reload(); },{passive:true});
+  window.addEventListener('resize',()=>{ if(window.matchMedia('(min-width: 1201px)').matches) location.reload(); },{passive:true});
   showPage('map');
 
   const alertList = document.getElementById('wrsAlertList');
@@ -558,19 +557,114 @@
       if (!response.ok) throw new Error('HTTP '+response.status);
       const payload = await response.json();
       const items = Array.isArray(payload.alerts) ? payload.alerts : [];
+      activeAlertItems = items;
+      activeNewsItems = Array.isArray(payload.news) ? payload.news.slice(0,8) : [];
       if (alertList) {
         alertList.dataset.loaded='1';
-        alertList.innerHTML = items.length ? items.map(item=>'<article class="wrs-alert-card '+escAlert((item.severity||'').toLowerCase())+'"><div class="wrs-alert-card-top"><span class="wrs-alert-badge">PERINGATAN AKTIF</span><time>'+escAlert(item.updated||'BMKG')+'</time></div><h3>'+escAlert(item.title)+'</h3><p>'+escAlert(item.description)+'</p><div class="wrs-alert-area">📍 '+escAlert(item.area||'Wilayah terdampak tercantum pada rilis BMKG')+'</div><a href="'+escAlert(item.url)+'" target="_blank" rel="noopener noreferrer">Detail resmi BMKG ↗</a></article>').join('') : '<div class="wrs-alert-empty"><span class="wrs-alert-safe">✓</span><strong>Tidak ada peringatan dini cuaca aktif yang ditemukan.</strong><small>Ini bukan jaminan bebas risiko. Periksa kembali jika kondisi cuaca berubah.</small></div>';
+        alertList.innerHTML = items.length ? items.map((item,index)=>'<article class="wrs-alert-card '+escAlert((item.severity||'').toLowerCase())+'"><div class="wrs-alert-card-top"><span class="wrs-alert-badge">PERINGATAN AKTIF</span><time>'+escAlert(item.updated||'BMKG')+'</time></div><h3>'+escAlert(item.title)+'</h3><p>'+escAlert(item.description)+'</p><div class="wrs-alert-area">📍 '+escAlert(item.area||'Wilayah terdampak tercantum pada rilis BMKG')+'</div><div class="wrs-alert-actions"><button type="button" data-alert-detail="alert" data-alert-index="'+index+'">Lihat detail</button><button type="button" data-alert-image="alert" data-alert-index="'+index+'">Unduh gambar</button><button type="button" data-alert-share="alert" data-alert-index="'+index+'">Bagikan</button></div><small class="wrs-alert-source">Sumber: BMKG · '+escAlert(item.url)+'</small></article>').join('') : '<div class="wrs-alert-empty"><span class="wrs-alert-safe">✓</span><strong>Tidak ada peringatan dini cuaca aktif yang ditemukan.</strong><small>Ini bukan jaminan bebas risiko. Periksa kembali jika kondisi cuaca berubah.</small></div>';
       }
       if (alertNews) {
         const news = Array.isArray(payload.news) ? payload.news : [];
-        alertNews.innerHTML = news.length ? news.slice(0,5).map(item=>'<article class="wrs-alert-news-card"><span>'+escAlert(item.category||'INFO BMKG')+'</span><strong>'+escAlert(item.title)+'</strong>'+(item.summary?'<p>'+escAlert(item.summary)+'</p>':'<p>Ringkasan singkat belum tersedia. Buka sumber resmi untuk membaca isi lengkap.</p>')+'<small>'+escAlert(item.date||'Ringkasan dari halaman resmi BMKG')+'</small><a href="'+escAlert(item.url)+'" target="_blank" rel="noopener noreferrer">Baca sumber resmi ↗</a></article>').join('') : '<div class="wrs-alert-empty">Belum ada siaran pers terkait yang berhasil dimuat.</div>';
+        alertNews.innerHTML = news.length ? news.slice(0,8).map((item,index)=>'<article class="wrs-alert-news-card"><span>'+escAlert(item.category||'INFO BMKG')+'</span><strong>'+escAlert(item.title)+'</strong>'+(item.summary?'<p>'+escAlert(item.summary)+'</p>':'<p>Ringkasan singkat belum tersedia. Detail sumber tetap dapat dilihat dari panel informasi.</p>')+'<small>'+escAlert(item.date||'Ringkasan dari halaman resmi BMKG')+'</small><div class="wrs-alert-actions"><button type="button" data-alert-detail="news" data-alert-index="'+index+'">Lihat detail</button><button type="button" data-alert-image="news" data-alert-index="'+index+'">Unduh gambar</button><button type="button" data-alert-share="news" data-alert-index="'+index+'">Bagikan</button></div><small class="wrs-alert-source">Sumber: BMKG</small></article>').join('') : '<div class="wrs-alert-empty">Belum ada siaran pers terkait yang berhasil dimuat.</div>';
       }
     } catch (_) {
       if (alertList) alertList.innerHTML='<div class="wrs-alert-empty">Peringatan dini belum dapat dimuat saat ini.<br><a href="https://www.bmkg.go.id/alerts/nowcast/id" target="_blank" rel="noopener noreferrer">Buka peringatan resmi BMKG ↗</a></div>';
       if (alertNews) alertNews.innerHTML='<div class="wrs-alert-empty">Informasi berita sementara tidak tersedia.<br><a href="https://www.bmkg.go.id/berita" target="_blank" rel="noopener noreferrer">Berita BMKG</a> · <a href="https://www.bmkg.go.id/siaran-pers" target="_blank" rel="noopener noreferrer">Siaran pers</a></div>';
     } finally { alertBusy=false; }
   }
+
+  // Detail warnings/news are shown inside WRS GEMPA; the source link is retained as attribution.
+  let activeAlertItems = [], activeNewsItems = [];
+  function ensureWrsDetailModal() {
+    let modal = document.getElementById('wrsAlertDetailModal');
+    if (modal) return modal;
+    modal = document.createElement('section');
+    modal.id = 'wrsAlertDetailModal';
+    modal.className = 'wrs-alert-detail-modal';
+    modal.setAttribute('role','dialog'); modal.setAttribute('aria-modal','true');
+    modal.innerHTML = '<div class="wrs-alert-detail-sheet"><button type="button" class="wrs-alert-detail-close" aria-label="Tutup">×</button><div class="wrs-alert-detail-content"></div></div>';
+    document.body.appendChild(modal);
+    modal.querySelector('.wrs-alert-detail-close').addEventListener('click',()=>modal.classList.remove('open'));
+    modal.addEventListener('click',e=>{if(e.target===modal)modal.classList.remove('open');});
+    document.addEventListener('keydown',e=>{if(e.key==='Escape')modal.classList.remove('open');});
+    return modal;
+  }
+  function getAlertItem(kind,index){return kind==='alert'?activeAlertItems[index]:activeNewsItems[index];}
+  function alertText(item,kind){
+    const title=item.title||'Informasi resmi BMKG';
+    const body=item.description||item.summary||'Ringkasan resmi belum tersedia.';
+    const category=kind==='alert'?'PERINGATAN DINI CUACA BMKG':(item.category||'BERITA / SIARAN PERS BMKG');
+    return {title,body,category,source:item.url||'https://www.bmkg.go.id'};
+  }
+  function showAlertDetail(item,kind){
+    const data=alertText(item,kind), modal=ensureWrsDetailModal();
+    modal.querySelector('.wrs-alert-detail-content').innerHTML='<span class="wrs-alert-detail-kicker">'+escAlert(data.category)+'</span><h2>'+escAlert(data.title)+'</h2><p>'+escAlert(data.body)+'</p><p class="wrs-alert-detail-source">Sumber resmi: BMKG<br>'+escAlert(data.source)+'</p><div class="wrs-alert-actions"><button type="button" data-detail-image>Unduh gambar 9:16</button><button type="button" data-detail-share>Bagikan</button><a href="'+escAlert(data.source)+'" target="_blank" rel="noopener noreferrer">Lihat sumber resmi ↗</a></div>';
+    modal.dataset.kind=kind; modal.dataset.index=String(kind==='alert'?activeAlertItems.indexOf(item):activeNewsItems.indexOf(item));
+    modal.classList.add('open');
+    modal.querySelector('[data-detail-image]').onclick=()=>downloadAlertImages(item,kind);
+    modal.querySelector('[data-detail-share]').onclick=()=>shareAlertItem(item,kind);
+  }
+  function wrapAlertText(ctx,text,x,y,maxWidth,lineHeight,maxLines){
+    const words=String(text||'').split(/\s+/); let line='',lines=0;
+    for(const word of words){const test=line?line+' '+word:word;if(ctx.measureText(test).width>maxWidth&&line){ctx.fillText(line,x,y);y+=lineHeight;line=word;lines++;if(lines>=maxLines)return y;}else line=test;}
+    if(line&&lines<maxLines){ctx.fillText(line,x,y);y+=lineHeight;}return y;
+  }
+  function buildAlertCanvases(item,kind){
+    const d=alertText(item,kind), text=(d.body||'').match(/[\s\S]{1,900}(?:\s|$)/g)||[d.body];
+    const chunks=[]; let chunk='';
+    for(const piece of text){if((chunk+piece).length>850&&chunk){chunks.push(chunk.trim());chunk='';}chunk+=piece;}
+    if(chunk.trim())chunks.push(chunk.trim());
+    const pages=[]; const total=Math.max(1,chunks.length);
+    for(let i=0;i<total;i++){
+      const canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1920;
+      const ctx=canvas.getContext('2d');
+      const grad=ctx.createLinearGradient(0,0,1080,1920);grad.addColorStop(0,'#07111f');grad.addColorStop(1,'#102b40');ctx.fillStyle=grad;ctx.fillRect(0,0,1080,1920);
+      ctx.fillStyle='#29c4e8';ctx.fillRect(70,82,100,10);
+      ctx.fillStyle='#a9eaff';ctx.font='bold 30px Arial';ctx.fillText('WRS GEMPA  ·  INFORMASI RESMI',70,145);
+      ctx.fillStyle=kind==='alert'?'#ffc76a':'#80e4f7';ctx.font='bold 26px Arial';ctx.fillText(d.category.toUpperCase().slice(0,42),70,220);
+      ctx.fillStyle='#f4f8ff';ctx.font='bold 54px Arial';
+      let y=310;y=wrapAlertText(ctx,d.title,70,y,940,68,5)+35;
+      ctx.fillStyle='#d5e4f0';ctx.font='30px Arial';y=wrapAlertText(ctx,chunks[i]||d.body,70,y,940,48,22);
+      ctx.fillStyle='#86a8bf';ctx.font='23px Arial';ctx.fillText('Sumber: BMKG · '+(i+1)+'/'+total,70,1760);
+      ctx.fillStyle='#6ed9f0';ctx.font='22px Arial';wrapAlertText(ctx,d.source,70,1810,940,32,2);
+      ctx.fillStyle='#9cb4c7';ctx.font='20px Arial';ctx.fillText('Ikuti peringatan resmi dan arahan petugas setempat.',70,1880);
+      pages.push(canvas);
+    }return pages;
+  }
+  async function downloadAlertImages(item,kind){
+    const pages=buildAlertCanvases(item,kind);
+    for(let i=0;i<pages.length;i++){
+      const blob=await new Promise(resolve=>pages[i].toBlob(resolve,'image/png'));
+      if(!blob)continue;
+      const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+      a.download='wrs-bmkg-'+(kind==='alert'?'peringatan':'siaran-pers')+'-'+(i+1)+'-dari-'+pages.length+'.png';
+      document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+      if(i<pages.length-1)await new Promise(resolve=>setTimeout(resolve,350));
+    }
+  }
+  async function shareAlertItem(item,kind){
+    const d=alertText(item,kind), text=d.category+'\n'+d.title+'\n\n'+d.body+'\n\nSumber: BMKG '+d.source;
+    try{
+      const files=[];
+      if(window.File&&navigator.canShare&&navigator.share){
+        const canvas=buildAlertCanvases(item,kind)[0], blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+        if(blob)files.push(new File([blob],'wrs-bmkg.png',{type:'image/png'}));
+        if(files.length&&navigator.canShare({files})){await navigator.share({title:d.title,text,files});return;}
+      }
+      if(navigator.share){await navigator.share({title:d.title,text,url:d.source});return;}
+      await navigator.clipboard.writeText(text);alert('Ringkasan dan sumber berhasil disalin. Kamu bisa menempelkannya ke aplikasi berbagi.');
+    }catch(e){if(e&&e.name!=='AbortError')alert('Berbagi tidak tersedia di browser ini. Gunakan tombol unduh gambar.');}
+  }
+  document.addEventListener('click',e=>{
+    const detail=e.target.closest('[data-alert-detail]'); const imageBtn=e.target.closest('[data-alert-image]'); const shareBtn=e.target.closest('[data-alert-share]');
+    if(detail||imageBtn||shareBtn){
+      const btn=detail||imageBtn||shareBtn, item=getAlertItem(btn.dataset.alertDetail||btn.dataset.alertImage||btn.dataset.alertShare,Number(btn.dataset.alertIndex));
+      if(!item)return;
+      if(detail)showAlertDetail(item,btn.dataset.alertDetail);
+      else if(imageBtn)downloadAlertImages(item,btn.dataset.alertImage);
+      else shareAlertItem(item,btn.dataset.alertShare);
+    }
+  });
   document.getElementById('wrsAlertRefresh')?.addEventListener('click',loadWrsBmkgAlerts);
   setInterval(()=>{if(document.body.dataset.mobilePage==='alerts')loadWrsBmkgAlerts();},5*60*1000);
 })();
