@@ -29,7 +29,7 @@ function parseRss(xml) {
   }).filter(Boolean).slice(0, 100);
 }
 function articleMedia(html, baseUrl) {
-  const metaTags = html.match(/<meta\\b[^>]*>/gi) || [];
+  const metaTags = html.match(/<meta\b[^>]*>/gi) || [];
   let image = "";
   for (const tag of metaTags) {
     if (/(?:property|name)=["'](?:og:image|twitter:image)["']/i.test(tag)) {
@@ -38,19 +38,19 @@ function articleMedia(html, baseUrl) {
     }
   }
   if (!image) {
-    const imgs = html.match(/<img\\b[^>]*>/gi) || [];
+    const imgs = html.match(/<img\b[^>]*>/gi) || [];
     for (const tag of imgs) {
       const src = (tag.match(/(?:src|data-src)=["']([^"']+)["']/i) || [, ""])[1] || "";
       if (src && !/(logo|icon|avatar|banner.*bmkg)/i.test(src)) { image = src; break; }
     }
   }
   try { image = image ? new URL(image, baseUrl).href : ""; } catch { image = ""; }
-  if (image && !/^https:\\/\\/(?:www\\.)?bmkg\\.go\\.id\\//i.test(image)) image = "";
+  if (image && !/^https:\/\/(?:[a-z0-9-]+\.)*bmkg\.go\.id\//i.test(image)) image = "";
   const tables = [];
-  const tableHtml = html.match(/<table\\b[^>]*>[\\s\\S]*?<\\/table>/gi) || [];
+  const tableHtml = html.match(/<table\b[^>]*>[\s\S]*?<\/table>/gi) || [];
   for (const table of tableHtml.slice(0, 4)) {
-    const rows = (table.match(/<tr\\b[^>]*>[\\s\\S]*?<\\/tr>/gi) || []).map(row =>
-      (row.match(/<t[dh]\\b[^>]*>[\\s\\S]*?<\\/t[dh]>/gi) || []).map(cell => strip(cell))
+    const rows = (table.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi) || []).map(row =>
+      (row.match(/<t[dh]\b[^>]*>[\s\S]*?<\/t[dh]>/gi) || []).map(cell => strip(cell))
         .filter(Boolean)
     ).filter(row => row.length);
     if (rows.length) tables.push({ rows: rows.slice(0, 14).map(row => row.slice(0, 6)) });
