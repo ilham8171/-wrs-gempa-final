@@ -689,9 +689,11 @@ function showRealtimeUpdate(info, append = false) {
   el.classList.toggle("rev-big", revisionHistory.some(item => item.significant));
   const escapeRealtimeText = value => String(value == null ? "—" : value).replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
   const rows = revisionHistory.map((item) => {
-    const tag = item.significant ? "REVISI BESAR" : "PEMUTAKHIRAN";
+    const ageMs = Date.now() - new Date(item.time).getTime();
+    const active = Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 5 * 60 * 1000;
+    const tag = active ? (item.significant ? "REVISI BESAR" : "PEMUTAKHIRAN") : "";
     const stamp = new Date(item.time).toLocaleTimeString("id-ID", {hour:"2-digit",minute:"2-digit",second:"2-digit"});
-    return `<div class="rt-upd-row"><span class="rt-upd-tag">${tag}</span><span class="rt-upd-txt">${escapeRealtimeText(item.place)} · ${item.parts.map(escapeRealtimeText).join(" · ")}</span><time class="rt-upd-time">${stamp}</time></div>`;
+    return `<div class="rt-upd-row"><span class="rt-upd-tag ${active ? "" : "is-expired"}">${tag}</span><span class="rt-upd-txt">${escapeRealtimeText(item.place)} · ${item.parts.map(escapeRealtimeText).join(" · ")}</span><time class="rt-upd-time">${stamp}</time></div>`;
   }).join("");
   el.innerHTML = `<div class="rt-upd-heading">RIWAYAT PEMUTAKHIRAN PARAMETER · ${revisionHistory.length}</div>${rows}`;
 }
@@ -3027,11 +3029,40 @@ function buildExportPages(q){ const isTs=!!(q.isTsunamiWarning||isTsunamiPotenti
 /**
  * Simpan sebagai PNG tajam (kartu terang) + watermark
  */
+function showExportResult(title, message, actions = []) {
+  let modal = document.getElementById("wrsExportResult");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "wrsExportResult";
+    modal.className = "wrs-export-result";
+    modal.innerHTML = '<div class="wrs-export-backdrop"></div><section class="wrs-export-sheet" role="dialog" aria-modal="true" aria-labelledby="wrsExportTitle"><button type="button" class="wrs-export-close" aria-label="Tutup">×</button><div class="wrs-export-mark">✓</div><h2 id="wrsExportTitle"></h2><p class="wrs-export-message"></p><div class="wrs-export-actions"></div></section>';
+    document.body.appendChild(modal);
+    modal.querySelector(".wrs-export-close").onclick = () => modal.classList.remove("is-open");
+    modal.querySelector(".wrs-export-backdrop").onclick = () => modal.classList.remove("is-open");
+  }
+  modal.querySelector("h2").textContent = title;
+  modal.querySelector(".wrs-export-message").textContent = message;
+  const actionsEl = modal.querySelector(".wrs-export-actions");
+  actionsEl.replaceChildren();
+  actions.forEach(action => {
+    const button = document.createElement("button");
+    button.type = "button"; button.className = "wrs-export-action " + (action.primary ? "primary" : "");
+    button.textContent = action.label;
+    button.onclick = () => { modal.classList.remove("is-open"); action.run?.(); };
+    actionsEl.appendChild(button);
+  });
+  if (!actions.length) {
+    const button = document.createElement("button");
+    button.type = "button"; button.className = "wrs-export-action primary"; button.textContent = "Selesai";
+    button.onclick = () => modal.classList.remove("is-open"); actionsEl.appendChild(button);
+  }
+  modal.classList.add("is-open");
+}
 async function saveModalAsImage(_cardEl, filename) {
   const q = window._modalQuake;
   if (!q) return;
   if (typeof html2canvas !== "function") {
-    alert("Library gambar belum termuat. Coba refresh halaman.");
+    showExportResult("Gambar belum siap", "Komponen gambar belum termuat. Periksa koneksi lalu coba lagi.", [{label:"Coba Lagi",primary:true,run:()=>saveModalAsImage(_cardEl,filename)}]);
     return;
   }
   const defs = buildExportPages(q);
@@ -3079,11 +3110,15 @@ async function saveModalAsImage(_cardEl, filename) {
         showLoading("Menyimpan PNG " + saved + " dari " + defs.length + "…");
       } finally { el.remove(); }
     }
-    if (nativeGallery) alert("Berhasil! " + saved + " gambar PNG tersimpan di Galeri > Album WRS GEMPA.");
-    else alert("Berhasil menyiapkan " + saved + " gambar PNG satu per satu. Jika browser meminta izin unduhan, izinkan.");
+    showExportResult("Gambar berhasil disiapkan", saved + " gambar PNG berhasil dibuat" + (nativeGallery ? " dan disimpan ke Galeri · Album WRS GEMPA." : " untuk diunduh melalui browser."), [
+      ...(nativeGallery ? [{label:"Buka Galeri",primary:true,run:()=>{ try { if(window.AndroidWrs && typeof window.AndroidWrs.openGallery==="function") window.AndroidWrs.openGallery(); else window.location.href="content://media/external/images/media"; } catch(_) {} }}] : []),
+      {label:"Bagikan",run:()=>shareQuake(q)},
+      {label:"Unduh Lagi",run:()=>saveModalAsImage(_cardEl,filename)},
+      {label:"Selesai"}
+    ]);
   } catch (err) {
     console.warn("Penyimpanan gambar PNG gagal:", err);
-    alert("Gagal menyimpan gambar. " + saved + " dari " + defs.length + " berhasil. " + (err?.message || "Coba refresh halaman lalu ulangi."));
+    showExportResult("Penyimpanan belum selesai", saved + " dari " + defs.length + " gambar berhasil disimpan. " + (err?.message || "Periksa koneksi/izin penyimpanan lalu coba lagi."), [{label:"Coba Lagi",primary:true,run:()=>saveModalAsImage(_cardEl,filename)},{label:"Selesai"}]);
   } finally { hideLoading(); }
 }
 $("#btnShare")?.addEventListener("click", () => shareQuake(window._modalQuake));
