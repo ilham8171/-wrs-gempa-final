@@ -298,8 +298,9 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   ]);
   const list=[];
   const qlEvents=[];
+  const bmkgFeedNames = ["BMKG autogempa.json", "BMKG gempaterkini.json", "BMKG gempadirasakan.json"];
   results.slice(0,3).forEach((r,i)=>{
-    if(r.status!=="fulfilled"){errors.push("BMKG "+i);return;}
+    if(r.status!=="fulfilled"){errors.push(bmkgFeedNames[i] + " gagal diakses");return;}
     const g=r.value?.Infogempa?.gempa;
     (Array.isArray(g)?g:g?[g]:[]).forEach(x=>{const q=mapPublic(x);if(q)list.push(q);});
   });
