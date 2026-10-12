@@ -429,9 +429,14 @@
 </div>
 
 <!-- Loading overlay -->
-<div id="loadingOverlay" class="loading-overlay hidden">
-  <div class="loading-spinner"></div>
-  <div class="loading-text">Memuat data…</div>
+<div id="loadingOverlay" class="loading-overlay hidden" role="status" aria-live="polite">
+  <div class="wrs-loading-card">
+    <div class="wrs-loading-brand"><span class="wrs-loading-mark">W</span><span><strong>WRS GEMPA</strong><small>EARTHQUAKE MONITORING</small></span></div>
+    <div class="loading-spinner"></div>
+    <div class="loading-text">Menyiapkan pemantauan gempa…</div>
+    <div class="wrs-loading-stages"><span class="active">● Menyiapkan data</span><span>○ Memuat peta</span><span>○ Menyelesaikan tampilan</span></div>
+    <small class="wrs-loading-note">Data sebelumnya tetap dipertahankan jika sumber sedang lambat.</small>
+  </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
