@@ -906,7 +906,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible { 
 
 
 /* MOBILE APP SHELL: dedicated full-page screens, replacing the overlapping bottom-sheet layout. */
-@media (max-width:900px) {
+@media (max-width:1200px) {
   body { overflow:hidden !important; }
   .mobile-page {
     display:none !important; position:fixed !important; inset:0 !important;
@@ -915,7 +915,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible { 
   }
   .mobile-page.active { display:block !important; }
   #mobilePageMap { z-index:10 !important; }
-  #mobilePageInfo, #mobilePageLegend {
+  #mobilePageInfo, #mobilePageLegend, #mobilePageAlerts {
     z-index:40 !important; overflow-y:auto !important; overflow-x:hidden !important;
     padding:calc(10px + env(safe-area-inset-top,0px)) 12px calc(86px + env(safe-area-inset-bottom,0px)) !important;
     -webkit-overflow-scrolling:touch !important;
@@ -1025,6 +1025,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible { 
 }
 
 
+
+#mobilePageAlerts{overflow-y:auto!important;overflow-x:hidden!important;touch-action:pan-y!important;-webkit-overflow-scrolling:touch!important;overscroll-behavior-y:contain!important}
 /* Four-tab mobile navigation: consistent with the approved navy/cyan/red visual system. */
 @media (max-width:900px) {
   .mobile-bottom-nav {
