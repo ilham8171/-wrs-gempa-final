@@ -3049,19 +3049,29 @@ function buildExportPages(q){ const isTs=!!(q.isTsunamiWarning||isTsunamiPotenti
 /**
  * Simpan sebagai PNG tajam (kartu terang) + watermark
  */
-function showExportResult(title, message, actions = []) {
+function showExportResult(title, message, actions = [], previews = []) {
   let modal = document.getElementById("wrsExportResult");
   if (!modal) {
     modal = document.createElement("div");
     modal.id = "wrsExportResult";
     modal.className = "wrs-export-result";
-    modal.innerHTML = '<div class="wrs-export-backdrop"></div><section class="wrs-export-sheet" role="dialog" aria-modal="true" aria-labelledby="wrsExportTitle"><button type="button" class="wrs-export-close" aria-label="Tutup">×</button><div class="wrs-export-mark">✓</div><h2 id="wrsExportTitle"></h2><p class="wrs-export-message"></p><div class="wrs-export-actions"></div></section>';
+    modal.innerHTML = '<div class="wrs-export-backdrop"></div><section class="wrs-export-sheet" role="dialog" aria-modal="true" aria-labelledby="wrsExportTitle"><button type="button" class="wrs-export-close" aria-label="Tutup">×</button><div class="wrs-export-mark">✓</div><h2 id="wrsExportTitle"></h2><p class="wrs-export-message"></p><div class="wrs-export-previews"></div><div class="wrs-export-actions"></div></section>';
     document.body.appendChild(modal);
     modal.querySelector(".wrs-export-close").onclick = () => modal.classList.remove("is-open");
     modal.querySelector(".wrs-export-backdrop").onclick = () => modal.classList.remove("is-open");
   }
   modal.querySelector("h2").textContent = title;
   modal.querySelector(".wrs-export-message").textContent = message;
+  const previewEl = modal.querySelector(".wrs-export-previews");
+  previewEl.replaceChildren();
+  previews.forEach((preview, index) => {
+    const figure = document.createElement("figure");
+    figure.className = "wrs-export-preview";
+    const img = document.createElement("img");
+    img.src = preview.src; img.alt = preview.label || ("Pratinjau gambar " + (index + 1));
+    const caption = document.createElement("figcaption"); caption.textContent = preview.label || ("Gambar " + (index + 1));
+    figure.append(img, caption); previewEl.appendChild(figure);
+  });
   const actionsEl = modal.querySelector(".wrs-export-actions");
   actionsEl.replaceChildren();
   actions.forEach(action => {
@@ -3088,6 +3098,7 @@ async function saveModalAsImage(_cardEl, filename) {
   const defs = buildExportPages(q);
   const base = (filename || "info-gempa.png").replace(/\.png$/i, "");
   let saved = 0;
+  const previews = [];
   const nativeGallery = !!(window.AndroidWrs && typeof window.AndroidWrs.saveImage === "function");
   showLoading("Membuat " + defs.length + " gambar PNG…");
   try {
@@ -3106,6 +3117,11 @@ async function saveModalAsImage(_cardEl, filename) {
           logging: false, scrollX: 0, scrollY: 0, width: 390, height: 693,
           windowWidth: 390, windowHeight: 693
         });
+        const thumb = document.createElement("canvas");
+        thumb.width = 156; thumb.height = 278;
+        const thumbContext = thumb.getContext("2d");
+        if (thumbContext) thumbContext.drawImage(canvas, 0, 0, thumb.width, thumb.height);
+        previews.push({src: thumb.toDataURL("image/jpeg", 0.78), label: "Halaman " + (i + 1) + " · " + def.label});
         const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
         if (!blob) throw new Error("Gagal membuat gambar halaman " + (i + 1));
         const pageName = base + "_" + String(i + 1).padStart(2, "0") + "_" + def.label + ".png";
@@ -3135,10 +3151,10 @@ async function saveModalAsImage(_cardEl, filename) {
       {label:"Bagikan",run:()=>shareQuake(q)},
       {label:"Unduh Lagi",run:()=>saveModalAsImage(_cardEl,filename)},
       {label:"Selesai"}
-    ]);
+    ], previews);
   } catch (err) {
     console.warn("Penyimpanan gambar PNG gagal:", err);
-    showExportResult("Penyimpanan belum selesai", saved + " dari " + defs.length + " gambar berhasil disimpan. " + (err?.message || "Periksa koneksi/izin penyimpanan lalu coba lagi."), [{label:"Coba Lagi",primary:true,run:()=>saveModalAsImage(_cardEl,filename)},{label:"Selesai"}]);
+    showExportResult("Penyimpanan belum selesai", saved + " dari " + defs.length + " gambar berhasil disimpan. " + (err?.message || "Periksa koneksi/izin penyimpanan lalu coba lagi."), [{label:"Coba Lagi",primary:true,run:()=>saveModalAsImage(_cardEl,filename)},{label:"Selesai"}], previews);
   } finally { hideLoading(); }
 }
 $("#btnShare")?.addEventListener("click", () => shareQuake(window._modalQuake));
