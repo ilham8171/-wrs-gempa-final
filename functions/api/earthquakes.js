@@ -335,7 +335,7 @@ function qlFeatures(value) {
   if (Array.isArray(value)) return value;
   return [];
 }
-export async function onRequestGet({ request, waitUntil } = {}) {
+async function handleEarthquakesRequest({ request, waitUntil } = {}) {
   // Share a single upstream refresh across clients in the same Cloudflare edge location.
   // The browser polls every 4s; this 7s freshness window lets the next poll reuse the
   // same response, while a later poll refreshes the upstream feeds roughly every 8s.
@@ -501,8 +501,9 @@ export async function onRequestGet({ request, waitUntil } = {}) {
     ...(ntwc.status==="fulfilled" ? parseNoaaTsunamiCap(ntwc.value, "NTWC") : [])
   ].sort((a,b) => new Date(b.time || 0) - new Date(a.time || 0)).slice(0, 40);
   const tsunamiGovActive = tsunamiGovMessages.filter(q => q.active);
-  if(ptwc.status!=="fulfilled") errors.push("tsunami.gov PTWC CAP");
-  if(ntwc.status!=="fulfilled") errors.push("tsunami.gov NTWC CAP");
+  // tsunami.gov is a supplemental international feed, not a dependency of the
+  // BMKG/InaTEWS earthquake API. Report its health separately so a temporary
+  // NOAA outage does not mark the primary Indonesian realtime service degraded.
   // Riwayat dari feed yang parsial tidak boleh menghapus buletin lama yang masih
   // tersimpan. Gabungkan berdasarkan identitas buletin (event + PD), urut terbaru,
   // lalu batasi ke 30. Arsip ini TIDAK menentukan apakah peringatan sedang aktif.
@@ -642,7 +643,7 @@ export async function onRequestGet({ request, waitUntil } = {}) {
     fallbackHeaders.set("x-wrs-data-age-seconds", String(staleEdgeAgeSeconds ?? ""));
     return new Response(JSON.stringify(fallback), { status: 200, headers: fallbackHeaders });
   }
-  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,tsunamiGovMessages,tsunamiGovActive,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,tsunamiGov:{ptwcOk:ptwc.status==="fulfilled",ntwcOk:ntwc.status==="fulfilled",messageCount:tsunamiGovMessages.length,activeCount:tsunamiGovActive.length,coverage:"supplemental"},client:false,errors}}),{status:200,headers});
+  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,tsunamiGovMessages,tsunamiGovActive,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,tsunamiGov:{ptwcOk:ptwc.status==="fulfilled",ntwcOk:ntwc.status==="fulfilled",messageCount:tsunamiGovMessages.length,activeCount:tsunamiGovActive.length,coverage:"supplemental",errors:[...(ptwc.status!=="fulfilled"?["tsunami.gov PTWC CAP"]:[]),...(ntwc.status!=="fulfilled"?["tsunami.gov NTWC CAP"]:[])]},client:false,errors}}),{status:200,headers});
   if (edgeCache && edgeCacheKey) {
     try {
       const cacheHeaders = new Headers(response.headers);
@@ -656,4 +657,48 @@ export async function onRequestGet({ request, waitUntil } = {}) {
     } catch (_) { /* Never fail the live API solely because edge caching failed. */ }
   }
   return response;
+}
+
+
+// Fail-safe for unexpected handler exceptions: serve the last known-good API
+// payload with an explicit stale marker rather than letting one transient
+// exception blank the WRS screen with an HTTP 5xx. This does not fabricate data.
+export async function onRequestGet(context = {}) {
+  try {
+    return await handleEarthquakesRequest(context);
+  } catch (error) {
+    const request = context.request;
+    const edgeCache = typeof caches !== "undefined" ? caches.default : null;
+    if (edgeCache && request?.url) {
+      try {
+        const cacheUrl = new URL(request.url);
+        cacheUrl.search = "";
+        cacheUrl.searchParams.set("_wrs_edge_cache", "v1");
+        const cached = await edgeCache.match(new Request(cacheUrl.toString(), { method: "GET" }));
+        if (cached) {
+          const data = await cached.json();
+          if (data?.ok === true && Array.isArray(data.recent) && data.recent.length) {
+            const oldFetch = Date.parse(data.fetchedAt || "");
+            const age = Number.isFinite(oldFetch) ? Math.max(0, Math.floor((Date.now() - oldFetch) / 1000)) : null;
+            data.sources = {
+              ...(data.sources || {}),
+              staleCache: true,
+              staleAgeSeconds: age,
+              errors: [...new Set([...(data.sources?.errors || []), "API internal sementara gagal; data terakhir yang tersimpan dipertahankan"])]
+            };
+            const responseHeaders = new Headers(headers);
+            responseHeaders.set("x-wrs-cache", "STALE-ERROR-FALLBACK");
+            responseHeaders.set("x-wrs-data-age-seconds", age == null ? "unknown" : String(age));
+            return new Response(JSON.stringify(data), { status: 200, headers: responseHeaders });
+          }
+        }
+      } catch (_) { /* No usable last-known-good response. */ }
+    }
+    return new Response(JSON.stringify({
+      ok: false,
+      error: "API gempa sementara tidak tersedia",
+      fetchedAt: null,
+      sources: { errors: ["API internal sementara gagal: " + String(error?.message || error).slice(0, 160)] }
+    }), { status: 503, headers });
+  }
 }
