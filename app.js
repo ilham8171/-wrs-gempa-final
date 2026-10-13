@@ -244,6 +244,7 @@ async function fetchClientSide() {
     "https://data.bmkg.go.id/DataMKG/TEWS/gempadirasakan.json",
   ];
   const pub = [];
+  let publicFeedCount = 0;
   await Promise.all(urls.map(async (url) => {
     try {
       const r = await fetch(url + "?t=" + Date.now(), {
@@ -252,6 +253,10 @@ async function fetchClientSide() {
       if (!r.ok) return;
       const j = await r.json();
       const g = j?.Infogempa?.gempa;
+      // Count healthy BMKG endpoints separately from the number of earthquake
+      // records they contain. A feed can return many events, but still counts
+      // as one of the three configured public feeds.
+      if (g && (Array.isArray(g) || typeof g === "object")) publicFeedCount++;
       if (Array.isArray(g)) g.forEach((x) => { const n = normPublic(x); if (n) pub.push(n); });
       else if (g) { const n = normPublic(g); if (n) pub.push(n); }
     } catch { /* skip */ }
@@ -342,7 +347,7 @@ async function fetchClientSide() {
     realtimeEvents,
     count: recent.length,
     sources: {
-      client: true, public: pub.length, inaQL: ql.length,
+      client: true, public: publicFeedCount, publicEvents: pub.length, inaQL: ql.length,
       wrs: { ok: wrsFeedOk, eventCount: realtimeEvents.length },
       errors: wrsFeedOk ? [] : ["Feed realtime WRS langsung belum terverifikasi"]
     },
@@ -2170,7 +2175,12 @@ function updateDiagnostics(data = null, error = null, simulation = false) {
       return;
     }
     const fetchedAt = Date.parse(data?.fetchedAt || "");
-    const ageSeconds = Number.isFinite(fetchedAt) ? Math.max(0, Math.floor((Date.now() - fetchedAt) / 1000)) : null;
+    // If the server timestamp is absent/invalid but this device did receive a
+    // structurally valid payload, report the device receipt age explicitly
+    // instead of hiding a known successful receipt behind "Waktu fetch tidak tersedia".
+    const deviceReceiptFallback = !Number.isFinite(fetchedAt) && lastSuccessfulLoadAt > 0;
+    const effectiveFetchAt = Number.isFinite(fetchedAt) ? fetchedAt : (deviceReceiptFallback ? lastSuccessfulLoadAt : NaN);
+    const ageSeconds = Number.isFinite(effectiveFetchAt) ? Math.max(0, Math.floor((Date.now() - effectiveFetchAt) / 1000)) : null;
     const source = data?.sources || {};
     const sourceErrors = Array.isArray(source.errors) ? source.errors : [];
     const isFallback = source.clientFallback === true || source.wrs?.ok === false;
@@ -2193,7 +2203,9 @@ function updateDiagnostics(data = null, error = null, simulation = false) {
     put("diagSources", sourceParts.join(" · ") || "Status sumber belum tersedia");
     put("diagFetchAge", ageSeconds == null
       ? "Waktu fetch tidak tersedia"
-      : (isFallback ? ageSeconds + " detik sejak data diterima perangkat (API utama gagal)" : ageSeconds + " detik sejak fetch API"));
+      : deviceReceiptFallback
+        ? ageSeconds + " detik sejak data diterima perangkat (waktu fetch server tidak tersedia)"
+        : (isFallback ? ageSeconds + " detik sejak data diterima perangkat (API utama gagal)" : ageSeconds + " detik sejak fetch API"));
     put("diagLastSuccess", lastSuccessfulLoadAt ? new Date(lastSuccessfulLoadAt).toLocaleString("id-ID") : "Belum ada fetch sukses sejak halaman dibuka");
     put("diagRetries", consecutiveLoadFailures);
     put("diagError", error ? String(error.message || error).slice(0, 180) :
