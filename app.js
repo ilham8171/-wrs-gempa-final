@@ -459,9 +459,9 @@ function parseMmi(felt) {
 function isTsunamiPotential(pot) {
   if (!pot) return false;
   const s = String(pot).toLowerCase();
-  // USGS's tsunami flag indicates an event classification, not an active warning.
-  // Never turn that flag alone into a BMKG/InaTEWS warning or alarm.
-  if (/usgs\s*:/.test(s) && /bukan\s*otomatis\s*peringatan\s*aktif/.test(s)) return false;
+  // USGS tsunami=1 is metadata for an event, NOT an active local warning.
+  // Never open the evacuation alert from a USGS flag or generic USGS headline.
+  if (/\busgs\b|event terkait tsunami|tsunami flag/i.test(s)) return false;
   return /tsunami|berpotensi|awas|siaga|waspada/i.test(s) &&
     !/tidak\s*(ada\s*)?berpotensi|tidak\s*ada\s*potensi|tidak ada potensi|bukan\s*otomatis\s*peringatan\s*aktif/i.test(s);
 }
@@ -490,14 +490,33 @@ function getFilteredQuakes() {
   });
 }
 
+function countCurrentTsunamiWarnings(history) {
+  if (!Array.isArray(history)) return 0;
+  const latestByEvent = new Map();
+  for (const q of history) {
+    const id = String(q?.eventid || q?.key || q?.place || "");
+    if (!id) continue;
+    const previous = latestByEvent.get(id);
+    const time = new Date(q?.timesent || q?.time || 0).getTime();
+    const previousTime = new Date(previous?.timesent || previous?.time || 0).getTime();
+    if (!previous || (Number.isFinite(time) && time > previousTime)) latestByEvent.set(id, q);
+  }
+  const now = Date.now();
+  return [...latestByEvent.values()].filter(q => {
+    const time = new Date(q?.timesent || q?.time || 0).getTime();
+    return q?.source === "InaTEWS" && !isTsunamiEnded(q) &&
+      Number.isFinite(time) && time > 0 && now >= time && now - time <= 6 * 60 * 60 * 1000;
+  }).length;
+}
+
 function updateStats(list) {
   const all = quakes;
   const strong = all.filter(q => q.magnitude >= 4).length;
   const felt = all.filter(q => q.felt && String(q.felt).trim()).length;
   // Prioritas: daftar resmi InaTEWS last-30 tsunami; fallback potensi di katalog
-  const tsunami =
-    tsunamiHistory.length ||
-    all.filter((q) => isTsunamiPotential(q.potential)).length;
+  // Counter only represents recent, non-ended official bulletins; the 30-item
+  // InaTEWS archive must not be displayed as 30 active tsunami warnings.
+  const tsunami = countCurrentTsunamiWarnings(tsunamiHistory);
   const set = (id, value) => { const el = $(id); if (el) el.textContent = String(value); };
   set("#statTotal", list.length);
   set("#statStrong", strong);
@@ -1259,28 +1278,34 @@ function openTsunamiModal(q) {
     (subject.match(/PD[-\s]?([\d.]+)/i) || [])[1] ||
     "";
   const ended = isTsunamiEnded(q);
+  const bulletinTime = new Date(q?.timesent || q?.time || 0).getTime();
+  const bulletinFresh = Number.isFinite(bulletinTime) && bulletinTime > 0 &&
+    Date.now() >= bulletinTime && Date.now() - bulletinTime <= 6 * 60 * 60 * 1000;
+  const activeVerified = q?.source === "InaTEWS" && !ended && bulletinFresh;
 
   $("#tsunamiTitle").textContent = pd
-    ? `WARNING TSUNAMI PD-${pd}`
+    ? `BULETIN TSUNAMI PD-${pd}`
     : /awas/i.test(pot)
-    ? "PERINGATAN TSUNAMI — AWAS"
-    : "PERINGATAN TSUNAMI";
-  // Subtitle = status berakhir / masih aktif (bukan ulang judul)
+    ? "INFORMASI TSUNAMI — AWAS"
+    : "INFORMASI TSUNAMI";
+  // Old archive entries must never be presented as currently active.
   $("#tsunamiSubtitle").textContent = ended
-    ? "✅ Status: Dinyatakan TELAH BERAKHIR oleh BMKG/InaTEWS"
-    : "⚠️ Status: MASIH AKTIF / pantau terus informasi resmi BMKG";
+    ? "✅ Status: Buletin menyatakan peringatan TELAH BERAKHIR"
+    : activeVerified
+      ? "⚠️ Buletin InaTEWS terbaru — segera cek status resmi BMKG saat ini"
+      : "ℹ️ BUletin lama/arsip — status aktif tidak terverifikasi. Periksa InaTEWS resmi sebelum bertindak.";
 
   $("#tsunamiPotText").textContent = q.headline || pot;
 
   const card = $("#tsunamiCard");
   const header = card?.querySelector(".tsunami-header");
   if (card) {
-    card.classList.toggle("tsunami-ended", ended);
-    card.classList.toggle("tsunami-active", !ended);
+    card.classList.toggle("tsunami-ended", ended || !activeVerified);
+    card.classList.toggle("tsunami-active", activeVerified);
   }
   if (header) {
-    header.style.background = ended
-      ? "linear-gradient(90deg,#14532d,#15803d 40%,#166534)"
+    header.style.background = (ended || !activeVerified)
+      ? "linear-gradient(90deg,#334155,#475569 40%,#334155)"
       : "";
   }
 
@@ -1292,7 +1317,9 @@ function openTsunamiModal(q) {
   ].filter(Boolean);
   $("#tsunamiInstrText").textContent =
     instrParts.join(" ") ||
-    "Segera menjauh dari pantai, muara, dan daerah rawan tsunami. Ikuti arahan petugas setempat. Pantau informasi resmi BMKG/InaTEWS.";
+    (activeVerified
+      ? "Ikuti arahan resmi BMKG/InaTEWS dan petugas setempat. Jika berada di pesisir dan merasakan gempa kuat/lama atau melihat air laut surut tidak biasa, segera menuju tempat tinggi tanpa menunggu aplikasi."
+      : "Ini bukan konfirmasi peringatan tsunami aktif. Periksa buletin dan status terbaru di situs resmi BMKG/InaTEWS.");
 
   const mmiItems = parseMmi(q.felt);
   const list = $("#tsunamiAreaList");
@@ -2461,7 +2488,30 @@ async function load(showSpin, force = false) {
           };
           lastApiError = null;
         } else {
-          throw new Error("API utama gagal dan sumber cadangan belum mengirim data: " + apiFailure);
+          let saved = null;
+          try { saved = JSON.parse(localStorage.getItem("wrsLastGoodCatalogV1") || "null"); } catch {}
+          if (Array.isArray(saved?.recent) && saved.recent.length) {
+            d = {
+              ok: true,
+              fetchedAt: new Date(Number(saved.savedAt || 0)).toISOString(),
+              recent: saved.recent,
+              count: saved.recent.length,
+              realtime: null,
+              realtimeEvents: [],
+              official: saved.recent.find(q => q?.official) || saved.recent[0],
+              tsunamiHistory: Array.isArray(saved.tsunamiHistory) ? saved.tsunamiHistory : [],
+              sources: {
+                clientFallback: true,
+                staleLocalCache: true,
+                apiError: apiFailure,
+                wrs: { ok: false },
+                errors: ["API utama gagal dan sumber cadangan tidak tersedia; menampilkan data tersimpan sebagai arsip"]
+              }
+            };
+            lastApiError = null;
+          } else {
+            throw new Error("API utama gagal dan sumber cadangan belum mengirim data: " + apiFailure);
+          }
         }
       }
     }
