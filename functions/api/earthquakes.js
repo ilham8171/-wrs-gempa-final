@@ -424,11 +424,25 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   const tsunami=results[7];
   let tsunamiHistory=tsunami.status==="fulfilled" ? parseTsunamiCapXml(tsunami.value) : [];
   if(tsunami.status!=="fulfilled") errors.push("InaTEWS tsunami");
-  // Feed riwayat yang kosong/tidak terbaca tidak boleh menghapus 30 buletin terakhir
-  // yang masih tersimpan di edge cache. Ini bukan status aktif; hanya mempertahankan arsip.
-  if (!tsunamiHistory.length && staleEdgeData?.tsunamiHistory?.length) {
-    tsunamiHistory = staleEdgeData.tsunamiHistory;
-    errors.push("InaTEWS tsunami: memakai riwayat terakhir tersimpan");
+  // Riwayat dari feed yang parsial tidak boleh menghapus buletin lama yang masih
+  // tersimpan. Gabungkan berdasarkan identitas buletin (event + PD), urut terbaru,
+  // lalu batasi ke 30. Arsip ini TIDAK menentukan apakah peringatan sedang aktif.
+  if (staleEdgeData?.tsunamiHistory?.length) {
+    const merged = new Map();
+    for (const q of [...tsunamiHistory, ...staleEdgeData.tsunamiHistory]) {
+      if (!q || typeof q !== "object") continue;
+      const id = String(q.key || (String(q.eventid || "") + "|" + String(q.pd || q.subject || "")));
+      if (!id) continue;
+      const prev = merged.get(id);
+      if (!prev || new Date(q.timesent || q.time || 0).getTime() > new Date(prev.timesent || prev.time || 0).getTime()) merged.set(id, q);
+    }
+    const liveHistoryCount = tsunamiHistory.length;
+    tsunamiHistory = [...merged.values()]
+      .sort((a,b) => new Date(b.timesent || b.time || 0).getTime() - new Date(a.timesent || a.time || 0).getTime())
+      .slice(0, 30);
+    if (liveHistoryCount < 30 && staleEdgeData.tsunamiHistory.length > liveHistoryCount) {
+      errors.push("InaTEWS tsunami: riwayat parsial digabung dengan arsip terakhir tersimpan");
+    }
   }
   // Prioritaskan data resmi BMKG, lalu feed WRS live, katalog InaTEWS, dan USGS.
   const eventPriority = q => q.source === "BMKG" && q.official ? 4 :
