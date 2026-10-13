@@ -8,8 +8,15 @@ const $ = (s) => document.querySelector(s);
 let map, markers, miniMap, miniMarker, faultLayer, radiusLayer, latestStarLayer, baseLayer, histMap, tsunamiMapLayer;
 let userMarker = null;
 let quakes = [];
-/** Riwayat peringatan dini tsunami dari InaTEWS (last30tsunamievent.xml) */
+/** Riwayat peringatan dini tsunami dari InaTEWS (last30tsunamievent.xml).
+ * Pulihkan dari katalog terakhir agar gangguan API tidak mengosongkan riwayat. */
 let tsunamiHistory = [];
+try {
+  const cachedCatalog = JSON.parse(localStorage.getItem("wrsLastGoodCatalogV1") || "null");
+  if (Array.isArray(cachedCatalog?.tsunamiHistory) && cachedCatalog.tsunamiHistory.length) {
+    tsunamiHistory = cachedCatalog.tsunamiHistory;
+  }
+} catch { /* Abaikan cache lokal yang rusak; data live akan mengisi ulang. */ }
 let alarmOn = false;
 let audioCtx = null;
 let firstLoad = true;
@@ -2537,7 +2544,10 @@ async function load(showSpin, force = false) {
         savedAt: Date.now(),
         recent: incoming,
         realtimeEvents: Array.isArray(d.realtimeEvents) ? d.realtimeEvents : [],
-        tsunamiHistory: Array.isArray(d.tsunamiHistory) ? d.tsunamiHistory : []
+        // Jangan pernah menimpa riwayat yang tersimpan dengan array kosong saat feed tsunami gagal/berubah format.
+        tsunamiHistory: Array.isArray(d.tsunamiHistory) && d.tsunamiHistory.length
+          ? d.tsunamiHistory
+          : tsunamiHistory
       }));
     } catch (storageError) {
       console.warn("Katalog WRS tidak dapat disimpan ke penyimpanan lokal.", storageError);
@@ -2560,7 +2570,10 @@ async function load(showSpin, force = false) {
     }
     const oldFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
     quakes = incoming;
-    if (Array.isArray(d.tsunamiHistory)) { tsunamiHistory = d.tsunamiHistory; renderOfficialTsunamiMap(); }
+    if (Array.isArray(d.tsunamiHistory) && d.tsunamiHistory.length) {
+      tsunamiHistory = d.tsunamiHistory;
+      renderOfficialTsunamiMap();
+    }
     // Saat pertama kali dibuka, pusatkan peta tepat pada marker event terbaru
     // yang ditampilkan di daftar/peta. Jangan mengganggu posisi pengguna saat refresh berikutnya.
     if (!window.__wrsInitialMapCentered && map) {
