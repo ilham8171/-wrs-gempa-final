@@ -335,15 +335,12 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   const historyQL=results[4];
   const liveQL = ql.status === "fulfilled" ? qlFeatures(ql.value).map(mapQL).filter(Boolean) : [];
   if (ql.status !== "fulfilled") errors.push("InaTEWS lastQL");
-  // Bound the historical catalogue before merging/deduplication. A large upstream
-  // archive must not exhaust the Pages Function CPU/memory budget and turn the
-  // entire live endpoint into an HTTP 503. Live lastQL remains untruncated.
-  // Limit raw upstream records BEFORE parsing/sorting. Slicing only after map()
-  // still processes the entire historical catalogue and can exhaust Pages CPU,
-  // returning HTTP 503 during busy periods.
+  // Bound historical and global raw records before mapping/sorting. Keep the live
+  // lastQL stream intact, while preventing large catalogues from consuming the
+  // Pages Function CPU budget and turning the endpoint into HTTP 503.
   const historyEvents = historyQL.status === "fulfilled"
-    ? qlFeatures(historyQL.value).slice(0, 800).map(mapQL).filter(Boolean)
-        .sort((a, b) => validEventTime(b.time) - validEventTime(a.time)).slice(0, 400)
+    ? qlFeatures(historyQL.value).slice(0, 350).map(mapQL).filter(Boolean)
+        .sort((a, b) => validEventTime(b.time) - validEventTime(a.time)).slice(0, 250)
     : [];
   if (historyQL.status !== "fulfilled") errors.push("InaTEWS gempaQL");
   liveQL.forEach(q => {
@@ -395,7 +392,7 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   // raw records before mapping to keep CPU use predictable without affecting
   // the separate, higher-priority BMKG/InaTEWS live feeds.
   const usgsGlobalFeatures = usgs.status==="fulfilled" && Array.isArray(usgs.value?.features)
-    ? usgs.value.features.slice(0, 500) : [];
+    ? usgs.value.features.slice(0, 300) : [];
   if(usgs.status==="fulfilled") {
     usgsGlobalFeatures.forEach(f=>{const q=mapUSGS(f, 5);if(q)list.push(q);});
   } else {
