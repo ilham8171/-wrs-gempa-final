@@ -100,13 +100,117 @@ function mapQL(f) {
 }
 function mapUSGS(f, minimumMagnitude = 5) {
   const p=f?.properties||{}, c=f?.geometry?.coordinates||[], mag=num(p.mag), lon=num(c[0]), lat=num(c[1]), flag=Number(p.tsunami)===1;
-  // Global feed normally stays M5+, but preserve events explicitly flagged
-  // by USGS as tsunami-related even when their reported magnitude is lower.
-  // This metadata is not confirmation of an active tsunami warning.
-  if (!Number.isFinite(mag) || (mag < minimumMagnitude && !flag)) return null;
+  // The supplemental global catalogue is strictly M5.0+.
+  // USGS's tsunami flag is metadata only and must not bypass the magnitude filter.
+  if (!Number.isFinite(mag) || mag < minimumMagnitude) return null;
   if (!Number.isFinite(lat)||!Number.isFinite(lon)) return null;
   return {key:"usgs|"+String(f.id||p.code||p.time),eventid:String(f.id||""),magnitude:Number.isFinite(mag)?Math.round(mag*10)/10:0,lat,lon,place:String(p.place||"Gempa global"),depth:String(c[2]??"—"),time:isoTimeOrEmpty(p.time),potential:flag?"USGS menandai event terkait tsunami — periksa buletin resmi":"—",felt:"",source:"USGS",status:"USGS",official:false,usgsTsunamiFlag:flag,eventUrl:String(p.url||""),detailUrl:String(p.detail||""),shakemap:null};
 }
+
+// Cache expensive, already-normalized optional catalogues at the edge. The main
+// API still refreshes InaTEWS lastQL live; these caches prevent repeatedly parsing
+// the much larger history/global feeds on every 10-second catalogue refresh.
+function normalizedFeedCacheKey(request, name) {
+  if (!request?.url) return null;
+  try {
+    const url = new URL(request.url);
+    url.pathname = "/__wrs_internal_cache__/" + name;
+    url.search = "";
+    url.hash = "";
+    return new Request(url.toString(), { method: "GET" });
+  } catch (_) {
+    return null;
+  }
+}
+async function readNormalizedFeedCache(cache, key) {
+  if (!cache || !key) return null;
+  try {
+    const response = await cache.match(key);
+    if (!response) return null;
+    const payload = await response.json();
+    const fetchedAtMs = Date.parse(payload?.fetchedAt || "");
+    if (!Array.isArray(payload?.events) || !Number.isFinite(fetchedAtMs)) return null;
+    return { events: payload.events, fetchedAtMs, ageMs: Date.now() - fetchedAtMs };
+  } catch (_) {
+    return null;
+  }
+}
+async function writeNormalizedFeedCache(cache, key, events) {
+  if (!cache || !key || !Array.isArray(events)) return;
+  try {
+    const payload = { fetchedAt: new Date().toISOString(), events };
+    await cache.put(key, new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        // Keep a stale copy available; freshness is checked against fetchedAt below.
+        "cache-control": "public, max-age=86400"
+      }
+    }));
+  } catch (_) {
+    // Optional cache storage must never make the live API fail.
+  }
+}
+async function loadNormalizedFeed({ cache, request, name, ttlMs, load, map }) {
+  const key = normalizedFeedCacheKey(request, name);
+  const cached = await readNormalizedFeedCache(cache, key);
+  const cachedAgeMs = cached ? Date.now() - cached.fetchedAtMs : Infinity;
+  if (cached && cachedAgeMs >= 0 && cachedAgeMs <= ttlMs) {
+    return {
+      status: "fulfilled", value: cached.events, cacheHit: true, stale: false,
+      cacheAgeSeconds: Math.floor(cachedAgeMs / 1000)
+    };
+  }
+  try {
+    const raw = await load();
+    const events = map(raw);
+    if (!Array.isArray(events)) throw new Error(name + " menghasilkan data yang tidak valid");
+    await writeNormalizedFeedCache(cache, key, events);
+    return { status: "fulfilled", value: events, cacheHit: false, stale: false, cacheAgeSeconds: 0 };
+  } catch (error) {
+    // Optional catalogue failures are isolated: reuse the last normalized copy
+    // when available, rather than escalating a USGS/history issue to API HTTP 503.
+    if (cached && cachedAgeMs >= 0 && Array.isArray(cached.events)) {
+      return {
+        status: "fulfilled", value: cached.events, cacheHit: true, stale: true,
+        cacheAgeSeconds: Math.floor(cachedAgeMs / 1000),
+        sourceError: String(error?.message || error).slice(0, 180)
+      };
+    }
+    return { status: "rejected", reason: error };
+  }
+}
+async function loadCachedHistoryEvents(options) {
+  return loadNormalizedFeed({
+    ...options,
+    name: "inatews-gempa-history-v1",
+    ttlMs: 5 * 60 * 1000,
+    load: () => getJson(GCS + "/gempaQL.json", false, 4500, 300),
+    map: value => {
+      if (!(Array.isArray(value?.features) || value?.type === "Feature" || Array.isArray(value))) {
+        throw new Error("respons InaTEWS gempaQL tidak memiliki daftar fitur");
+      }
+      return qlFeatures(value).slice(0, 350).map(mapQL).filter(Boolean)
+        .sort((a, b) => (Date.parse(b.time || "") || 0) - (Date.parse(a.time || "") || 0))
+        .slice(0, 250)
+        .map(q => ({ ...q, source: "InaTEWS", wrsRealtime: false }));
+    }
+  });
+}
+async function loadCachedUSGSEvents(options) {
+  return loadNormalizedFeed({
+    ...options,
+    name: "usgs-global-m5-v1",
+    ttlMs: 60 * 1000,
+    load: async () => {
+      const value = await getJson(USGS, false, 4500, 60);
+      if (!Array.isArray(value?.features)) throw new Error("respons USGS global tidak memiliki daftar fitur");
+      return value;
+    },
+    map: value => value.features.slice(0, 300).map(feature => mapUSGS(feature, 5)).filter(Boolean)
+  });
+}
+
 async function attachUSGSShakemaps(events) {
   const indonesia = q => q.lat >= -11 && q.lat <= 6.5 && q.lon >= 94 && q.lon <= 141.5;
   const candidates = events
@@ -428,14 +532,17 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
     return 6371 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(Math.max(0, 1 - x)));
   };
   const errors=[];
-  const results=await Promise.allSettled([
-    ...BMKG_URLS.map(url=>getBmkgFeed(url)),
-    getJson(GCS+"/lastQL.json", true, 3500),
-    getJson(GCS+"/gempaQL.json"),
-    // USGS can respond slower than the local BMKG feeds; allow a little more
-    // time before marking the optional backup source unavailable.
-    getJson(USGS, false, 6500),
-    getText("https://cdn.bmkg.go.id/last30tsunamievent.xml"),
+  const [results, historyQL, usgs] = await Promise.all([
+    Promise.allSettled([
+      ...BMKG_URLS.map(url=>getBmkgFeed(url)),
+      // This live feed remains uncached and is checked on every actual edge refresh.
+      getJson(GCS+"/lastQL.json", true, 3500),
+      getText("https://cdn.bmkg.go.id/last30tsunamievent.xml"),
+    ]),
+    // Historical and global catalogues are normalized once per cache window;
+    // they are optional and have their own stale-cache fallback.
+    loadCachedHistoryEvents({ cache: edgeCache, request }),
+    loadCachedUSGSEvents({ cache: edgeCache, request })
   ]);
   const list=[];
   const qlEvents=[];
@@ -447,17 +554,18 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
   });
   // lastQL.json adalah feed realtime terbaru; gempaQL.json adalah katalog/riwayat.
   const ql=results[3];
-  const historyQL=results[4];
   const liveQL = ql.status === "fulfilled" ? qlFeatures(ql.value).map(mapQL).filter(Boolean) : [];
   if (ql.status !== "fulfilled") errors.push("InaTEWS lastQL");
   // Bound historical and global raw records before mapping/sorting. Keep the live
   // lastQL stream intact, while preventing large catalogues from consuming the
   // Pages Function CPU budget and turning the endpoint into HTTP 503.
-  const historyEvents = historyQL.status === "fulfilled"
-    ? qlFeatures(historyQL.value).slice(0, 350).map(mapQL).filter(Boolean)
-        .sort((a, b) => validEventTime(b.time) - validEventTime(a.time)).slice(0, 250)
-    : [];
-  if (historyQL.status !== "fulfilled") errors.push("InaTEWS gempaQL");
+  const historyEvents = historyQL.status === "fulfilled" ? historyQL.value : [];
+  if (historyQL.status !== "fulfilled") {
+    errors.push("InaTEWS gempaQL: " + String(historyQL.reason?.message || "katalog riwayat tidak tersedia").slice(0, 180));
+  } else if (historyQL.stale) {
+    errors.push("InaTEWS gempaQL: memakai cache riwayat (" + historyQL.cacheAgeSeconds +
+      " detik); pembaruan gagal: " + String(historyQL.sourceError || "sumber sementara gagal").slice(0, 120));
+  }
   liveQL.forEach(q => {
     q.source = "InaTEWS WRS";
     q.wrsRealtime = true;
@@ -502,21 +610,21 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
   historyEvents.forEach(q => { q.source = "InaTEWS"; q.wrsRealtime = false; list.push(q); });
   qlEvents.push(...liveQL);
   // Jangan pernah menyamarkan katalog historis sebagai feed realtime bila lastQL gagal/kosong.
-  const usgs=results[5];
-  // USGS weekly global feed can grow large. Its feed is newest-first, so cap
-  // raw records before mapping to keep CPU use predictable without affecting
-  // the separate, higher-priority BMKG/InaTEWS live feeds.
-  const usgsGlobalFeatures = usgs.status==="fulfilled" && Array.isArray(usgs.value?.features)
-    ? usgs.value.features.slice(0, 300) : [];
-  if(usgs.status==="fulfilled") {
-    usgsGlobalFeatures.forEach(f=>{const q=mapUSGS(f, 5);if(q)list.push(q);});
+  // These events are already normalized and served from a short-lived edge cache.
+  // A temporary global-feed outage must not force a full catalogue rebuild failure.
+  if(usgs.status === "fulfilled") {
+    usgs.value.forEach(q => list.push(q));
+    if (usgs.stale) {
+      errors.push("USGS global: memakai cache sebelumnya (" + usgs.cacheAgeSeconds +
+        " detik); pembaruan gagal: " + String(usgs.sourceError || "sumber sementara gagal").slice(0, 120));
+    }
   } else {
     errors.push("USGS global: " + String(usgs.reason?.message || "permintaan gagal").slice(0,120));
   }
   // Jangan menunggu permintaan detail ShakeMap USGS untuk mengirim katalog.
   // Peta USGS dimuat on-demand ketika pengguna membuka detail event; ini menjaga
   // polling operasional tetap cepat dan tidak membebani feed pada setiap refresh.
-  const tsunami=results[6];
+  const tsunami=results[4];
   let tsunamiHistory=tsunami.status==="fulfilled" ? parseTsunamiCapXml(tsunami.value) : [];
   if(tsunami.status!=="fulfilled") errors.push("InaTEWS tsunami");
   // Riwayat dari feed yang parsial tidak boleh menghapus buletin lama yang masih
@@ -638,7 +746,8 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
   const realtime=liveEvents[0] || null;
   // If every earthquake feed failed, or the combined catalogue suddenly becomes empty,
   // serve the last known good catalogue instead of making the monitor appear to go blank.
-  const anyQuakeSourceAvailable = results.slice(0, 6).some(r => r.status === "fulfilled");
+  const anyQuakeSourceAvailable = results.slice(0, 4).some(r => r.status === "fulfilled") ||
+    historyQL.status === "fulfilled" || usgs.status === "fulfilled";
   if (staleEdgeData && staleEdgeData.recent?.length &&
       (!anyQuakeSourceAvailable || recent.length === 0)) {
     const fallback = {
@@ -658,7 +767,7 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
     fallbackHeaders.set("x-wrs-data-age-seconds", String(staleEdgeAgeSeconds ?? ""));
     return new Response(JSON.stringify(fallback), { status: 200, headers: fallbackHeaders });
   }
-  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:recent.filter(q=>q.source==="USGS").length,usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
+  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):historyQL.stale?("Cache riwayat digunakan; refresh gagal: "+String(historyQL.sourceError||"sumber sementara gagal")):null,cached:historyQL.cacheHit===true,cacheAgeSeconds:historyQL.cacheAgeSeconds??null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:recent.filter(q=>q.source==="USGS").length,usgsGlobal:usgs.status==="fulfilled"?usgs.value.length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
   if (edgeCache && edgeCacheKey) {
     try {
       const cacheHeaders = new Headers(response.headers);
@@ -721,10 +830,9 @@ export async function onRequestGet(context = {}) {
       const emergencyResults = await Promise.allSettled([
         ...BMKG_URLS.map(url => getBmkgFeed(url)),
         getJson(GCS + "/lastQL.json", true, 2500),
-        // USGS is an independent backup. Keep it in the emergency path so a
-        // temporary BMKG/InaTEWS outage or edge-specific rate limit does not
-        // force HTTP 503 when the global earthquake feed is still available.
-        getJson(USGS, false, 3500, 60)
+        // Reuse the normalized global cache in the emergency path too; avoid
+        // parsing the entire weekly USGS GeoJSON again while recovering.
+        loadCachedUSGSEvents({ cache: edgeCache, request })
       ]);
       const emergencyEvents = [];
       let bmkgOk = 0;
@@ -759,20 +867,15 @@ export async function onRequestGet(context = {}) {
         : [];
       const usgsResult = emergencyResults[4];
       let usgsEmergencyCount = 0;
-      if (usgsResult.status === "fulfilled" && Array.isArray(usgsResult.value?.features)) {
-        usgsResult.value.features.slice(0, 150).forEach(feature => {
-          try {
-            const event = mapUSGS(feature, 5);
-            if (event) {
-              emergencyEvents.push(event);
-              usgsEmergencyCount++;
-            }
-          } catch (mapError) {
-            console.warn("[WRS API] Emergency USGS event skipped:", String(mapError?.message || mapError).slice(0, 120));
-          }
+      const cachedUSGS = usgsResult.status === "fulfilled" ? usgsResult.value : null;
+      if (cachedUSGS?.status === "fulfilled" && Array.isArray(cachedUSGS.value)) {
+        cachedUSGS.value.forEach(event => {
+          emergencyEvents.push(event);
+          usgsEmergencyCount++;
         });
-      } else if (usgsResult.status === "rejected") {
-        console.warn("[WRS API] Emergency USGS feed failed:", String(usgsResult.reason?.message || usgsResult.reason).slice(0, 120));
+      } else {
+        const reason = cachedUSGS?.reason || usgsResult.reason || "USGS global cache/feed tidak tersedia";
+        console.warn("[WRS API] Emergency USGS feed failed:", String(reason?.message || reason).slice(0, 120));
       }
       const inIndonesia = event => Number.isFinite(event.lat) && Number.isFinite(event.lon) &&
         event.lat >= -11 && event.lat <= 6.5 && event.lon >= 94 && event.lon <= 141.5;
