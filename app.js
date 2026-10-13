@@ -295,8 +295,8 @@ async function fetchClientSide() {
     }
   } catch { /* skip */ }
 
-  // Global USGS feed: keep Indonesia-first BMKG/InaTEWS data, plus worldwide M5+
-  // events and events flagged by USGS as tsunami-related.
+  // USGS is supplemental: include worldwide M5.0+ events only. Indonesian
+  // ShakeMap gaps are searched on-demand when a BMKG/InaTEWS event lacks a map.
   let usgs = [];
   try {
     const r = await fetch("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson?t=" + Date.now(), {
@@ -309,7 +309,7 @@ async function fetchClientSide() {
         const coords = f.geometry?.coordinates || [];
         const magnitude = num(p.mag), lon = num(coords[0]), lat = num(coords[1]);
         const tsunami = Number(p.tsunami) === 1;
-        if ((!Number.isFinite(magnitude) || magnitude < 5) && !tsunami) return [];
+        if (!Number.isFinite(magnitude) || magnitude < 5) return [];
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
         const time = p.time ? new Date(p.time).toISOString() : "";
         return [{
@@ -318,7 +318,7 @@ async function fetchClientSide() {
           magnitude: Number.isFinite(magnitude) ? Math.round(magnitude * 10) / 10 : 0,
           lat, lon, place: String(p.place || "Gempa global"),
           depth: Number.isFinite(num(coords[2])) ? String(num(coords[2])) : "—",
-          time, potential: tsunami ? "USGS menandai event terkait tsunami — periksa bulletin resmi" : "—",
+          time, potential: "—",
           felt: "", status: "USGS", source: "USGS", official: false,
           isTsunamiWarning: false, usgsTsunamiFlag: tsunami, detailUrl: String(p.url || ""), detailApiUrl: String(p.detail || ""), usgsEventId: String(f.id || p.code || "")
         }];
