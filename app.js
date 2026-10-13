@@ -1839,7 +1839,8 @@ function processNew() {
 function status(ok, text) {
   const dot = $("#liveDot");
   const label = $("#liveText");
-  if (dot) dot.className = ok ? "ok" : "bad";
+  // Amber is the transitional state; do not turn red/green on a single poll.
+  if (dot) dot.className = ok === "warning" ? "warn" : ok ? "ok" : "bad";
   if (label) label.textContent = text;
 }
 
@@ -2715,11 +2716,11 @@ async function load(showSpin, force = false) {
     const usingFallback = clientFallback || !wrsFeedOk || apiDataStale;
     // Brief blips show as a warning; they do not instantly flip the monitor red/green.
     if (primaryApiHealthState === "unstable") {
-      status(true, "WRS MEMANTAU · CEK KONEKSI");
+      status("warning", "WRS MEMANTAU · CEK KONEKSI");
     } else if (primaryApiHealthState === "recovering") {
-      status(true, "API PULIH · MEMASTIKAN STABIL");
+      status("warning", "API PULIH · MEMASTIKAN STABIL");
     } else if (primaryApiHealthState === "degraded") {
-      status(true, "DATA CADANGAN · RETRY OTOMATIS");
+      status(false, "DATA CADANGAN · RETRY OTOMATIS");
     } else {
       status(true, apiDataStale ? "DATA LAMBAT" : clientFallback
         ? (wrsFeedOk ? "WRS CADANGAN LANGSUNG" : "SUMBER CADANGAN")
@@ -2895,11 +2896,12 @@ async function load(showSpin, force = false) {
     // Setelah 6 kegagalan beruntun, jelaskan bahwa data yang tampil adalah data terakhir,
     // tetapi jangan menampilkan status "OFFLINE" atau "MENYAMBUNG ULANG".
     if (hasCachedEvents && consecutiveLoadFailures < 6) {
+      status("warning", "WRS MEMANTAU · CEK KONEKSI");
       if (health) {
         health.title = "Satu pembaruan gagal; data dan marker terakhir tetap tampil. Pemantauan mencoba kembali otomatis.";
       }
     } else if (hasCachedEvents) {
-      status(true, "DATA TERAKHIR · RETRY OTOMATIS");
+      status("warning", "DATA TERAKHIR · RETRY OTOMATIS");
       if (healthText) healthText.textContent = "PEMBARUAN TERLAMBAT · DATA TERAKHIR DIPERTAHANKAN";
       if (healthTime) healthTime.textContent = lastOkText + " · " + String(e?.message || e).slice(0, 85);
       if (health) {
