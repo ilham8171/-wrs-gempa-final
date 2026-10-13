@@ -2720,29 +2720,41 @@ async function load(showSpin, force = false) {
     } else if (primaryApiHealthState === "recovering") {
       status("warning", "API PULIH · MEMASTIKAN STABIL");
     } else if (primaryApiHealthState === "degraded") {
-      status(false, "DATA CADANGAN · RETRY OTOMATIS");
+      // A failed primary API with retained data is degraded, not a reason to
+      // claim the entire monitor is offline. Keep it amber while retries continue.
+      status("warning", "DATA CADANGAN · RETRY OTOMATIS");
+    } else if (apiDataStale) {
+      status("warning", "DATA TERAKHIR · MEMERIKSA PEMBARUAN");
+    } else if (clientFallback) {
+      status("warning", "SUMBER CADANGAN · RETRY OTOMATIS");
+    } else if (!wrsFeedOk || d.sources?.errors?.length) {
+      // The API can be reachable while one upstream WRS feed is down.
+      // Report that distinction instead of turning the whole indicator red.
+      status("warning", "API TERHUBUNG · MEMERIKSA FEED WRS");
     } else {
-      status(true, apiDataStale ? "DATA LAMBAT" : clientFallback
-        ? (wrsFeedOk ? "WRS CADANGAN LANGSUNG" : "SUMBER CADANGAN")
-        : (wrsFeedOk ? "WRS LIVE" : "CADANGAN · WRS OFFLINE"));
+      status(true, "WRS LIVE");
     }
     const healthText = $("#wrsHealthText");
     const healthTime = $("#wrsLastUpdated");
     const health = $("#wrsHealth");
     if (healthText) {
       healthText.textContent = primaryApiHealthState === "unstable"
-        ? "KONEKSI TIDAK STABIL · DATA TETAP DIPANTAU"
+        ? "KONEKSI SEDANG DIPERIKSA · DATA TETAP DIPANTAU"
         : primaryApiHealthState === "recovering"
           ? "API UTAMA PULIH · MEMASTIKAN STABIL"
           : primaryApiHealthState === "degraded"
             ? (clientFallback
-              ? (wrsFeedOk ? "API UTAMA TERGANGGU · WRS LANGSUNG CADANGAN AKTIF" : "API UTAMA TERGANGGU · DATA CADANGAN BMKG/USGS")
+              ? "API UTAMA TERGANGGU · DATA CADANGAN AKTIF"
               : "PEMBARUAN TERLAMBAT · DATA TERAKHIR DIPERTAHANKAN")
             : apiDataStale
               ? "PEMBARUAN TERLAMBAT · DATA TERAKHIR DIPERTAHANKAN"
               : clientFallback
-                ? (wrsFeedOk ? "API UTAMA TERGANGGU · WRS LANGSUNG CADANGAN AKTIF" : "API UTAMA TERGANGGU · DATA CADANGAN BMKG/USGS")
-                : (wrsFeedOk ? ((d.sources?.errors?.length) ? "WRS TERHUBUNG · DATA PARSIAL" : "WRS REALTIME TERHUBUNG") : (quakes.length ? "WRS OFFLINE · DATA CADANGAN" : "WRS OFFLINE · DATA TIDAK TERSEDIA"));
+                ? "API UTAMA TERGANGGU · SUMBER CADANGAN DIPAKAI"
+                : !wrsFeedOk
+                  ? "API TERJANGKAU · FEED REALTIME WRS BELUM TERKONFIRMASI"
+                  : (d.sources?.errors?.length
+                    ? "WRS TERHUBUNG · SEBAGIAN SUMBER DIPERIKSA"
+                    : "WRS REALTIME TERHUBUNG");
     }
     if (healthTime) {
       const fetchedText = Number.isFinite(fetchedAtMs)
@@ -2758,8 +2770,10 @@ async function load(showSpin, force = false) {
       const partialSources = !!d.sources?.errors?.length;
       const stablePrimaryError = primaryApiHealthState === "degraded";
       const primaryTransition = primaryApiHealthState === "unstable" || primaryApiHealthState === "recovering";
-      const hardError = stablePrimaryError || (apiDataStale && !primaryTransition) || (!wrsFeedOk && !primaryTransition && primaryApiHealthState !== "unknown");
-      const warning = !hardError && (primaryTransition || clientFallback || !wrsFeedOk || partialSources || apiDataStale);
+      // Keep a retained catalogue in warning/amber even after several failed polls.
+      // Red is reserved for a degraded monitor with no usable quake data at all.
+      const hardError = stablePrimaryError && !quakes.length;
+      const warning = !hardError && (primaryTransition || stablePrimaryError || clientFallback || !wrsFeedOk || partialSources || apiDataStale);
       health.classList.toggle("is-error", hardError);
       health.classList.toggle("is-warning", warning);
       const sourceErrors = Array.isArray(d.sources?.errors) ? d.sources.errors : [];
@@ -2905,7 +2919,8 @@ async function load(showSpin, force = false) {
       if (healthText) healthText.textContent = "PEMBARUAN TERLAMBAT · DATA TERAKHIR DIPERTAHANKAN";
       if (healthTime) healthTime.textContent = lastOkText + " · " + String(e?.message || e).slice(0, 85);
       if (health) {
-        health.classList.add("is-error");
+        health.classList.remove("is-error");
+        health.classList.add("is-warning");
         health.title = "Pembaruan belum berhasil setelah beberapa percobaan. Data dan marker terakhir tetap tampil; polling otomatis berlanjut. Penyebab terakhir: " + String(e?.message || e).slice(0, 180);
       }
     } else {
