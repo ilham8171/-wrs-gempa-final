@@ -225,10 +225,17 @@ function parseTsunamiCapXml(xml) {
       sshBoundsRaw.minLat < sshBoundsRaw.maxLat && sshBoundsRaw.minLon < sshBoundsRaw.maxLon &&
       sshBoundsRaw.minLat >= -90 && sshBoundsRaw.maxLat <= 90 &&
       sshBoundsRaw.minLon >= -180 && sshBoundsRaw.maxLon <= 180 ? sshBoundsRaw : null;
-    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+    // Keep a bulletin in the history even when the source omits epicentre coordinates.
+    // Missing coordinates should disable map focus only; they must not remove the record
+    // from the 30-item official bulletin archive.
+    const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lon) &&
+      Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+    if ((Number.isFinite(lat) && Math.abs(lat) > 90) ||
+        (Number.isFinite(lon) && Math.abs(lon) > 180)) continue;
     list.push({
       key: "tsun-" + eventid + "-" + (pd || list.length),
-      eventid, magnitude: Number.isFinite(mag) ? mag : 0, lat, lon, depth,
+      eventid, magnitude: Number.isFinite(mag) ? mag : 0,
+      lat: hasCoordinates ? lat : null, lon: hasCoordinates ? lon : null, depth,
       place: area, time: capEventTime(date, time), date, timeLocal: time,
       potential: potential || "Riwayat peringatan dini tsunami InaTEWS",
       subject: subject || ("WARNING TSUNAMI PD-" + (pd || "?")),
