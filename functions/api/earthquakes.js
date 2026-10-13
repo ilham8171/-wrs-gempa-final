@@ -73,11 +73,15 @@ function mapQL(f) {
   // Pertahankan nama lokasi asli dari feed InaTEWS; jangan menggantinya
   // dengan tebakan wilayah berdasarkan koordinat.
   const place = String(p.place || "Indonesia");
-  const rawDepth = c[2] ?? p.depth;
-  const depthNum = num(rawDepth);
-  const depth = rawDepth != null && String(rawDepth).trim() !== "" && Number.isFinite(depthNum) && depthNum >= 0
-    ? String(depthNum)
-    : "—";
+  // The WRS display's explicit properties.depth is the preferred value when
+  // present; GeoJSON coordinates[2] is only a fallback. Some feed revisions
+  // have disagreed between these two fields, which made our display show 1 km.
+  const depthCandidates = [p.depth, c[2]];
+  const depth = depthCandidates.map(value => {
+    if (value == null || String(value).trim() === "") return null;
+    const n = num(value);
+    return Number.isFinite(n) && n >= 0 ? String(n) : null;
+  }).find(value => value !== null) ?? "—";
   return {key:"ql|"+String(p.id||p.time+"|"+lat+"|"+lon),eventid:String(p.id||p.time+"|"+lat+"|"+lon),magnitude:mag,lat,lon,place,depth,time:p.time?new Date(p.time).toISOString():"",potential:"—",felt:"",source:"InaTEWS",status:"M",wrsRealtime:true};
 }
 function mapUSGS(f, minimumMagnitude = 5) {
