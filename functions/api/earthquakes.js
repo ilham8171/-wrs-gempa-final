@@ -160,6 +160,62 @@ function capValue(block, ...names) {
   }
   return "";
 }
+function parseNoaaTsunamiCap(xml, center) {
+  if (typeof xml !== "string" || !xml.trim()) return [];
+  const alerts = xml.match(/<(?:[\\w.-]+:)?alert\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?alert\\s*>/gi) || [];
+  const out = [];
+  for (const alert of alerts) {
+    const identifier = textBetween(alert, "identifier");
+    const status = textBetween(alert, "status").toLowerCase();
+    const messageType = textBetween(alert, "msgType").toLowerCase();
+    const sent = textBetween(alert, "sent");
+    const infos = alert.match(/<(?:[\\w.-]+:)?info\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?info\\s*>/gi) || [];
+    for (const info of infos) {
+      const event = textBetween(info, "event");
+      const headline = textBetween(info, "headline");
+      const description = textBetween(info, "description");
+      const instruction = textBetween(info, "instruction");
+      const areaDescs = (info.match(/<(?:[\\w.-]+:)?area\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?area\\s*>/gi) || [])
+        .map(area => textBetween(area, "areaDesc")).filter(Boolean);
+      const severity = textBetween(info, "severity");
+      const urgency = textBetween(info, "urgency");
+      const expires = textBetween(info, "expires");
+      const text = [event, headline, description].join(" ");
+      if (!/tsunami/i.test(text)) continue;
+      const active = status === "actual" && !["cancel", "ack"].includes(messageType) &&
+        (!expires || !Number.isFinite(Date.parse(expires)) || Date.parse(expires) > Date.now()) &&
+        !/no tsunami (warning|advisory|watch|threat)|no tsunami threat/i.test(text);
+      const centerName = center === "PTWC" ? "Pacific Tsunami Warning Center" : "National Tsunami Warning Center";
+      out.push({
+        key: "noaa-tsunami|" + center + "|" + (identifier || sent || headline),
+        eventid: identifier || sent || headline,
+        source: "tsunami.gov / NOAA " + center,
+        sourceUrl: "https://www.tsunami.gov/",
+        center: centerName,
+        subject: event || headline || "Pesan tsunami NOAA",
+        headline: headline || event,
+        description,
+        instruction,
+        areas: areaDescs,
+        severity,
+        urgency,
+        status,
+        messageType,
+        sent,
+        expires,
+        active,
+        isTsunamiWarning: active,
+        official: true,
+        potential: active ? (headline || event || "Pesan tsunami aktif dari NOAA") : (headline || event || "Pesan informasi tsunami NOAA"),
+        time: sent && Number.isFinite(Date.parse(sent)) ? new Date(sent).toISOString() : "",
+        ended: !active,
+        coverageNote: "Cakupan tsunami.gov terutama wilayah layanan pusat tsunami AS dan pesan ancaman internasional; bukan pengganti peringatan resmi BMKG/InaTEWS untuk Indonesia."
+      });
+    }
+  }
+  return out.sort((a,b) => Date.parse(b.time || 0) - Date.parse(a.time || 0)).slice(0, 40);
+}
+
 function parseTsunamiCapXml(xml) {
   if (typeof xml !== "string" || !xml.trim()) return [];
   // CAP/Atom can carry multiple <info> bulletins, including multiple PD updates
@@ -329,7 +385,9 @@ export async function onRequestGet({ request, waitUntil } = {}) {
     // time before marking the optional backup source unavailable.
     getJson(USGS, false, 6500),
     getJson(usgsIndonesiaUrl(), false, 6500),
-    getText("https://cdn.bmkg.go.id/last30tsunamievent.xml")
+    getText("https://cdn.bmkg.go.id/last30tsunamievent.xml"),
+    getText("https://www.tsunami.gov/events/xml/PHEBCAP.xml", 4500),
+    getText("https://www.tsunami.gov/events/xml/PAAQCAP.xml", 4500)
   ]);
   const list=[];
   const qlEvents=[];
@@ -431,6 +489,16 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   const tsunami=results[7];
   let tsunamiHistory=tsunami.status==="fulfilled" ? parseTsunamiCapXml(tsunami.value) : [];
   if(tsunami.status!=="fulfilled") errors.push("InaTEWS tsunami");
+  // tsunami.gov CAP is a supplemental official bulletin source, not a substitute
+  // for BMKG/InaTEWS and not a global all-clear authority for Indonesian coasts.
+  const ptwc=results[8], ntwc=results[9];
+  const tsunamiGovMessages = [
+    ...(ptwc.status==="fulfilled" ? parseNoaaTsunamiCap(ptwc.value, "PTWC") : []),
+    ...(ntwc.status==="fulfilled" ? parseNoaaTsunamiCap(ntwc.value, "NTWC") : [])
+  ].sort((a,b) => new Date(b.time || 0) - new Date(a.time || 0)).slice(0, 40);
+  const tsunamiGovActive = tsunamiGovMessages.filter(q => q.active);
+  if(ptwc.status!=="fulfilled") errors.push("tsunami.gov PTWC CAP");
+  if(ntwc.status!=="fulfilled") errors.push("tsunami.gov NTWC CAP");
   // Riwayat dari feed yang parsial tidak boleh menghapus buletin lama yang masih
   // tersimpan. Gabungkan berdasarkan identitas buletin (event + PD), urut terbaru,
   // lalu batasi ke 30. Arsip ini TIDAK menentukan apakah peringatan sedang aktif.
@@ -570,7 +638,7 @@ export async function onRequestGet({ request, waitUntil } = {}) {
     fallbackHeaders.set("x-wrs-data-age-seconds", String(staleEdgeAgeSeconds ?? ""));
     return new Response(JSON.stringify(fallback), { status: 200, headers: fallbackHeaders });
   }
-  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
+  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,tsunamiGovMessages,tsunamiGovActive,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,tsunamiGov:{ptwcOk:ptwc.status==="fulfilled",ntwcOk:ntwc.status==="fulfilled",messageCount:tsunamiGovMessages.length,activeCount:tsunamiGovActive.length,coverage:"supplemental"},client:false,errors}}),{status:200,headers});
   if (edgeCache && edgeCacheKey) {
     try {
       const cacheHeaders = new Headers(response.headers);
