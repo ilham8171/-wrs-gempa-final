@@ -399,6 +399,78 @@ async function getJson(url, live = false, timeoutMs = 4000) {
   if (!res.ok) throw new Error("upstream HTTP " + res.status);
   return res.json();
 }
+
+/*
+ * BMKG menyediakan ketiga katalog gempa dalam JSON dan XML resmi.
+ * Jika JSON sedang gagal dari edge Cloudflare, coba XML resmi sebelum
+ * menyatakan sumber BMKG mati. Status sumber hanya dihitung berhasil jika
+ * salah satu format benar-benar berhasil diambil dan diparse.
+ */
+function decodeXmlText(value) {
+  return String(value ?? "")
+    .replace(/<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>/g, "$1")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+}
+function xmlTagValue(block, tag) {
+  const escaped = tag.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\async function getJson(url, live = false, timeoutMs = 4000) {
+  const requestUrl = live ? url + (url.includes("?") ? "&" : "?") + "_wrs_ts=" + Date.now() : url;
+  const res = await fetch(requestUrl, {
+    signal: AbortSignal.timeout(timeoutMs),
+    headers: { accept: "application/json", ...(live ? { "cache-control": "no-cache" } : {}) },
+    ...(live ? { cf: { cacheTtl: 0, cacheEverything: false } } : { cf: { cacheTtl: 10, cacheEverything: true } })
+  });
+  if (!res.ok) throw new Error("upstream HTTP " + res.status);
+  return res.json();
+}");
+  const match = String(block ?? "").match(new RegExp("<(?:[\\w.-]+:)?" + escaped + "\\b[^>]*>([\\s\\S]*?)</(?:[\\w.-]+:)?" + escaped + "\\s*>", "i"));
+  return match ? decodeXmlText(match[1].trim()) : "";
+}
+function parseBmkgEarthquakeXml(xml) {
+  if (typeof xml !== "string" || !xml.trim()) throw new Error("XML BMKG kosong");
+  const blocks = xml.match(/<(?:[\\w.-]+:)?gempa\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?gempa\\s*>/gi) || [];
+  if (!blocks.length) throw new Error("struktur XML BMKG tidak dikenali");
+  return {
+    Infogempa: {
+      gempa: blocks.map(block => ({
+        Tanggal: xmlTagValue(block, "Tanggal"),
+        Jam: xmlTagValue(block, "Jam"),
+        DateTime: xmlTagValue(block, "DateTime"),
+        Coordinates: xmlTagValue(block, "coordinates"),
+        Lintang: xmlTagValue(block, "Lintang"),
+        Bujur: xmlTagValue(block, "Bujur"),
+        Magnitude: xmlTagValue(block, "Magnitude"),
+        Kedalaman: xmlTagValue(block, "Kedalaman"),
+        Wilayah: xmlTagValue(block, "Wilayah"),
+        Potensi: xmlTagValue(block, "Potensi"),
+        Dirasakan: xmlTagValue(block, "Dirasakan"),
+        Shakemap: xmlTagValue(block, "Shakemap")
+      }))
+    },
+    _wrsFormat: "XML fallback"
+  };
+}
+async function getBmkgFeed(jsonUrl) {
+  let jsonError;
+  try {
+    const value = await getJson(jsonUrl, false, 3500);
+    const gempa = value?.Infogempa?.gempa;
+    if (gempa && (Array.isArray(gempa) || typeof gempa === "object")) return value;
+    jsonError = new Error("respons JSON tidak memiliki Infogempa.gempa");
+  } catch (error) {
+    jsonError = error;
+  }
+  const xmlUrl = jsonUrl.replace(/\\.json(?:\\?.*)?$/i, ".xml");
+  try {
+    const xml = await getText(xmlUrl, 3500);
+    const parsed = parseBmkgEarthquakeXml(xml);
+    parsed._wrsFallbackFrom = String(jsonError?.message || jsonError || "JSON gagal").slice(0, 100);
+    return parsed;
+  } catch (xmlError) {
+    throw new Error("JSON gagal (" + String(jsonError?.message || jsonError || "error").slice(0, 90) +
+      "); XML fallback gagal (" + String(xmlError?.message || xmlError || "error").slice(0, 90) + ")");
+  }
+}
 function qlFeatures(value) {
   if (Array.isArray(value?.features)) return value.features;
   if (value?.type === "Feature") return [value];
@@ -452,7 +524,7 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
   };
   const errors=[];
   const results=await Promise.allSettled([
-    ...BMKG_URLS.map(url=>getJson(url)),
+    ...BMKG_URLS.map(url=>getBmkgFeed(url)),
     getJson(GCS+"/lastQL.json", true, 3500),
     getJson(GCS+"/gempaQL.json"),
     // USGS can respond slower than the local BMKG feeds; allow a little more
@@ -469,7 +541,7 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
   const qlEvents=[];
   const bmkgFeedNames = ["BMKG autogempa.json", "BMKG gempaterkini.json", "BMKG gempadirasakan.json"];
   results.slice(0,3).forEach((r,i)=>{
-    if(r.status!=="fulfilled"){errors.push(bmkgFeedNames[i] + " gagal diakses");return;}
+    if(r.status!=="fulfilled"){errors.push(bmkgFeedNames[i] + " gagal diakses: " + String(r.reason?.message || "permintaan gagal").slice(0,180));return;}
     const g=r.value?.Infogempa?.gempa;
     (Array.isArray(g)?g:g?[g]:[]).forEach(x=>{const q=mapPublic(x);if(q)list.push(q);});
   });
