@@ -330,16 +330,27 @@ export async function onRequestGet({ request, waitUntil } = {}) {
     // with BMKG's public earthquake bulletin. When both feeds clearly describe
     // the same event, retain the live WRS event but use BMKG's reported depth.
     const qTime = validEventTime(q.time);
-    const bmkgMatch = list.find(b => {
-      if (b.source !== "BMKG" || !b.official ||
-          !Number.isFinite(b.lat) || !Number.isFinite(b.lon) ||
-          !Number.isFinite(q.lat) || !Number.isFinite(q.lon)) return false;
-      const bTime = validEventTime(b.time);
-      if (!Number.isFinite(qTime) || !Number.isFinite(bTime)) return false;
-      return Math.abs(qTime - bTime) <= 2 * 60 * 1000 &&
-        distanceKm(q, b) <= 20 &&
-        Math.abs(Number(q.magnitude) - Number(b.magnitude)) <= 0.4;
-    });
+    // Rank all plausible BMKG matches rather than taking the first catalogue item.
+    // A matching event must agree in time, epicentre and magnitude; never copy depth
+    // from a nearby but different earthquake.
+    const bmkgMatch = list
+      .filter(b => {
+        if (b.source !== "BMKG" || !b.official ||
+            !Number.isFinite(b.lat) || !Number.isFinite(b.lon) ||
+            !Number.isFinite(q.lat) || !Number.isFinite(q.lon)) return false;
+        const bTime = validEventTime(b.time);
+        if (!Number.isFinite(qTime) || !Number.isFinite(bTime)) return false;
+        return Math.abs(qTime - bTime) <= 2 * 60 * 1000 &&
+          distanceKm(q, b) <= 20 &&
+          Math.abs(Number(q.magnitude) - Number(b.magnitude)) <= 0.4;
+      })
+      .map(b => ({
+        event: b,
+        score: Math.abs(validEventTime(b.time) - qTime) / 120000 +
+          distanceKm(q, b) / 20 +
+          Math.abs(Number(q.magnitude) - Number(b.magnitude)) / 0.4
+      }))
+      .sort((a, b) => a.score - b.score)[0]?.event;
     if (bmkgMatch) {
       const officialDepth = Number(String(bmkgMatch.depth ?? "").replace(",", "."));
       if (String(bmkgMatch.depth ?? "").trim() !== "" &&
@@ -347,8 +358,9 @@ export async function onRequestGet({ request, waitUntil } = {}) {
         q.depth = String(officialDepth);
         q.depthSource = "BMKG";
       }
-      // Keep the original WRS source label, but prefer BMKG's official region name.
-      if (bmkgMatch.place) q.officialPlace = bmkgMatch.place;
+      // Put the official BMKG region in the shared event field so web and APK
+      // render the same place name, while retaining the live WRS source label.
+      if (bmkgMatch.place) q.place = bmkgMatch.place;
     }
     list.push(q);
   });
