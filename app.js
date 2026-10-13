@@ -2558,6 +2558,10 @@ async function load(showSpin, force = false) {
         if (Array.isArray(fallback.recent) && fallback.recent.length) {
           d = {
             ...fallback,
+            // Client-side fallback has no server fetchedAt. Stamp the time this
+            // device successfully received the fallback payload so diagnostics
+            // never show "Waktu fetch tidak tersedia" for valid live fallback data.
+            fetchedAt: fallback.fetchedAt || new Date().toISOString(),
             ok: true,
             count: fallback.recent.length,
             realtime: fallback.realtime || null,
