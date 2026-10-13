@@ -312,9 +312,12 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   // Bound the historical catalogue before merging/deduplication. A large upstream
   // archive must not exhaust the Pages Function CPU/memory budget and turn the
   // entire live endpoint into an HTTP 503. Live lastQL remains untruncated.
+  // Limit raw upstream records BEFORE parsing/sorting. Slicing only after map()
+  // still processes the entire historical catalogue and can exhaust Pages CPU,
+  // returning HTTP 503 during busy periods.
   const historyEvents = historyQL.status === "fulfilled"
-    ? qlFeatures(historyQL.value).map(mapQL).filter(Boolean)
-        .sort((a, b) => validEventTime(b.time) - validEventTime(a.time)).slice(0, 600)
+    ? qlFeatures(historyQL.value).slice(0, 800).map(mapQL).filter(Boolean)
+        .sort((a, b) => validEventTime(b.time) - validEventTime(a.time)).slice(0, 400)
     : [];
   if (historyQL.status !== "fulfilled") errors.push("InaTEWS gempaQL");
   liveQL.forEach(q => {
@@ -362,7 +365,11 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   qlEvents.push(...liveQL);
   // Jangan pernah menyamarkan katalog historis sebagai feed realtime bila lastQL gagal/kosong.
   const usgs=results[5];
-  const usgsGlobalFeatures = usgs.status==="fulfilled" && Array.isArray(usgs.value?.features) ? usgs.value.features : [];
+  // USGS weekly global feed can grow large. Its feed is newest-first, so cap
+  // raw records before mapping to keep CPU use predictable without affecting
+  // the separate, higher-priority BMKG/InaTEWS live feeds.
+  const usgsGlobalFeatures = usgs.status==="fulfilled" && Array.isArray(usgs.value?.features)
+    ? usgs.value.features.slice(0, 500) : [];
   if(usgs.status==="fulfilled") {
     usgsGlobalFeatures.forEach(f=>{const q=mapUSGS(f, 5);if(q)list.push(q);});
   } else {
