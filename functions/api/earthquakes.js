@@ -387,22 +387,22 @@ function parseTsunamiCapXml(xml) {
     .sort((a,b) => new Date(b.timesent || b.time || 0) - new Date(a.timesent || a.time || 0))
     .slice(0, 30);
 }
-async function getText(url, timeoutMs = 4000) {
+async function getText(url, timeoutMs = 4000, cacheTtlSeconds = 30) {
   const res = await fetch(url, {
     signal: AbortSignal.timeout(timeoutMs),
     headers: { accept: "application/xml,text/xml,*/*", referer: "https://inatews.bmkg.go.id/web/tsunami" },
-    cf: { cacheTtl: 30, cacheEverything: true }
+    cf: { cacheTtl: cacheTtlSeconds, cacheEverything: true }
   });
   if (!res.ok) throw new Error("upstream HTTP " + res.status);
   return res.text();
 }
 
-async function getJson(url, live = false, timeoutMs = 4000) {
+async function getJson(url, live = false, timeoutMs = 4000, cacheTtlSeconds = 10) {
   const requestUrl = live ? url + (url.includes("?") ? "&" : "?") + "_wrs_ts=" + Date.now() : url;
   const res = await fetch(requestUrl, {
     signal: AbortSignal.timeout(timeoutMs),
     headers: { accept: "application/json", ...(live ? { "cache-control": "no-cache" } : {}) },
-    ...(live ? { cf: { cacheTtl: 0, cacheEverything: false } } : { cf: { cacheTtl: 10, cacheEverything: true } })
+    ...(live ? { cf: { cacheTtl: 0, cacheEverything: false } } : { cf: { cacheTtl: cacheTtlSeconds, cacheEverything: true } })
   });
   if (!res.ok) throw new Error("upstream HTTP " + res.status);
   return res.json();
@@ -453,16 +453,25 @@ function parseBmkgEarthquakeXml(xml) {
 async function getBmkgFeed(jsonUrl) {
   let jsonError;
   try {
-    const value = await getJson(jsonUrl, false, 3500);
+    // BMKG's public feeds are frequently rate-limited when polled by multiple
+    // edge locations. Cache successful responses longer; this does not cache
+    // the live InaTEWS lastQL stream, which uses its own no-cache request.
+    const value = await getJson(jsonUrl, false, 3500, 60);
     const gempa = value?.Infogempa?.gempa;
     if (gempa && (Array.isArray(gempa) || typeof gempa === "object")) return value;
     jsonError = new Error("respons JSON tidak memiliki Infogempa.gempa");
   } catch (error) {
     jsonError = error;
   }
+  // A 429 is an explicit rate-limit response. Immediately requesting the XML
+  // sibling doubles traffic to the same BMKG service and often receives 429 too.
+  // Back off instead; other independent sources continue to refresh normally.
+  if (/upstream HTTP 429/.test(String(jsonError?.message || jsonError || ""))) {
+    throw new Error("upstream HTTP 429 (BMKG rate limit; XML fallback dilewati agar tidak menambah beban)");
+  }
   const xmlUrl = jsonUrl.replace(/\.json(?:\?.*)?$/i, ".xml");
   try {
-    const xml = await getText(xmlUrl, 3500);
+    const xml = await getText(xmlUrl, 3500, 60);
     const parsed = parseBmkgEarthquakeXml(xml);
     parsed._wrsFallbackFrom = String(jsonError?.message || jsonError || "JSON gagal").slice(0, 100);
     return parsed;
