@@ -309,7 +309,7 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   const historyQL=results[4];
   const liveQL = ql.status === "fulfilled" ? qlFeatures(ql.value).map(mapQL).filter(Boolean) : [];
   if (ql.status !== "fulfilled") errors.push("InaTEWS lastQL");
-  const historyEvents = historyQL.status === "fulfilled" ? qlFeatures(historyQL.value).map(mapQL).filter(Boolean) : [];
+  // Bound the historical catalogue before merging/deduplication. A large upstream\n  // archive must not exhaust the Pages Function CPU/memory budget and turn the\n  // entire live endpoint into an HTTP 503. Live lastQL remains untruncated.\n  const historyEvents = historyQL.status === "fulfilled"\n    ? qlFeatures(historyQL.value).map(mapQL).filter(Boolean)\n        .sort((a, b) => validEventTime(b.time) - validEventTime(a.time)).slice(0, 600)\n    : [];
   if (historyQL.status !== "fulfilled") errors.push("InaTEWS gempaQL");
   liveQL.forEach(q => {
     q.source = "InaTEWS WRS";
