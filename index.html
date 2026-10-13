@@ -19,55 +19,7 @@
 <body>
 <div id="map"></div>
 <div class="map-overlay"></div>
-<div id="tsunamiGovBanner" role="status" aria-live="polite" hidden style="position:fixed;z-index:1200;top:58px;left:12px;right:12px;max-width:760px;margin:0 auto;padding:12px 14px;border:1px solid #f59e0b;border-radius:12px;background:#451a03f2;color:#fff7ed;box-shadow:0 8px 24px #0006;font:600 13px/1.45 system-ui,sans-serif">
-  <div id="tsunamiGovBannerTitle">PESAN TSUNAMI · NOAA</div>
-  <div id="tsunamiGovBannerBody" style="font-weight:400;margin-top:4px"></div>
-  <a id="tsunamiGovBannerLink" href="https://www.tsunami.gov/" target="_blank" rel="noopener" style="display:inline-block;color:#fde68a;margin-top:6px">Buka buletin resmi tsunami.gov ↗</a>
 </div>
-<div class="wrs-health" id="wrsHealth" role="status" aria-live="polite"><span class="health-led"></span><span class="health-brand">WRS</span><span class="health-divider" aria-hidden="true"></span><span id="wrsHealthText">MENYIAPKAN PEMANTAUAN</span><time id="wrsLastUpdated">Menunggu pembaruan</time></div>
-
-
-<div class="map-stats glass-panel" id="mapStats">
-  <button type="button" class="stat-btn" data-stat="all" title="Daftar semua event"><b id="statTotal">0</b><span>EVENT</span></button>
-  <button type="button" class="stat-btn" data-stat="strong" title="Daftar M≥4"><b id="statStrong">0</b><span>M≥4</span></button>
-  <button type="button" class="stat-btn" data-stat="felt" title="Daftar dirasakan"><b id="statFelt">0</b><span>DIRASAKAN</span></button>
-  <button type="button" class="stat-btn stat-tsunami" data-stat="tsunami" title="Riwayat & peringatan tsunami"><b id="statTsunami">0</b><span>TSUNAMI</span></button>
-</div>
-
-<!-- Vertical Toolbar (kanan peta) -->
-<nav class="v-toolbar" id="vToolbar" aria-label="Toolbar peta">
-  <button type="button" class="tb-btn" id="tbBasemap" title="Ganti basemap"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 3v18M15 3v18M3 15h18"/></svg></button>
-  <button type="button" class="tb-btn" id="tbFullscreen" title="Layar penuh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></svg></button>
-  <button type="button" class="tb-btn" id="tbRefresh" title="Refresh data"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M19 12a7 7 0 1 1-2-5"/></svg></button>
-  <button type="button" class="tb-btn" id="tbHistory" title="Riwayat 7 hari"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-  <button type="button" class="tb-btn" id="tbFaults" title="Toggle sesar" data-on="1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 5 13h6l-1 9 9-12h-6z"/></svg></button>
-  <button type="button" class="tb-btn" id="tbFilter" title="Filter monitoring"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h16"/><circle cx="8" cy="5" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="10" cy="19" r="2"/></svg></button>
-  <button type="button" class="tb-btn" id="tbLocation" title="Aktifkan lokasi"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
-</nav>
-
-<!-- Basemap picker -->
-<div id="basemapMenu" class="basemap-menu hidden">
-  <button type="button" data-bm="sat" class="bm-opt active">Satelit</button>
-  <button type="button" data-bm="street" class="bm-opt">Peta Jalan</button>
-  <button type="button" data-bm="light" class="bm-opt">Peta Terang</button>
-  <button type="button" data-bm="topo" class="bm-opt">Topografi</button>
-</div>
-
-<!-- Panel Informasi Gempa Terkini (Kiri Atas) -->
-<aside class="glass-panel left-top" id="cardRealtime">
-  <div class="panel-header">
-    <span class="pulse-dot"></span>
-    <span>GEMPA TERBARU</span>
-  </div>
-  <div class="panel-sub">Indonesia · katalog BMKG / InaTEWS</div>
-  <div class="rt-filter" id="rtFilter">Indonesia · M2+ · 7 hari terakhir</div>
-  <div class="rt-row">
-    <div class="rt-mag" id="rtMag">—</div>
-    <div class="rt-meta">
-      <div id="rtDate">—</div>
-      <div class="rt-ago" id="rtAgo">—</div>
-    </div>
-  </div>
   <div class="rt-coord" id="rtCoord">◎ —</div>
   <div class="rt-place" id="rtPlace">—</div>
   <div class="rt-dist" id="rtDist">Jarak ke Anda: —</div>
