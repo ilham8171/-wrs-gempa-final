@@ -113,8 +113,15 @@ function parseBT(s) {
   return Math.abs(n);
 }
 function parseDepth(s) {
-  const m = String(s ?? "").match(/(\d+(?:\.\d+)?)/);
-  return m ? m[1] : "—";
+  // Keep source depth intact (including decimal commas); never invent a default.
+  if (s == null) return "—";
+  const text = String(s).trim();
+  if (!text || /^(?:—|-|null|undefined|n\/a)$/i.test(text)) return "—";
+  const normalized = text.replace(/,/g, ".");
+  const m = normalized.match(/-?\d+(?:\.\d+)?/);
+  if (!m) return "—";
+  const value = Number(m[0]);
+  return Number.isFinite(value) && value >= 0 ? String(value) : "—";
 }
 function shakemapUrl(raw) {
   if (!raw) return null;
