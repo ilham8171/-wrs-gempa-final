@@ -533,10 +533,6 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
   const tsunami=results[7];
   let tsunamiHistory=tsunami.status==="fulfilled" ? parseTsunamiCapXml(tsunami.value) : [];
   if(tsunami.status!=="fulfilled") errors.push("InaTEWS tsunami");
-  // Feed tsunami.gov/NOAA dinonaktifkan untuk mengurangi permintaan upstream.
-  // Informasi tsunami tetap berasal dari BMKG/InaTEWS; USGS tetap dipakai sebagai sumber gempa tambahan.
-  const tsunamiGovMessages = [];
-  const tsunamiGovActive = [];
   // Riwayat dari feed yang parsial tidak boleh menghapus buletin lama yang masih
   // tersimpan. Gabungkan berdasarkan identitas buletin (event + PD), urut terbaru,
   // lalu batasi ke 30. Arsip ini TIDAK menentukan apakah peringatan sedang aktif.
@@ -676,7 +672,7 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
     fallbackHeaders.set("x-wrs-data-age-seconds", String(staleEdgeAgeSeconds ?? ""));
     return new Response(JSON.stringify(fallback), { status: 200, headers: fallbackHeaders });
   }
-  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,tsunamiGovMessages,tsunamiGovActive,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,tsunamiGov:{disabled:true,coverage:"disabled",messageCount:0,activeCount:0,errors:[]},client:false,errors}}),{status:200,headers});
+  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:recent.filter(q=>q.source==="USGS").length,usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
   if (edgeCache && edgeCacheKey) {
     try {
       const cacheHeaders = new Headers(response.headers);
@@ -824,8 +820,6 @@ export async function onRequestGet(context = {}) {
           // empty history. The client merges this empty emergency array with its
           // locally persisted archive; normal responses still supply server history.
           tsunamiHistory: [],
-          tsunamiGovMessages: [],
-          tsunamiGovActive: [],
           sources: {
             wrs: {
               ok: liveResult.status === "fulfilled",
