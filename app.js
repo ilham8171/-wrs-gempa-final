@@ -2175,7 +2175,12 @@ function updateDiagnostics(data = null, error = null, simulation = false) {
       return;
     }
     const fetchedAt = Date.parse(data?.fetchedAt || "");
-    const ageSeconds = Number.isFinite(fetchedAt) ? Math.max(0, Math.floor((Date.now() - fetchedAt) / 1000)) : null;
+    // If the server timestamp is absent/invalid but this device did receive a
+    // structurally valid payload, report the device receipt age explicitly
+    // instead of hiding a known successful receipt behind "Waktu fetch tidak tersedia".
+    const deviceReceiptFallback = !Number.isFinite(fetchedAt) && lastSuccessfulLoadAt > 0;
+    const effectiveFetchAt = Number.isFinite(fetchedAt) ? fetchedAt : (deviceReceiptFallback ? lastSuccessfulLoadAt : NaN);
+    const ageSeconds = Number.isFinite(effectiveFetchAt) ? Math.max(0, Math.floor((Date.now() - effectiveFetchAt) / 1000)) : null;
     const source = data?.sources || {};
     const sourceErrors = Array.isArray(source.errors) ? source.errors : [];
     const isFallback = source.clientFallback === true || source.wrs?.ok === false;
@@ -2198,7 +2203,9 @@ function updateDiagnostics(data = null, error = null, simulation = false) {
     put("diagSources", sourceParts.join(" · ") || "Status sumber belum tersedia");
     put("diagFetchAge", ageSeconds == null
       ? "Waktu fetch tidak tersedia"
-      : (isFallback ? ageSeconds + " detik sejak data diterima perangkat (API utama gagal)" : ageSeconds + " detik sejak fetch API"));
+      : deviceReceiptFallback
+        ? ageSeconds + " detik sejak data diterima perangkat (waktu fetch server tidak tersedia)"
+        : (isFallback ? ageSeconds + " detik sejak data diterima perangkat (API utama gagal)" : ageSeconds + " detik sejak fetch API"));
     put("diagLastSuccess", lastSuccessfulLoadAt ? new Date(lastSuccessfulLoadAt).toLocaleString("id-ID") : "Belum ada fetch sukses sejak halaman dibuka");
     put("diagRetries", consecutiveLoadFailures);
     put("diagError", error ? String(error.message || error).slice(0, 180) :
