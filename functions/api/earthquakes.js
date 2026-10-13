@@ -408,27 +408,19 @@ async function getJson(url, live = false, timeoutMs = 4000) {
  */
 function decodeXmlText(value) {
   return String(value ?? "")
-    .replace(/<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>/g, "$1")
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
     .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
 }
 function xmlTagValue(block, tag) {
-  const escaped = tag.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\async function getJson(url, live = false, timeoutMs = 4000) {
-  const requestUrl = live ? url + (url.includes("?") ? "&" : "?") + "_wrs_ts=" + Date.now() : url;
-  const res = await fetch(requestUrl, {
-    signal: AbortSignal.timeout(timeoutMs),
-    headers: { accept: "application/json", ...(live ? { "cache-control": "no-cache" } : {}) },
-    ...(live ? { cf: { cacheTtl: 0, cacheEverything: false } } : { cf: { cacheTtl: 10, cacheEverything: true } })
-  });
-  if (!res.ok) throw new Error("upstream HTTP " + res.status);
-  return res.json();
-}");
-  const match = String(block ?? "").match(new RegExp("<(?:[\\w.-]+:)?" + escaped + "\\b[^>]*>([\\s\\S]*?)</(?:[\\w.-]+:)?" + escaped + "\\s*>", "i"));
+  // Tag names passed here are fixed BMKG field names, so no regex escaping is needed.
+  const pattern = "<(?:[A-Za-z0-9_.-]+:)?" + tag + "\\b[^>]*>([\\s\\S]*?)</(?:[A-Za-z0-9_.-]+:)?" + tag + "\\s*>";
+  const match = String(block ?? "").match(new RegExp(pattern, "i"));
   return match ? decodeXmlText(match[1].trim()) : "";
 }
 function parseBmkgEarthquakeXml(xml) {
   if (typeof xml !== "string" || !xml.trim()) throw new Error("XML BMKG kosong");
-  const blocks = xml.match(/<(?:[\\w.-]+:)?gempa\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?gempa\\s*>/gi) || [];
+  const blocks = xml.match(/<(?:[A-Za-z0-9_.-]+:)?gempa\b[^>]*>[\s\S]*?<\/(?:[A-Za-z0-9_.-]+:)?gempa\s*>/gi) || [];
   if (!blocks.length) throw new Error("struktur XML BMKG tidak dikenali");
   return {
     Infogempa: {
@@ -460,7 +452,7 @@ async function getBmkgFeed(jsonUrl) {
   } catch (error) {
     jsonError = error;
   }
-  const xmlUrl = jsonUrl.replace(/\\.json(?:\\?.*)?$/i, ".xml");
+  const xmlUrl = jsonUrl.replace(/\.json(?:\?.*)?$/i, ".xml");
   try {
     const xml = await getText(xmlUrl, 3500);
     const parsed = parseBmkgEarthquakeXml(xml);
