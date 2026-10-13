@@ -162,20 +162,20 @@ function capValue(block, ...names) {
 }
 function parseNoaaTsunamiCap(xml, center) {
   if (typeof xml !== "string" || !xml.trim()) return [];
-  const alerts = xml.match(/<(?:[\\w.-]+:)?alert\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?alert\\s*>/gi) || [];
+  const alerts = xml.match(/<(?:[\w.-]+:)?alert\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?alert\s*>/gi) || [];
   const out = [];
   for (const alert of alerts) {
     const identifier = textBetween(alert, "identifier");
     const status = textBetween(alert, "status").toLowerCase();
     const messageType = textBetween(alert, "msgType").toLowerCase();
     const sent = textBetween(alert, "sent");
-    const infos = alert.match(/<(?:[\\w.-]+:)?info\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?info\\s*>/gi) || [];
+    const infos = alert.match(/<(?:[\w.-]+:)?info\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?info\s*>/gi) || [];
     for (const info of infos) {
       const event = textBetween(info, "event");
       const headline = textBetween(info, "headline");
       const description = textBetween(info, "description");
       const instruction = textBetween(info, "instruction");
-      const areaDescs = (info.match(/<(?:[\\w.-]+:)?area\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?area\\s*>/gi) || [])
+      const areaDescs = (info.match(/<(?:[\w.-]+:)?area\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?area\s*>/gi) || [])
         .map(area => textBetween(area, "areaDesc")).filter(Boolean);
       const severity = textBetween(info, "severity");
       const urgency = textBetween(info, "urgency");
