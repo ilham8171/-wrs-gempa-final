@@ -17,6 +17,23 @@ try {
     tsunamiHistory = cachedCatalog.tsunamiHistory;
   }
 } catch { /* Abaikan cache lokal yang rusak; data live akan mengisi ulang. */ }
+/** Gabungkan riwayat baru dengan arsip lokal agar feed parsial tidak menghapus
+ * buletin lama. Identitas per buletin mempertahankan beberapa PD untuk satu gempa. */
+function mergeTsunamiHistory(incoming) {
+  const merged = new Map();
+  for (const q of [...(Array.isArray(incoming) ? incoming : []), ...(Array.isArray(tsunamiHistory) ? tsunamiHistory : [])]) {
+    if (!q || typeof q !== "object") continue;
+    const id = String(q.key || (String(q.eventid || "") + "|" + String(q.pd || q.subject || "")));
+    if (!id) continue;
+    const previous = merged.get(id);
+    const time = new Date(q.timesent || q.time || 0).getTime();
+    const previousTime = new Date(previous?.timesent || previous?.time || 0).getTime();
+    if (!previous || (Number.isFinite(time) && time > previousTime)) merged.set(id, q);
+  }
+  return [...merged.values()]
+    .sort((a,b) => new Date(b.timesent || b.time || 0).getTime() - new Date(a.timesent || a.time || 0).getTime())
+    .slice(0, 30);
+}
 let alarmOn = false;
 let audioCtx = null;
 let firstLoad = true;
@@ -2558,9 +2575,7 @@ async function load(showSpin, force = false) {
         recent: incoming,
         realtimeEvents: Array.isArray(d.realtimeEvents) ? d.realtimeEvents : [],
         // Jangan pernah menimpa riwayat yang tersimpan dengan array kosong saat feed tsunami gagal/berubah format.
-        tsunamiHistory: Array.isArray(d.tsunamiHistory) && d.tsunamiHistory.length
-          ? d.tsunamiHistory
-          : tsunamiHistory
+        tsunamiHistory: mergeTsunamiHistory(d.tsunamiHistory)
       }));
     } catch (storageError) {
       console.warn("Katalog WRS tidak dapat disimpan ke penyimpanan lokal.", storageError);
@@ -2584,8 +2599,9 @@ async function load(showSpin, force = false) {
     const oldFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
     quakes = incoming;
     if (Array.isArray(d.tsunamiHistory) && d.tsunamiHistory.length) {
-      tsunamiHistory = d.tsunamiHistory;
+      tsunamiHistory = mergeTsunamiHistory(d.tsunamiHistory);
       renderOfficialTsunamiMap();
+      updateStats(getFilteredQuakes());
     }
     // Saat pertama kali dibuka, pusatkan peta tepat pada marker event terbaru
     // yang ditampilkan di daftar/peta. Jangan mengganggu posisi pengguna saat refresh berikutnya.
