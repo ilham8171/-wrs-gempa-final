@@ -929,6 +929,33 @@ export async function onRequestGet(context = {}) {
         const recoveryHeaders = new Headers(headers);
         recoveryHeaders.set("cache-control", "no-store");
         recoveryHeaders.set("x-wrs-cache", "EMERGENCY-FALLBACK");
+
+        // A successful emergency response is still a valid last-known-good
+        // catalogue. Persist it so the next poll does not repeat the expensive
+        // recovery sequence and risk another HTTP 503 during the same outage.
+        // The payload remains explicitly marked emergencyFallback; this cache
+        // must never make partial data look like a fully healthy API response.
+        const recoveryBody = JSON.stringify(payload);
+        if (edgeCache && request?.url) {
+          try {
+            const cacheUrl = new URL(request.url);
+            cacheUrl.search = "";
+            cacheUrl.searchParams.set("_wrs_edge_cache", "v1");
+            const recoveryKey = new Request(cacheUrl.toString(), { method: "GET" });
+            const cacheHeaders = new Headers(recoveryHeaders);
+            cacheHeaders.set("cache-control", "public, max-age=900");
+            cacheHeaders.set("x-wrs-cache", "EMERGENCY-FALLBACK");
+            const cacheWrite = edgeCache.put(recoveryKey, new Response(recoveryBody, {
+              status: 200,
+              headers: cacheHeaders
+            }));
+            if (typeof context.waitUntil === "function") context.waitUntil(cacheWrite);
+            else await cacheWrite;
+          } catch (cacheError) {
+            console.warn("[WRS API] Emergency fallback cache write failed:", String(cacheError?.message || cacheError).slice(0, 120));
+          }
+        }
+
         console.error("[WRS API] Emergency core-feed fallback served", {
           bmkgFeedsOk: bmkgOk,
           liveInaTEWSOk: liveResult.status === "fulfilled",
@@ -936,7 +963,7 @@ export async function onRequestGet(context = {}) {
           eventCount: recent.length,
           cause: failure
         });
-        return new Response(JSON.stringify(payload), { status: 200, headers: recoveryHeaders });
+        return new Response(recoveryBody, { status: 200, headers: recoveryHeaders });
       }
     } catch (fallbackError) {
       console.error("[WRS API] Emergency core-feed fallback failed:", fallbackError);
