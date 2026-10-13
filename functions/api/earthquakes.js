@@ -8,7 +8,11 @@ const USGS = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week
 function usgsIndonesiaUrl() {
   // This regional request is a supplemental fallback, so keep its payload
   // bounded to the latest 72 hours; BMKG/InaTEWS remains the primary catalogue.
-  const starttime = new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 19);
+  // Round to the minute so the query URL remains cacheable across polling cycles.
+  // The extra 0-59 seconds in the lookback is harmless and avoids a unique URL
+  // on every request, which would defeat Cloudflare's upstream response cache.
+  const roundedNow = Math.floor(Date.now() / 60000) * 60000;
+  const starttime = new Date(roundedNow - 3 * 864e5).toISOString().slice(0, 19);
   return "https://earthquake.usgs.gov/fdsnws/event/1/query?" + new URLSearchParams({
     format: "geojson",
     starttime,
@@ -379,8 +383,9 @@ function qlFeatures(value) {
 }
 async function handleEarthquakesRequest({ request, waitUntil } = {}) {
   // Share a single upstream refresh across clients in the same Cloudflare edge location.
-  // The browser polls every 4s; this 7s freshness window lets the next poll reuse the
-  // same response, while a later poll refreshes the upstream feeds roughly every 8s.
+  // The browser polls every 4s; a 10s freshness window lets overlapping polls and
+  // nearby clients reuse the same response. The live InaTEWS lastQL feed is still
+  // fetched without upstream caching on each actual edge refresh.
   const edgeCache = typeof caches !== "undefined" ? caches.default : null;
   let edgeCacheKey = null;
   let staleEdgeData = null;
@@ -399,7 +404,7 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
         if (cachedData?.ok === true && Array.isArray(cachedData.recent) && cachedData.recent.length &&
             Number.isFinite(fetchedAtMs) && ageMs >= 0) {
           // Serve the edge copy immediately only while it is genuinely fresh.
-          if (ageMs <= 7000) {
+          if (ageMs <= 10000) {
             const cachedHeaders = new Headers(cached.headers);
             cachedHeaders.set("cache-control", "no-store");
             cachedHeaders.set("x-wrs-cache", "HIT");
@@ -430,7 +435,7 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
     // USGS can respond slower than the local BMKG feeds; allow a little more
     // time before marking the optional backup source unavailable.
     getJson(USGS, false, 6500),
-    getJson(usgsIndonesiaUrl(), false, 6500),
+    getJson(usgsIndonesiaUrl(), false, 6500, 60),
     getText("https://cdn.bmkg.go.id/last30tsunamievent.xml"),
   ]);
   const list=[];
