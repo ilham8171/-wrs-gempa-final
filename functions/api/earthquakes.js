@@ -150,7 +150,7 @@ function capValue(block, ...names) {
     if (direct) return direct;
   }
   const wanted = new Set(names.map(n => n.replace(/[^a-z0-9]/gi, "").toLowerCase()));
-  const params = String(block).match(/<parameter\b[^>]*>[\s\S]*?<\/parameter>/gi) || [];
+  const params = String(block).match(/<(?:[\\w.-]+:)?parameter\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?parameter\\s*>/gi) || [];
   for (const param of params) {
     const key = textBetween(param, "valueName").replace(/[^a-z0-9]/gi, "").toLowerCase();
     if (wanted.has(key)) {
