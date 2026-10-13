@@ -118,7 +118,7 @@ function textBetween(xml, tag) {
   const escaped = String(tag).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp("<(?:[\\w.-]+:)?" + escaped + "\\b[^>]*>([\\s\\S]*?)</(?:[\\w.-]+:)?" + escaped + "\\s*>", "i");
   const match = String(xml ?? "").match(re);
-  return match ? match[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, "").trim() : "";
+  return match ? match[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "";
 }
 function capEventTime(date, time) {
   const d = String(date ?? "").trim();
@@ -150,7 +150,7 @@ function capValue(block, ...names) {
     if (direct) return direct;
   }
   const wanted = new Set(names.map(n => n.replace(/[^a-z0-9]/gi, "").toLowerCase()));
-  const params = String(block).match(/<(?:[\\w.-]+:)?parameter\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?parameter\\s*>/gi) || [];
+  const params = String(block).match(/<(?:[\w.-]+:)?parameter\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?parameter\s*>/gi) || [];
   for (const param of params) {
     const key = textBetween(param, "valueName").replace(/[^a-z0-9]/gi, "").toLowerCase();
     if (wanted.has(key)) {
