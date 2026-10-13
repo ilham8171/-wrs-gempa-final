@@ -114,9 +114,11 @@ async function attachUSGSShakemaps(events) {
   }));
 }
 function textBetween(xml, tag) {
-  const re = new RegExp("<" + tag + "[^>]*>([\\s\\S]*?)</" + tag + ">", "i");
+  // CAP XML may namespace tags (for example cap:headline); support both forms.
+  const escaped = String(tag).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp("<(?:[\\w.-]+:)?" + escaped + "\\b[^>]*>([\\s\\S]*?)</(?:[\\w.-]+:)?" + escaped + "\\s*>", "i");
   const match = String(xml ?? "").match(re);
-  return match ? match[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "";
+  return match ? match[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, "").trim() : "";
 }
 function capEventTime(date, time) {
   const d = String(date ?? "").trim();
