@@ -222,92 +222,108 @@ function parseNoaaTsunamiCap(xml, center) {
 
 function parseTsunamiCapXml(xml) {
   if (typeof xml !== "string" || !xml.trim()) return [];
-  // CAP/Atom can carry multiple <info> bulletins, including multiple PD updates
-  // for one earthquake. Keep each bulletin; do not collapse them by event ID.
-  const infos = xml.match(/<(?:[\w.-]+:)?info\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?info\s*>/gi) || [];
+  // InaTEWS' XML feed has changed wrapper formats over time. Parse CAP alert
+  // records when present, but also accept Atom/RSS entry/item wrappers and a
+  // bare info record. Read each field from info first, then parent metadata.
+  const alerts = xml.match(/<(?:[\\w.-]+:)?alert\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?alert\\s*>/gi) || [];
+  const entries = alerts.length ? alerts :
+    (xml.match(/<(?:[\\w.-]+:)?(?:entry|item)\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?(?:entry|item)\\s*>/gi) || []);
+  const parents = entries.length ? entries : [xml];
   const list = [];
-  for (const block of infos) {
-    const subject = capValue(block, "subject", "headline") || "WARNING TSUNAMI";
-    const headline = capValue(block, "headline");
-    const description = capValue(block, "description");
-    let date = capValue(block, "date", "tanggal");
-    let time = capValue(block, "time", "jam");
-    const originTime = capValue(block, "EventOriginTime", "originTime", "datetime");
-    if ((!date || !time) && originTime) {
-      const parsedOrigin = new Date(originTime);
-      if (!Number.isNaN(parsedOrigin.getTime())) {
-        date = date || new Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Jakarta",year:"numeric",month:"2-digit",day:"2-digit"}).format(parsedOrigin);
-        time = time || new Intl.DateTimeFormat("en-GB", {timeZone:"Asia/Jakarta",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).format(parsedOrigin) + " WIB";
+  const value = (info, parent, ...names) => capValue(info, ...names) || (parent !== info ? capValue(parent, ...names) : "");
+  for (const parent of parents) {
+    const infos = parent.match(/<(?:[\\w.-]+:)?info\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?info\\s*>/gi) || [];
+    const records = infos.length ? infos : [parent];
+    for (const block of records) {
+      const subject = value(block, parent, "subject", "headline") || "WARNING TSUNAMI";
+      const headline = value(block, parent, "headline");
+      const description = value(block, parent, "description", "summary");
+      let date = value(block, parent, "date", "tanggal");
+      let time = value(block, parent, "time", "jam");
+      const originTime = value(block, parent, "EventOriginTime", "originTime", "datetime", "effective");
+      if ((!date || !time) && originTime) {
+        const parsedOrigin = new Date(originTime);
+        if (!Number.isNaN(parsedOrigin.getTime())) {
+          date = date || new Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Jakarta",year:"numeric",month:"2-digit",day:"2-digit"}).format(parsedOrigin);
+          time = time || new Intl.DateTimeFormat("en-GB", {timeZone:"Asia/Jakarta",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).format(parsedOrigin) + " WIB";
+        }
       }
-    }
-    const coordText = capValue(block, "coordinates");
-    const coords = coordText ? coordText.split(",").map(v => num(v.trim())) : [];
-    const lonRaw = capValue(block, "longitude", "EventLongitude", "Longitude");
-    const latRaw = capValue(block, "latitude", "EventLatitude", "Latitude");
-    let lon = coords.length > 1 ? coords[0] : parseLon(lonRaw);
-    let lat = coords.length > 1 ? coords[1] : parseLat(latRaw);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      const circle = capValue(block, "circle");
-      const m = circle.match(/(-?\d+(?:[.,]\d+)?)\s*,\s*(-?\d+(?:[.,]\d+)?)/);
-      if (m) { lat = num(m[1]); lon = num(m[2]); }
-    }
-    const mag = num(capValue(block, "magnitude", "EventMagnitude"));
-    const depthRaw = capValue(block, "depth", "EventDepth");
-    const depth = depthRaw.match(/[0-9]+(?:[.,][0-9]+)?/)?.[0] || "—";
-    const area = capValue(block, "area", "EventLocationName", "ShortLocationName") || "Indonesia";
-    const eventid = capValue(block, "eventid", "EventID", "identifier") || [date, time, mag, lat, lon].join("|");
-    const pdMatch = (subject + " " + headline + " " + description).match(/PD[-\s]?([\d.]+)/i);
-    const pd = pdMatch ? pdMatch[1] : "";
-    const potential = capValue(block, "potential") || subject || headline;
-    const instruction = capValue(block, "instruction");
-    const instruction1 = capValue(block, "instruction1");
-    const instruction2 = capValue(block, "instruction2");
-    const instruction3 = capValue(block, "instruction3");
-    const timesent = capValue(block, "timesent", "sent");
-    const shakemap = capValue(block, "shakemap");
-    const wzmap = capValue(block, "wzmap");
-    const ttmap = capValue(block, "ttmap");
-    const sshmap = capValue(block, "sshmap");
-    const explicitBound = (...tags) => {
-      for (const tag of tags) {
-        const value = capValue(block, tag);
-        if (value) { const parsed = num(value); if (Number.isFinite(parsed)) return parsed; }
+      const coordText = value(block, parent, "coordinates");
+      const coords = coordText ? coordText.split(",").map(v => num(v.trim())) : [];
+      const lonRaw = value(block, parent, "longitude", "EventLongitude", "Longitude");
+      const latRaw = value(block, parent, "latitude", "EventLatitude", "Latitude");
+      let lon = coords.length > 1 ? coords[0] : parseLon(lonRaw);
+      let lat = coords.length > 1 ? coords[1] : parseLat(latRaw);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        const circle = value(block, parent, "circle");
+        const m = circle.match(/(-?\\d+(?:[.,]\\d+)?)\\s*,\\s*(-?\\d+(?:[.,]\\d+)?)/);
+        if (m) { lat = num(m[1]); lon = num(m[2]); }
       }
-      return NaN;
-    };
-    const sshBoundsRaw = {
-      minLat: explicitBound("sshminlat", "ssh_min_lat", "minLat", "min_lat"),
-      minLon: explicitBound("sshminlon", "ssh_min_lon", "minLon", "min_lon"),
-      maxLat: explicitBound("sshmaxlat", "ssh_max_lat", "maxLat", "max_lat"),
-      maxLon: explicitBound("sshmaxlon", "ssh_max_lon", "maxLon", "max_lon")
-    };
-    const sshBounds = Object.values(sshBoundsRaw).every(Number.isFinite) &&
-      sshBoundsRaw.minLat < sshBoundsRaw.maxLat && sshBoundsRaw.minLon < sshBoundsRaw.maxLon &&
-      sshBoundsRaw.minLat >= -90 && sshBoundsRaw.maxLat <= 90 &&
-      sshBoundsRaw.minLon >= -180 && sshBoundsRaw.maxLon <= 180 ? sshBoundsRaw : null;
-    // Keep a bulletin in the history even when the source omits epicentre coordinates.
-    // Missing coordinates should disable map focus only; they must not remove the record
-    // from the 30-item official bulletin archive.
-    const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lon) &&
-      Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
-    if ((Number.isFinite(lat) && Math.abs(lat) > 90) ||
-        (Number.isFinite(lon) && Math.abs(lon) > 180)) continue;
-    list.push({
-      key: "tsun-" + eventid + "-" + (pd || list.length),
-      eventid, magnitude: Number.isFinite(mag) ? mag : 0,
-      lat: hasCoordinates ? lat : null, lon: hasCoordinates ? lon : null, depth,
-      place: area, time: capEventTime(date, time), date, timeLocal: time,
-      potential: potential || "Riwayat peringatan dini tsunami InaTEWS",
-      subject: subject || ("WARNING TSUNAMI PD-" + (pd || "?")),
-      pd: pd || null, headline, description, instruction, instruction1, instruction2, instruction3, timesent,
-      shakemap: mapCapAsset(shakemap) || null,
-      wzmap: mapCapAsset(wzmap), ttmap: mapCapAsset(ttmap), sshmap: mapCapAsset(sshmap),
-      ...(sshBounds ? { sshBounds } : {}),
-      ended: /telah\s*berakhir|berakhir|all[\s-]?clear|dinyatakan\s*telah\s*berakhir/i.test(headline + " " + description + " " + subject),
-      source: "InaTEWS", isTsunamiWarning: true, official: true
-    });
+      const mag = num(value(block, parent, "magnitude", "EventMagnitude"));
+      const depthRaw = value(block, parent, "depth", "EventDepth");
+      const depth = depthRaw.match(/[0-9]+(?:[.,][0-9]+)?/)?.[0] || "—";
+      const area = value(block, parent, "area", "EventLocationName", "ShortLocationName", "areaDesc") || "Indonesia";
+      const eventid = value(block, parent, "eventid", "EventID", "identifier", "id") || [date, time, mag, lat, lon].join("|");
+      const pdMatch = (subject + " " + headline + " " + description).match(/PD[-\\s]?([\\d.]+)/i);
+      const pd = pdMatch ? pdMatch[1] : "";
+      const potential = value(block, parent, "potential") || subject || headline;
+      const instruction = value(block, parent, "instruction");
+      const instruction1 = value(block, parent, "instruction1");
+      const instruction2 = value(block, parent, "instruction2");
+      const instruction3 = value(block, parent, "instruction3");
+      const timesent = value(block, parent, "timesent", "sent", "updated", "published");
+      const shakemap = value(block, parent, "shakemap");
+      const wzmap = value(block, parent, "wzmap");
+      const ttmap = value(block, parent, "ttmap");
+      const sshmap = value(block, parent, "sshmap");
+      const explicitBound = (...tags) => {
+        for (const tag of tags) {
+          const raw = value(block, parent, tag);
+          if (raw) { const parsed = num(raw); if (Number.isFinite(parsed)) return parsed; }
+        }
+        return NaN;
+      };
+      const sshBoundsRaw = {
+        minLat: explicitBound("sshminlat", "ssh_min_lat", "minLat", "min_lat"),
+        minLon: explicitBound("sshminlon", "ssh_min_lon", "minLon", "min_lon"),
+        maxLat: explicitBound("sshmaxlat", "ssh_max_lat", "maxLat", "max_lat"),
+        maxLon: explicitBound("sshmaxlon", "ssh_max_lon", "maxLon", "max_lon")
+      };
+      const sshBounds = Object.values(sshBoundsRaw).every(Number.isFinite) &&
+        sshBoundsRaw.minLat < sshBoundsRaw.maxLat && sshBoundsRaw.minLon < sshBoundsRaw.maxLon &&
+        sshBoundsRaw.minLat >= -90 && sshBoundsRaw.maxLat <= 90 &&
+        sshBoundsRaw.minLon >= -180 && sshBoundsRaw.maxLon <= 180 ? sshBoundsRaw : null;
+      const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lon) &&
+        Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+      if ((Number.isFinite(lat) && Math.abs(lat) > 90) ||
+          (Number.isFinite(lon) && Math.abs(lon) > 180)) continue;
+      // Do not drop a bulletin just because the XML omitted its coordinates.
+      list.push({
+        key: "tsun-" + eventid + "-" + (pd || list.length),
+        eventid, magnitude: Number.isFinite(mag) ? mag : 0,
+        lat: hasCoordinates ? lat : null, lon: hasCoordinates ? lon : null, depth,
+        place: area, time: capEventTime(date, time), date, timeLocal: time,
+        potential: potential || "Riwayat peringatan dini tsunami InaTEWS",
+        subject: subject || ("WARNING TSUNAMI PD-" + (pd || "?")),
+        pd: pd || null, headline, description, instruction, instruction1, instruction2, instruction3, timesent,
+        shakemap: mapCapAsset(shakemap) || null,
+        wzmap: mapCapAsset(wzmap), ttmap: mapCapAsset(ttmap), sshmap: mapCapAsset(sshmap),
+        ...(sshBounds ? { sshBounds } : {}),
+        ended: /telah\\s*berakhir|berakhir|all[\\s-]?clear|dinyatakan\\s*telah\\s*berakhir/i.test(headline + " " + description + " " + subject),
+        source: "InaTEWS", isTsunamiWarning: true, official: true
+      });
+    }
   }
-  return list.sort((a,b) => new Date(b.time || 0) - new Date(a.time || 0)).slice(0, 30);
+  // Preserve separate PD updates, de-duplicate exact duplicate XML records, and
+  // keep the latest 30 bulletins in chronological order.
+  const unique = new Map();
+  for (const q of list) {
+    const id = String(q.key || (q.eventid + "|" + q.pd));
+    if (!unique.has(id)) unique.set(id, q);
+  }
+  return [...unique.values()]
+    .sort((a,b) => new Date(b.timesent || b.time || 0) - new Date(a.timesent || a.time || 0))
+    .slice(0, 30);
 }
 async function getText(url, timeoutMs = 4000) {
   const res = await fetch(url, {
