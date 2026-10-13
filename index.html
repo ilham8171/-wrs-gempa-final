@@ -656,14 +656,35 @@
   }
   async function downloadAlertImages(item,kind){
     const pages=buildAlertCanvases(item,kind);
+    const base='wrs-bmkg-'+(kind==='alert'?'peringatan':'siaran-pers');
+    let saved=0;
     for(let i=0;i<pages.length;i++){
-      const blob=await new Promise(resolve=>pages[i].toBlob(resolve,'image/png'));
-      if(!blob)continue;
-      const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-      a.download='wrs-bmkg-'+(kind==='alert'?'peringatan':'siaran-pers')+'-'+(i+1)+'-dari-'+pages.length+'.png';
-      document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+      const canvas=pages[i];
+      const pageName=base+'-'+(i+1)+'-dari-'+pages.length+'.png';
+      // Android WebView does not reliably download blob: URLs. Send the PNG
+      // bytes through the native bridge so it is saved directly to Pictures/WRS GEMPA.
+      if(window.AndroidWrs&&typeof window.AndroidWrs.saveImage==='function'){
+        try{
+          const dataUrl=canvas.toDataURL('image/png');
+          const base64=dataUrl.substring(dataUrl.indexOf(',')+1);
+          const result=window.AndroidWrs.saveImage(pageName,base64);
+          if(result!=='OK')throw new Error(result||'Gagal menyimpan gambar');
+          saved++;
+          continue;
+        }catch(error){
+          alert('Gambar belum tersimpan: '+(error&&error.message?error.message:String(error)));
+          return;
+        }
+      }
+      const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+      if(!blob){alert('Gagal membuat gambar PNG. Coba lagi.');return;}
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;a.download=pageName;
+      document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+      saved++;
       if(i<pages.length-1)await new Promise(resolve=>setTimeout(resolve,350));
     }
+    if(saved)alert(window.AndroidWrs?'Berhasil menyimpan '+saved+' gambar ke Galeri · Pictures/WRS GEMPA.':'Unduhan gambar dimulai ('+saved+' file). Periksa folder Unduhan.');
   }
   async function shareAlertItem(item,kind){
     const d=alertText(item,kind), text=d.category+'\n'+d.title+'\n\n'+d.body+'\n\nSumber: BMKG '+d.source;
