@@ -142,46 +142,75 @@ function mapCapAsset(raw) {
   }
   return GCS + "/" + value.replace(/^\/+/, "");
 }
+function capValue(block, ...names) {
+  for (const name of names) {
+    const direct = textBetween(block, name);
+    if (direct) return direct;
+  }
+  const wanted = new Set(names.map(n => n.replace(/[^a-z0-9]/gi, "").toLowerCase()));
+  const params = String(block).match(/<parameter\\b[^>]*>[\\s\\S]*?<\\/parameter>/gi) || [];
+  for (const param of params) {
+    const key = textBetween(param, "valueName").replace(/[^a-z0-9]/gi, "").toLowerCase();
+    if (wanted.has(key)) {
+      const value = textBetween(param, "value");
+      if (value) return value;
+    }
+  }
+  return "";
+}
 function parseTsunamiCapXml(xml) {
   if (typeof xml !== "string" || !xml.trim()) return [];
-  const infos = xml.match(/<info\b[^>]*>[\s\S]*?<\/info>/gi) || [];
+  // CAP/Atom can carry multiple <info> bulletins, including multiple PD updates
+  // for one earthquake. Keep each bulletin; do not collapse them by event ID.
+  const infos = xml.match(/<(?:[\\w.-]+:)?info\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?info\\s*>/gi) || [];
   const list = [];
   for (const block of infos) {
-    const subject = textBetween(block, "subject") || textBetween(block, "headline");
-    const headline = textBetween(block, "headline");
-    const description = textBetween(block, "description");
-    const date = textBetween(block, "date");
-    const time = textBetween(block, "time");
-    const coordText = textBetween(block, "coordinates");
+    const subject = capValue(block, "subject", "headline") || "WARNING TSUNAMI";
+    const headline = capValue(block, "headline");
+    const description = capValue(block, "description");
+    let date = capValue(block, "date", "tanggal");
+    let time = capValue(block, "time", "jam");
+    const originTime = capValue(block, "EventOriginTime", "originTime", "datetime");
+    if ((!date || !time) && originTime) {
+      const parsedOrigin = new Date(originTime);
+      if (!Number.isNaN(parsedOrigin.getTime())) {
+        date = date || new Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Jakarta",year:"numeric",month:"2-digit",day:"2-digit"}).format(parsedOrigin);
+        time = time || new Intl.DateTimeFormat("en-GB", {timeZone:"Asia/Jakarta",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).format(parsedOrigin) + " WIB";
+      }
+    }
+    const coordText = capValue(block, "coordinates");
     const coords = coordText ? coordText.split(",").map(v => num(v.trim())) : [];
-    const lon = coords.length > 1 ? coords[0] : parseLon(textBetween(block, "longitude"));
-    const lat = coords.length > 1 ? coords[1] : parseLat(textBetween(block, "latitude"));
-    const mag = num(textBetween(block, "magnitude"));
-    const depthRaw = textBetween(block, "depth");
+    const lonRaw = capValue(block, "longitude", "EventLongitude", "Longitude");
+    const latRaw = capValue(block, "latitude", "EventLatitude", "Latitude");
+    let lon = coords.length > 1 ? coords[0] : parseLon(lonRaw);
+    let lat = coords.length > 1 ? coords[1] : parseLat(latRaw);
+    // Some CAP versions store the epicenter in the circle field as "lat,lon radius".
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      const circle = capValue(block, "circle");
+      const m = circle.match(/(-?\\d+(?:[.,]\\d+)?)\\s*,\\s*(-?\\d+(?:[.,]\\d+)?)/);
+      if (m) { lat = num(m[1]); lon = num(m[2]); }
+    }
+    const mag = num(capValue(block, "magnitude", "EventMagnitude"));
+    const depthRaw = capValue(block, "depth", "EventDepth");
     const depth = depthRaw.match(/[0-9]+(?:[.,][0-9]+)?/)?.[0] || "—";
-    const area = textBetween(block, "area") || "Indonesia";
-    const eventid = textBetween(block, "eventid") || [date, time, mag, lat, lon].join("|");
-    const pdMatch = (subject + " " + headline).match(/PD[-\s]?([\d.]+)/i);
+    const area = capValue(block, "area", "EventLocationName", "ShortLocationName") || "Indonesia";
+    const eventid = capValue(block, "eventid", "EventID", "identifier") || [date, time, mag, lat, lon].join("|");
+    const pdMatch = (subject + " " + headline + " " + description).match(/PD[-\\s]?([\\d.]+)/i);
     const pd = pdMatch ? pdMatch[1] : "";
-    const potential = textBetween(block, "potential") || subject || headline;
-    const instruction = textBetween(block, "instruction");
-    const instruction1 = textBetween(block, "instruction1");
-    const instruction2 = textBetween(block, "instruction2");
-    const instruction3 = textBetween(block, "instruction3");
-    const timesent = textBetween(block, "timesent");
-    const shakemap = textBetween(block, "shakemap");
-    const wzmap = textBetween(block, "wzmap");
-    const ttmap = textBetween(block, "ttmap");
-    const sshmap = textBetween(block, "sshmap");
-    // Only accept geographic bounds explicitly supplied by the source bulletin.
-    // Never derive raster bounds from the earthquake epicenter or image dimensions.
+    const potential = capValue(block, "potential") || subject || headline;
+    const instruction = capValue(block, "instruction");
+    const instruction1 = capValue(block, "instruction1");
+    const instruction2 = capValue(block, "instruction2");
+    const instruction3 = capValue(block, "instruction3");
+    const timesent = capValue(block, "timesent", "sent");
+    const shakemap = capValue(block, "shakemap");
+    const wzmap = capValue(block, "wzmap");
+    const ttmap = capValue(block, "ttmap");
+    const sshmap = capValue(block, "sshmap");
     const explicitBound = (...tags) => {
       for (const tag of tags) {
-        const value = textBetween(block, tag);
-        if (value) {
-          const parsed = num(value);
-          if (Number.isFinite(parsed)) return parsed;
-        }
+        const value = capValue(block, tag);
+        if (value) { const parsed = num(value); if (Number.isFinite(parsed)) return parsed; }
       }
       return NaN;
     };
@@ -192,11 +221,9 @@ function parseTsunamiCapXml(xml) {
       maxLon: explicitBound("sshmaxlon", "ssh_max_lon", "maxLon", "max_lon")
     };
     const sshBounds = Object.values(sshBoundsRaw).every(Number.isFinite) &&
-      sshBoundsRaw.minLat < sshBoundsRaw.maxLat &&
-      sshBoundsRaw.minLon < sshBoundsRaw.maxLon &&
+      sshBoundsRaw.minLat < sshBoundsRaw.maxLat && sshBoundsRaw.minLon < sshBoundsRaw.maxLon &&
       sshBoundsRaw.minLat >= -90 && sshBoundsRaw.maxLat <= 90 &&
-      sshBoundsRaw.minLon >= -180 && sshBoundsRaw.maxLon <= 180
-      ? sshBoundsRaw : null;
+      sshBoundsRaw.minLon >= -180 && sshBoundsRaw.maxLon <= 180 ? sshBoundsRaw : null;
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
     list.push({
       key: "tsun-" + eventid + "-" + (pd || list.length),
@@ -208,11 +235,11 @@ function parseTsunamiCapXml(xml) {
       shakemap: mapCapAsset(shakemap) || null,
       wzmap: mapCapAsset(wzmap), ttmap: mapCapAsset(ttmap), sshmap: mapCapAsset(sshmap),
       ...(sshBounds ? { sshBounds } : {}),
-      ended: /telah\s*berakhir|berakhir|all[\s-]?clear|dinyatakan\s*telah\s*berakhir/i.test(headline + " " + description + " " + subject),
+      ended: /telah\\s*berakhir|berakhir|all[\\s-]?clear|dinyatakan\\s*telah\\s*berakhir/i.test(headline + " " + description + " " + subject),
       source: "InaTEWS", isTsunamiWarning: true, official: true
     });
   }
-  return list.sort((a,b) => new Date(b.time || 0) - new Date(a.time || 0));
+  return list.sort((a,b) => new Date(b.time || 0) - new Date(a.time || 0)).slice(0, 30);
 }
 async function getText(url, timeoutMs = 4000) {
   const res = await fetch(url, {
