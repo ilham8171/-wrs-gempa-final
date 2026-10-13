@@ -313,7 +313,35 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   if (ql.status !== "fulfilled") errors.push("InaTEWS lastQL");
   const historyEvents = historyQL.status === "fulfilled" ? qlFeatures(historyQL.value).map(mapQL).filter(Boolean) : [];
   if (historyQL.status !== "fulfilled") errors.push("InaTEWS gempaQL");
-  liveQL.forEach(q => { q.source = "InaTEWS WRS"; q.wrsRealtime = true; list.push(q); });
+  liveQL.forEach(q => {
+    q.source = "InaTEWS WRS";
+    q.wrsRealtime = true;
+    // InaTEWS lastQL can occasionally publish a rounded/incorrect depth compared
+    // with BMKG's public earthquake bulletin. When both feeds clearly describe
+    // the same event, retain the live WRS event but use BMKG's reported depth.
+    const qTime = validEventTime(q.time);
+    const bmkgMatch = list.find(b => {
+      if (b.source !== "BMKG" || !b.official ||
+          !Number.isFinite(b.lat) || !Number.isFinite(b.lon) ||
+          !Number.isFinite(q.lat) || !Number.isFinite(q.lon)) return false;
+      const bTime = validEventTime(b.time);
+      if (!Number.isFinite(qTime) || !Number.isFinite(bTime)) return false;
+      return Math.abs(qTime - bTime) <= 2 * 60 * 1000 &&
+        distanceKm(q, b) <= 20 &&
+        Math.abs(Number(q.magnitude) - Number(b.magnitude)) <= 0.4;
+    });
+    if (bmkgMatch) {
+      const officialDepth = Number(String(bmkgMatch.depth ?? "").replace(",", "."));
+      if (String(bmkgMatch.depth ?? "").trim() !== "" &&
+          Number.isFinite(officialDepth) && officialDepth >= 0) {
+        q.depth = String(officialDepth);
+        q.depthSource = "BMKG";
+      }
+      // Keep the original WRS source label, but prefer BMKG's official region name.
+      if (bmkgMatch.place) q.officialPlace = bmkgMatch.place;
+    }
+    list.push(q);
+  });
   historyEvents.forEach(q => { q.source = "InaTEWS"; q.wrsRealtime = false; list.push(q); });
   qlEvents.push(...liveQL);
   // Jangan pernah menyamarkan katalog historis sebagai feed realtime bila lastQL gagal/kosong.
@@ -353,6 +381,10 @@ export async function onRequestGet({ request, waitUntil } = {}) {
     q.source === "InaTEWS WRS" ? 3 : q.source === "InaTEWS" ? 2 : q.source === "USGS" ? 1 : 0;
   const validTime = q => {
     const t = new Date(q.time || 0).getTime();
+    return Number.isFinite(t) && t > 0 ? t : NaN;
+  };
+  const validEventTime = value => {
+    const t = new Date(value || 0).getTime();
     return Number.isFinite(t) && t > 0 ? t : NaN;
   };
   const distanceKm = (a, b) => {
