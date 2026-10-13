@@ -148,7 +148,7 @@ function capValue(block, ...names) {
     if (direct) return direct;
   }
   const wanted = new Set(names.map(n => n.replace(/[^a-z0-9]/gi, "").toLowerCase()));
-  const params = String(block).match(/<parameter\\b[^>]*>[\\s\\S]*?<\\/parameter>/gi) || [];
+  const params = String(block).match(/<parameter\b[^>]*>[\s\S]*?<\/parameter>/gi) || [];
   for (const param of params) {
     const key = textBetween(param, "valueName").replace(/[^a-z0-9]/gi, "").toLowerCase();
     if (wanted.has(key)) {
@@ -162,7 +162,7 @@ function parseTsunamiCapXml(xml) {
   if (typeof xml !== "string" || !xml.trim()) return [];
   // CAP/Atom can carry multiple <info> bulletins, including multiple PD updates
   // for one earthquake. Keep each bulletin; do not collapse them by event ID.
-  const infos = xml.match(/<(?:[\\w.-]+:)?info\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?info\\s*>/gi) || [];
+  const infos = xml.match(/<(?:[\w.-]+:)?info\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?info\s*>/gi) || [];
   const list = [];
   for (const block of infos) {
     const subject = capValue(block, "subject", "headline") || "WARNING TSUNAMI";
@@ -184,10 +184,9 @@ function parseTsunamiCapXml(xml) {
     const latRaw = capValue(block, "latitude", "EventLatitude", "Latitude");
     let lon = coords.length > 1 ? coords[0] : parseLon(lonRaw);
     let lat = coords.length > 1 ? coords[1] : parseLat(latRaw);
-    // Some CAP versions store the epicenter in the circle field as "lat,lon radius".
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
       const circle = capValue(block, "circle");
-      const m = circle.match(/(-?\\d+(?:[.,]\\d+)?)\\s*,\\s*(-?\\d+(?:[.,]\\d+)?)/);
+      const m = circle.match(/(-?\d+(?:[.,]\d+)?)\s*,\s*(-?\d+(?:[.,]\d+)?)/);
       if (m) { lat = num(m[1]); lon = num(m[2]); }
     }
     const mag = num(capValue(block, "magnitude", "EventMagnitude"));
@@ -195,7 +194,7 @@ function parseTsunamiCapXml(xml) {
     const depth = depthRaw.match(/[0-9]+(?:[.,][0-9]+)?/)?.[0] || "—";
     const area = capValue(block, "area", "EventLocationName", "ShortLocationName") || "Indonesia";
     const eventid = capValue(block, "eventid", "EventID", "identifier") || [date, time, mag, lat, lon].join("|");
-    const pdMatch = (subject + " " + headline + " " + description).match(/PD[-\\s]?([\\d.]+)/i);
+    const pdMatch = (subject + " " + headline + " " + description).match(/PD[-\s]?([\d.]+)/i);
     const pd = pdMatch ? pdMatch[1] : "";
     const potential = capValue(block, "potential") || subject || headline;
     const instruction = capValue(block, "instruction");
@@ -235,7 +234,7 @@ function parseTsunamiCapXml(xml) {
       shakemap: mapCapAsset(shakemap) || null,
       wzmap: mapCapAsset(wzmap), ttmap: mapCapAsset(ttmap), sshmap: mapCapAsset(sshmap),
       ...(sshBounds ? { sshBounds } : {}),
-      ended: /telah\\s*berakhir|berakhir|all[\\s-]?clear|dinyatakan\\s*telah\\s*berakhir/i.test(headline + " " + description + " " + subject),
+      ended: /telah\s*berakhir|berakhir|all[\s-]?clear|dinyatakan\s*telah\s*berakhir/i.test(headline + " " + description + " " + subject),
       source: "InaTEWS", isTsunamiWarning: true, official: true
     });
   }
