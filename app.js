@@ -332,7 +332,11 @@ async function fetchClientSide() {
     .filter(q => Number.isFinite(q.lat) && Number.isFinite(q.lon) && q.lat >= -11 && q.lat <= 6.5 && q.lon >= 94 && q.lon <= 141.5)
     .sort((a, b) => new Date(b.time) - new Date(a.time));
   return {
-    ok: true, recent,
+    ok: true,
+    // Client fallback has no server fetch timestamp. Record when this device
+    // completed the fallback fetch, and label it as device-received time in diagnostics.
+    fetchedAt: new Date().toISOString(),
+    recent,
     official: official[0] || recent.find((q) => q.official) || recent[0] || null,
     realtime: realtimeEvents[0] || null,
     realtimeEvents,
@@ -2172,8 +2176,8 @@ function updateDiagnostics(data = null, error = null, simulation = false) {
     const isFallback = source.clientFallback === true || source.wrs?.ok === false;
     const stale = ageSeconds == null || ageSeconds > 45;
     put("diagConnection", error ? "GAGAL MEMUAT — mempertahankan data terakhir" :
+      isFallback ? (stale ? "SUMBER CADANGAN / WAKTU TERIMA TIDAK VALID" : "SUMBER CADANGAN / DATA PARSIAL") :
       stale ? "DATA LAMBAT / WAKTU SUMBER TIDAK VALID" :
-      isFallback ? "SUMBER CADANGAN / DATA PARSIAL" :
       sourceErrors.length ? "TERHUBUNG — SEBAGIAN SUMBER BERMASALAH" : "TERHUBUNG");
     const sourceParts = [];
     if (source.wrs) sourceParts.push("InaTEWS realtime: " + (source.wrs.ok ? "OK" : "gagal"));
@@ -2187,7 +2191,9 @@ function updateDiagnostics(data = null, error = null, simulation = false) {
     }
     renderTsunamiGovAlerts(data?.tsunamiGovMessages, source.tsunamiGov);
     put("diagSources", sourceParts.join(" · ") || "Status sumber belum tersedia");
-    put("diagFetchAge", ageSeconds == null ? "Waktu fetch tidak tersedia" : ageSeconds + " detik sejak fetch API");
+    put("diagFetchAge", ageSeconds == null
+      ? "Waktu fetch tidak tersedia"
+      : (isFallback ? ageSeconds + " detik sejak data diterima perangkat (API utama gagal)" : ageSeconds + " detik sejak fetch API"));
     put("diagLastSuccess", lastSuccessfulLoadAt ? new Date(lastSuccessfulLoadAt).toLocaleString("id-ID") : "Belum ada fetch sukses sejak halaman dibuka");
     put("diagRetries", consecutiveLoadFailures);
     put("diagError", error ? String(error.message || error).slice(0, 180) :
@@ -2556,7 +2562,12 @@ async function load(showSpin, force = false) {
             count: fallback.recent.length,
             realtime: fallback.realtime || null,
             realtimeEvents: Array.isArray(fallback.realtimeEvents) ? fallback.realtimeEvents : [],
-            tsunamiHistory: Array.isArray(tsunamiHistory) ? tsunamiHistory : [],
+            // Never replace the locally cached 30 bulletins with a shorter/empty
+            // fallback array. Merge preserves separate PD updates for one event.
+            tsunamiHistory: mergeTsunamiHistory([
+              ...(Array.isArray(fallback.tsunamiHistory) ? fallback.tsunamiHistory : []),
+              ...(Array.isArray(tsunamiHistory) ? tsunamiHistory : [])
+            ]),
             sources: {
               ...(fallback.sources || {}),
               clientFallback: true,
