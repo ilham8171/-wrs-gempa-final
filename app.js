@@ -1116,7 +1116,7 @@ async function loadUsgsProducts(q, forceFallback = false) {
       }
       if (tsunamiText && tsunamiBadge) {
         if (Number(p.tsunami) === 1) {
-          tsunamiText.textContent = "USGS menandai kejadian ini berpotensi tsunami. Periksa peringatan resmi dari otoritas tsunami setempat; tanda ini bukan konfirmasi bahwa peringatan sedang aktif.";
+          tsunamiText.textContent = "INDIKASI USGS: berpotensi tsunami. KEPUTUSAN PERINGATAN RESMI: belum dapat ditentukan dari flag USGS ini. Status baru ditampilkan sebagai AKTIF bila feed otoritas resmi yang terpantau menerbitkan pesan aktif; periksa BMKG/InaTEWS untuk Indonesia dan tsunami.gov untuk wilayah lain. Jangan menafsirkan flag USGS sebagai konfirmasi peringatan aktif maupun sebagai tanda aman.";
           tsunamiBadge.classList.remove("safe");
         } else {
           tsunamiText.textContent = "USGS tidak menandai potensi tsunami pada data event ini. Tetap ikuti pengumuman resmi otoritas setempat.";
