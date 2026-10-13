@@ -520,12 +520,11 @@ function updateStats(list) {
   const all = quakes;
   const strong = all.filter(q => q.magnitude >= 4).length;
   const felt = all.filter(q => q.felt && String(q.felt).trim()).length;
-  // Prioritas: daftar resmi InaTEWS last-30 tsunami; fallback potensi di katalog
-  // Counter only represents recent, non-ended official bulletins; the 30-item
-  // InaTEWS archive must not be displayed as 30 active tsunami warnings.
-  const tsunami = countCurrentTsunamiWarnings(tsunamiHistory);
+  // Angka TSUNAMI pada dashboard menunjukkan jumlah buletin dalam arsip,
+  // bukan jumlah peringatan yang sedang aktif. Status aktif diverifikasi terpisah.
+  const tsunami = Array.isArray(tsunamiHistory) ? tsunamiHistory.length : 0;
   const set = (id, value) => { const el = $(id); if (el) el.textContent = String(value); };
-  set("#statTotal", list.length);
+  set("#statTotal", all.length);
   set("#statStrong", strong);
   set("#statFelt", felt);
   set("#statTsunami", tsunami);
@@ -2830,8 +2829,41 @@ function renderHistoryTimeline() {
   }));
 }
 
+/* Filter riwayat wilayah: koordinat dalam kotak geografis Indonesia atau global. */
+let historyRegion = "all";
+function isIndonesiaEvent(q) {
+  return Number.isFinite(Number(q?.lat)) && Number.isFinite(Number(q?.lon)) &&
+    Number(q.lat) >= -11 && Number(q.lat) <= 6.5 &&
+    Number(q.lon) >= 94 && Number(q.lon) <= 141.5;
+}
+function ensureHistoryRegionControls() {
+  const header = $("#histTitle")?.closest(".hist-header");
+  if (!header) return;
+  let controls = $("#historyRegionControls");
+  if (!controls) {
+    controls = document.createElement("div");
+    controls.id = "historyRegionControls";
+    controls.className = "history-region-controls";
+    controls.innerHTML = '<div class="history-region-tabs" role="group" aria-label="Wilayah riwayat"><button type="button" data-history-region="all">Semua</button><button type="button" data-history-region="id">Indonesia</button><button type="button" data-history-region="global">Global</button></div><div id="historyRegionStats" class="history-region-stats"></div>';
+    header.insertAdjacentElement("afterend", controls);
+    controls.querySelectorAll("[data-history-region]").forEach(button => button.addEventListener("click", () => {
+      historyRegion = button.dataset.historyRegion || "all";
+      openHistory(window._wrsHistoryMode || "all");
+    }));
+  }
+  controls.querySelectorAll("[data-history-region]").forEach(button => {
+    button.classList.toggle("active", button.dataset.historyRegion === historyRegion);
+    button.setAttribute("aria-pressed", String(button.dataset.historyRegion === historyRegion));
+  });
+}
+function historyRegionFilter(list, mode) {
+  if (mode === "tsunami" || historyRegion === "all") return list;
+  return list.filter(q => historyRegion === "id" ? isIndonesiaEvent(q) : !isIndonesiaEvent(q));
+}
 /* History / daftar modal — mode: all | strong | felt | tsunami */
 function openHistory(mode = "all") {
+  window._wrsHistoryMode = mode;
+  ensureHistoryRegionControls();
   renderHistoryTimeline();
   const body = $("#histBody");
   body.innerHTML = "";
@@ -2851,7 +2883,13 @@ function openHistory(mode = "all") {
       : quakes.filter((q) => isTsunamiPotential(q.potential));
   } else list = getFilteredQuakes();
 
-  list = list.slice(0, 100);
+  const fullList = list.slice();
+  const indonesiaCount = fullList.filter(isIndonesiaEvent).length;
+  const globalCount = fullList.length - indonesiaCount;
+  list = historyRegionFilter(fullList, mode).slice(0, mode === "tsunami" ? 100 : 600);
+  ensureHistoryRegionControls();
+  const regionStats = $("#historyRegionStats");
+  if (regionStats) regionStats.textContent = `Indonesia: ${indonesiaCount} · Global: ${globalCount} · Total: ${fullList.length}`;
   const titleEl = $("#histTitle");
   if (titleEl) {
     titleEl.textContent =
