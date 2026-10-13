@@ -2115,6 +2115,41 @@ function updateModeButtons() {
 }
 
 /** Diagnostics are informational: never let a health-panel rendering failure interrupt monitoring. */
+function renderTsunamiGovAlerts(messages, sourceStatus) {
+  const banner = document.getElementById("tsunamiGovBanner");
+  const title = document.getElementById("tsunamiGovBannerTitle");
+  const body = document.getElementById("tsunamiGovBannerBody");
+  const link = document.getElementById("tsunamiGovBannerLink");
+  if (!banner || !title || !body || !link) return;
+  const list = Array.isArray(messages) ? messages : [];
+  const now = Date.now();
+  const active = list.filter(item => item && item.active === true &&
+    (!item.expires || !Number.isFinite(Date.parse(item.expires)) || Date.parse(item.expires) > now));
+  if (active.length) {
+    const item = active[0];
+    title.textContent = "PESAN TSUNAMI AKTIF · " + String(item.center || "NOAA").toUpperCase();
+    const areas = Array.isArray(item.areas) && item.areas.length ? " Wilayah: " + item.areas.join(", ") + "." : "";
+    body.textContent = [item.headline || item.subject || "Pesan tsunami aktif dari NOAA.", areas,
+      "Sumber: " + String(item.source || "tsunami.gov") + ".",
+      "Catatan: cakupan feed ini terbatas dan bukan pengganti peringatan BMKG/InaTEWS untuk Indonesia."]
+      .filter(Boolean).join(" ");
+    link.href = item.sourceUrl || "https://www.tsunami.gov/";
+    banner.hidden = false;
+    banner.style.borderColor = "#ef4444";
+    banner.style.background = "#450a0af5";
+    return;
+  }
+  if (sourceStatus && (sourceStatus.ptwcOk || sourceStatus.ntwcOk)) {
+    title.textContent = "PANTAUAN TAMBAHAN · tsunami.gov";
+    body.textContent = "Feed NOAA tidak memuat pesan tsunami aktif saat ini. Ini bukan konfirmasi aman untuk Indonesia; tetap ikuti status resmi BMKG/InaTEWS.";
+    link.href = "https://www.tsunami.gov/";
+    banner.hidden = false;
+    banner.style.borderColor = "#64748b";
+    banner.style.background = "#0f172af2";
+    return;
+  }
+  banner.hidden = true;
+}
 function updateDiagnostics(data = null, error = null, simulation = false) {
   const put = (id, value) => {
     const node = document.getElementById(id);
@@ -2144,7 +2179,13 @@ function updateDiagnostics(data = null, error = null, simulation = false) {
     if (source.wrs) sourceParts.push("InaTEWS realtime: " + (source.wrs.ok ? "OK" : "gagal"));
     if (source.public != null) sourceParts.push("BMKG: " + source.public + "/3 feed");
     if (source.usgs != null) sourceParts.push("USGS: " + source.usgs + " event");
-    if (source.tsunami != null) sourceParts.push("Buletin tsunami: " + source.tsunami);
+    if (source.tsunami != null) sourceParts.push("Buletin tsunami BMKG: " + source.tsunami);
+    if (source.tsunamiGov) {
+      sourceParts.push("tsunami.gov: " + (source.tsunamiGov.ptwcOk || source.tsunamiGov.ntwcOk
+        ? source.tsunamiGov.activeCount + " pesan aktif · " + source.tsunamiGov.messageCount + " pesan"
+        : "tidak terjangkau"));
+    }
+    renderTsunamiGovAlerts(data?.tsunamiGovMessages, source.tsunamiGov);
     put("diagSources", sourceParts.join(" · ") || "Status sumber belum tersedia");
     put("diagFetchAge", ageSeconds == null ? "Waktu fetch tidak tersedia" : ageSeconds + " detik sejak fetch API");
     put("diagLastSuccess", lastSuccessfulLoadAt ? new Date(lastSuccessfulLoadAt).toLocaleString("id-ID") : "Belum ada fetch sukses sejak halaman dibuka");
