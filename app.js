@@ -803,7 +803,7 @@ function renderRealtime(q, catalogFallback = false) {
   $("#rtCoord").textContent = `◎ ${fmtCoord(q)} · ${q.depth} Km`;
   $("#rtPlace").textContent = q.place;
   $("#rtSrc").textContent = catalogFallback
-    ? "Katalog Indonesia M2+ · " + (q.source || "BMKG") + " · bukan feed WRS langsung"
+    ? "Indonesia · M2+ · 7 hari terakhir"
     : "Sumber: " + (q.source || "BMKG");
   // Riwayat pemutakhiran tetap tampil di kotak katalog realtime walau
   // revisi terjadi pada event lain dalam daftar WRS tujuh hari.
@@ -2664,7 +2664,7 @@ async function load(showSpin, force = false) {
     const catalogFallbackQuake = primary ? null : latestIndonesiaCatalogQuake();
     renderRealtime(primary || catalogFallbackQuake, !primary && !!catalogFallbackQuake);
     const rtFilter = $("#rtFilter");
-    if (rtFilter) rtFilter.textContent = "Indonesia · M2+ · 7 hari · feed WRS diutamakan";
+    if (rtFilter) rtFilter.textContent = "Indonesia · M2+ · 7 hari terakhir";
     updateModeButtons();
 
     if (oldFingerprint !== newFingerprint || showSpin) drawMarkers(true);
@@ -2985,7 +2985,7 @@ function openHistory(mode = "all") {
   if (!list.length) {
     body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;color:#94a3b8">${
       mode === "tsunami"
-        ? "Belum ada data buletin tsunami. Pastikan Functions Netlify ter-deploy."
+        ? "Data riwayat tsunami belum berhasil dimuat dari InaTEWS. Data terakhir yang tersimpan tetap dipertahankan."
         : "Tidak ada data untuk kategori ini."
     }</td></tr>`;
   }
