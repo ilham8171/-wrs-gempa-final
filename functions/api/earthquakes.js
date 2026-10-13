@@ -167,10 +167,10 @@ function capValue(block, ...names) {
 
 function parseNoaaTsunamiAtom(xml, center) {
   if (typeof xml !== "string" || !xml.trim()) return [];
-  const entries = xml.match(/<(?:[\\w.-]+:)?entry\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?entry\\s*>/gi) || [];
+  const entries = xml.match(/<(?:[\w.-]+:)?entry\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?entry\s*>/gi) || [];
   const readTag = (block, tag) => textBetween(block, tag);
   const readLink = block => {
-    const m = block.match(/<(?:[\\w.-]+:)?link\\b[^>]*href=["']([^"']+)["'][^>]*\\/?\\s*>/i);
+    const m = block.match(/<(?:[\w.-]+:)?link\b[^>]*href=["']([^"']+)["'][^>]*\/?\s*>/i);
     return m ? m[1] : "";
   };
   const centerName = center === "PTWC" ? "Pacific Tsunami Warning Center" : "National Tsunami Warning Center";
@@ -180,12 +180,12 @@ function parseNoaaTsunamiAtom(xml, center) {
     const title = readTag(entry, "title");
     const summary = readTag(entry, "summary") || readTag(entry, "content");
     const published = readTag(entry, "published") || readTag(entry, "updated");
-    const text = (title + " " + summary).replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ");
-    if (!/tsunami/i.test(text)) continue;
-    const explicitlyNoThreat = /no tsunami (warning|advisory|watch|threat)|there is no tsunami warning|no tsunami threat/i.test(text);
-    const cancelled = /cancelled|canceled|all clear|no longer in effect/i.test(text);
+    const cleanText = (title + " " + summary).replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ");
+    if (!/tsunami/i.test(cleanText)) continue;
+    const explicitlyNoThreat = /no tsunami (warning|advisory|watch|threat)|there is no tsunami warning|no tsunami threat/i.test(cleanText);
+    const cancelled = /cancelled|canceled|all clear|no longer in effect/i.test(cleanText);
     const active = !explicitlyNoThreat && !cancelled &&
-      /warning|advisory|watch|threat/i.test(text) &&
+      /\b(warning|advisory|watch|threat)\b/i.test(cleanText) &&
       !/information statement|earthquake information/i.test(title);
     const timeMs = Date.parse(published);
     out.push({
