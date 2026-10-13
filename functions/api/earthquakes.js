@@ -738,7 +738,11 @@ export async function onRequestGet(context = {}) {
     try {
       const emergencyResults = await Promise.allSettled([
         ...BMKG_URLS.map(url => getBmkgFeed(url)),
-        getJson(GCS + "/lastQL.json", true, 2500)
+        getJson(GCS + "/lastQL.json", true, 2500),
+        // USGS is an independent backup. Keep it in the emergency path so a
+        // temporary BMKG/InaTEWS outage or edge-specific rate limit does not
+        // force HTTP 503 when the global earthquake feed is still available.
+        getJson(USGS, false, 3500, 60)
       ]);
       const emergencyEvents = [];
       let bmkgOk = 0;
@@ -771,6 +775,23 @@ export async function onRequestGet(context = {}) {
             return null;
           }).filter(Boolean)
         : [];
+      const usgsResult = emergencyResults[4];
+      let usgsEmergencyCount = 0;
+      if (usgsResult.status === "fulfilled" && Array.isArray(usgsResult.value?.features)) {
+        usgsResult.value.features.slice(0, 150).forEach(feature => {
+          try {
+            const event = mapUSGS(feature, 2);
+            if (event) {
+              emergencyEvents.push(event);
+              usgsEmergencyCount++;
+            }
+          } catch (mapError) {
+            console.warn("[WRS API] Emergency USGS event skipped:", String(mapError?.message || mapError).slice(0, 120));
+          }
+        });
+      } else if (usgsResult.status === "rejected") {
+        console.warn("[WRS API] Emergency USGS feed failed:", String(usgsResult.reason?.message || usgsResult.reason).slice(0, 120));
+      }
       const inIndonesia = event => Number.isFinite(event.lat) && Number.isFinite(event.lon) &&
         event.lat >= -11 && event.lat <= 6.5 && event.lon >= 94 && event.lon <= 141.5;
       emergencyEvents.push(...liveEvents);
@@ -816,7 +837,7 @@ export async function onRequestGet(context = {}) {
             public: bmkgOk,
             publicEvents: recent.filter(event => event.source === "BMKG").length,
             inaQL: 0,
-            usgs: 0,
+            usgs: usgsEmergencyCount,
             tsunami: 0,
             emergencyFallback: true,
             errors: ["API utama mengalami gangguan internal; memakai respons darurat BMKG/InaTEWS", "Detail gangguan: " + failure]
@@ -828,6 +849,7 @@ export async function onRequestGet(context = {}) {
         console.error("[WRS API] Emergency core-feed fallback served", {
           bmkgFeedsOk: bmkgOk,
           liveInaTEWSOk: liveResult.status === "fulfilled",
+          usgsEvents: usgsEmergencyCount,
           eventCount: recent.length,
           cause: failure
         });
