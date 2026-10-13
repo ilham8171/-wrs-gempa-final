@@ -2183,7 +2183,7 @@ function updateDiagnostics(data = null, error = null, simulation = false) {
     const ageSeconds = Number.isFinite(effectiveFetchAt) ? Math.max(0, Math.floor((Date.now() - effectiveFetchAt) / 1000)) : null;
     const source = data?.sources || {};
     const sourceErrors = Array.isArray(source.errors) ? source.errors : [];
-    const isFallback = source.clientFallback === true || source.wrs?.ok === false;
+    const isFallback = source.clientFallback === true || source.emergencyFallback === true || source.wrs?.ok === false;
     const stale = ageSeconds == null || ageSeconds > 45;
     put("diagConnection", error ? "GAGAL MEMUAT — mempertahankan data terakhir" :
       isFallback ? (stale ? "SUMBER CADANGAN / WAKTU TERIMA TIDAK VALID" : "SUMBER CADANGAN / DATA PARSIAL") :
