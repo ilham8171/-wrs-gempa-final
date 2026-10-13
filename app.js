@@ -48,6 +48,11 @@ let lastRenderFingerprint = "";
 let loadInFlight = false;
 let consecutiveLoadFailures = 0;
 let lastSuccessfulLoadAt = 0;
+// Stabilize connection status: one poll must not flip the UI green/red.
+// Degradation/recovery require 3 consecutive primary API results.
+let primaryApiConsecutiveFailures = 0;
+let primaryApiConsecutiveSuccesses = 0;
+let primaryApiHealthState = "unknown"; // unknown | healthy | unstable | degraded | recovering
 // Monotonically increasing token: responses from a previous mode/request must never
 // overwrite the screen after the user switches between simulation and operation.
 let loadRequestId = 0;
@@ -2551,6 +2556,17 @@ async function load(showSpin, force = false) {
           });
           if (!r.ok) throw new Error("API gempa HTTP " + r.status);
           d = await r.json();
+          if (d?.ok === true && Array.isArray(d.recent)) {
+            primaryApiConsecutiveFailures = 0;
+            primaryApiConsecutiveSuccesses++;
+            if (primaryApiConsecutiveSuccesses >= 3) {
+              primaryApiHealthState = "healthy";
+            } else if (primaryApiHealthState === "degraded" || primaryApiHealthState === "recovering" || primaryApiHealthState === "unknown") {
+              primaryApiHealthState = "recovering";
+            }
+          } else {
+            throw new Error("API utama mengembalikan payload yang tidak valid");
+          }
           lastApiError = null;
           break;
         } catch (apiError) {
@@ -2563,6 +2579,13 @@ async function load(showSpin, force = false) {
         }
       }
       if (lastApiError) {
+        primaryApiConsecutiveSuccesses = 0;
+        primaryApiConsecutiveFailures++;
+        if (primaryApiConsecutiveFailures >= 3) {
+          primaryApiHealthState = "degraded";
+        } else if (primaryApiHealthState !== "degraded") {
+          primaryApiHealthState = "unstable";
+        }
         // Endpoint utama gagal dari perangkat: coba BMKG, WRS lastQL, dan USGS langsung.
         // Ini adalah mode cadangan berlabel, bukan klaim bahwa API utama sehat.
         const apiFailure = String(lastApiError?.message || lastApiError).slice(0, 120);
@@ -2690,18 +2713,35 @@ async function load(showSpin, force = false) {
     const apiAgeSeconds = Number.isFinite(fetchedAtMs) ? Math.max(0, Math.floor((Date.now() - fetchedAtMs) / 1000)) : null;
     const apiDataStale = apiAgeSeconds == null || apiAgeSeconds > 45;
     const usingFallback = clientFallback || !wrsFeedOk || apiDataStale;
-    status(true, apiDataStale ? "DATA LAMBAT" : clientFallback
-      ? (wrsFeedOk ? "WRS CADANGAN LANGSUNG" : "SUMBER CADANGAN")
-      : (wrsFeedOk ? "WRS LIVE" : "CADANGAN · WRS OFFLINE"));
+    // Brief blips show as a warning; they do not instantly flip the monitor red/green.
+    if (primaryApiHealthState === "unstable") {
+      status(true, "WRS MEMANTAU · CEK KONEKSI");
+    } else if (primaryApiHealthState === "recovering") {
+      status(true, "API PULIH · MEMASTIKAN STABIL");
+    } else if (primaryApiHealthState === "degraded") {
+      status(true, "DATA CADANGAN · RETRY OTOMATIS");
+    } else {
+      status(true, apiDataStale ? "DATA LAMBAT" : clientFallback
+        ? (wrsFeedOk ? "WRS CADANGAN LANGSUNG" : "SUMBER CADANGAN")
+        : (wrsFeedOk ? "WRS LIVE" : "CADANGAN · WRS OFFLINE"));
+    }
     const healthText = $("#wrsHealthText");
     const healthTime = $("#wrsLastUpdated");
     const health = $("#wrsHealth");
     if (healthText) {
-      healthText.textContent = apiDataStale
-        ? "PEMBARUAN TERLAMBAT · DATA TERAKHIR DIPERTAHANKAN"
-        : clientFallback
-          ? (wrsFeedOk ? "API UTAMA TERGANGGU · WRS LANGSUNG CADANGAN AKTIF" : "API UTAMA TERGANGGU · DATA CADANGAN BMKG/USGS")
-          : (wrsFeedOk ? ((d.sources?.errors?.length) ? "WRS TERHUBUNG · DATA PARSIAL" : "WRS REALTIME TERHUBUNG") : (quakes.length ? "WRS OFFLINE · DATA CADANGAN" : "WRS OFFLINE · DATA TIDAK TERSEDIA"));
+      healthText.textContent = primaryApiHealthState === "unstable"
+        ? "KONEKSI TIDAK STABIL · DATA TETAP DIPANTAU"
+        : primaryApiHealthState === "recovering"
+          ? "API UTAMA PULIH · MEMASTIKAN STABIL"
+          : primaryApiHealthState === "degraded"
+            ? (clientFallback
+              ? (wrsFeedOk ? "API UTAMA TERGANGGU · WRS LANGSUNG CADANGAN AKTIF" : "API UTAMA TERGANGGU · DATA CADANGAN BMKG/USGS")
+              : "PEMBARUAN TERLAMBAT · DATA TERAKHIR DIPERTAHANKAN")
+            : apiDataStale
+              ? "PEMBARUAN TERLAMBAT · DATA TERAKHIR DIPERTAHANKAN"
+              : clientFallback
+                ? (wrsFeedOk ? "API UTAMA TERGANGGU · WRS LANGSUNG CADANGAN AKTIF" : "API UTAMA TERGANGGU · DATA CADANGAN BMKG/USGS")
+                : (wrsFeedOk ? ((d.sources?.errors?.length) ? "WRS TERHUBUNG · DATA PARSIAL" : "WRS REALTIME TERHUBUNG") : (quakes.length ? "WRS OFFLINE · DATA CADANGAN" : "WRS OFFLINE · DATA TIDAK TERSEDIA"));
     }
     if (healthTime) {
       const fetchedText = Number.isFinite(fetchedAtMs)
@@ -2712,11 +2752,15 @@ async function load(showSpin, force = false) {
         (clientFallback ? " · API utama: " + String(d.sources?.apiError || "gagal") : "");
     }
     if (health) {
-      // Data parsial saat feed realtime masih aktif adalah peringatan, bukan kegagalan total.
-      // Merah hanya untuk data basi, API utama gagal, atau feed WRS realtime tidak tersedia.
+      // Hysteresis avoids red-green-red flicker: 3 consecutive failures before red,
+      // and 3 consecutive valid primary replies before returning to healthy.
       const partialSources = !!d.sources?.errors?.length;
-      health.classList.toggle("is-error", apiDataStale || clientFallback || !wrsFeedOk);
-      health.classList.toggle("is-warning", !apiDataStale && !clientFallback && wrsFeedOk && partialSources);
+      const stablePrimaryError = primaryApiHealthState === "degraded";
+      const primaryTransition = primaryApiHealthState === "unstable" || primaryApiHealthState === "recovering";
+      const hardError = stablePrimaryError || (apiDataStale && !primaryTransition) || (!wrsFeedOk && !primaryTransition && primaryApiHealthState !== "unknown");
+      const warning = !hardError && (primaryTransition || clientFallback || !wrsFeedOk || partialSources || apiDataStale);
+      health.classList.toggle("is-error", hardError);
+      health.classList.toggle("is-warning", warning);
       const sourceErrors = Array.isArray(d.sources?.errors) ? d.sources.errors : [];
       const sourceErrorDetail = sourceErrors.length
         ? " Sumber yang gagal: " + sourceErrors.join("; ") + "."
