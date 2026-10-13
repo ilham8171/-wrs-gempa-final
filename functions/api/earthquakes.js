@@ -69,6 +69,11 @@ function mapPublic(raw) {
   }
   return { key:"bmkg|"+(time || raw.Tanggal+"|"+raw.Jam+"|"+mag), magnitude:mag, lat:Number.isFinite(lat)?lat:null, lon:Number.isFinite(lon)?lon:null, place:String(raw.Wilayah || "Indonesia"), depth:String(raw.Kedalaman || "—").match(/[0-9]+(?:[.,][0-9]+)?/)?.[0] || "—", time, potential:String(raw.Potensi || "—"), felt:String(raw.Dirasakan || ""), source:"BMKG", status:"BMKG", official:true, shakemap };
 }
+function isoTimeOrEmpty(value) {
+  if (value == null || value === "") return "";
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : "";
+}
 function mapQL(f) {
   const p=f?.properties||{}, c=f?.geometry?.coordinates||[], mag=num(p.mag ?? p.magnitude), lon=num(c[0]), lat=num(c[1]);
   if (!Number.isFinite(mag)||!Number.isFinite(lat)||!Number.isFinite(lon)||mag<1.5) return null;
@@ -84,7 +89,10 @@ function mapQL(f) {
     const n = num(value);
     return Number.isFinite(n) && n >= 0 ? String(n) : null;
   }).find(value => value !== null) ?? "—";
-  return {key:"ql|"+String(p.id||p.time+"|"+lat+"|"+lon),eventid:String(p.id||p.time+"|"+lat+"|"+lon),magnitude:mag,lat,lon,place,depth,time:p.time?new Date(p.time).toISOString():"",potential:"—",felt:"",source:"InaTEWS",status:"M",wrsRealtime:true};
+  // A malformed timestamp in one upstream record must not throw RangeError
+  // and turn the entire catalogue request into HTTP 503.
+  const time = isoTimeOrEmpty(p.time);
+  return {key:"ql|"+String(p.id||p.time+"|"+lat+"|"+lon),eventid:String(p.id||p.time+"|"+lat+"|"+lon),magnitude:mag,lat,lon,place,depth,time,potential:"—",felt:"",source:"InaTEWS",status:"M",wrsRealtime:true};
 }
 function mapUSGS(f, minimumMagnitude = 5) {
   const p=f?.properties||{}, c=f?.geometry?.coordinates||[], mag=num(p.mag), lon=num(c[0]), lat=num(c[1]), flag=Number(p.tsunami)===1;
@@ -93,7 +101,7 @@ function mapUSGS(f, minimumMagnitude = 5) {
   // This metadata is not confirmation of an active tsunami warning.
   if (!Number.isFinite(mag) || (mag < minimumMagnitude && !flag)) return null;
   if (!Number.isFinite(lat)||!Number.isFinite(lon)) return null;
-  return {key:"usgs|"+String(f.id||p.code||p.time),eventid:String(f.id||""),magnitude:Number.isFinite(mag)?Math.round(mag*10)/10:0,lat,lon,place:String(p.place||"Gempa global"),depth:String(c[2]??"—"),time:p.time?new Date(p.time).toISOString():"",potential:flag?"USGS menandai event terkait tsunami — periksa buletin resmi":"—",felt:"",source:"USGS",status:"USGS",official:false,usgsTsunamiFlag:flag,eventUrl:String(p.url||""),detailUrl:String(p.detail||""),shakemap:null};
+  return {key:"usgs|"+String(f.id||p.code||p.time),eventid:String(f.id||""),magnitude:Number.isFinite(mag)?Math.round(mag*10)/10:0,lat,lon,place:String(p.place||"Gempa global"),depth:String(c[2]??"—"),time:isoTimeOrEmpty(p.time),potential:flag?"USGS menandai event terkait tsunami — periksa buletin resmi":"—",felt:"",source:"USGS",status:"USGS",official:false,usgsTsunamiFlag:flag,eventUrl:String(p.url||""),detailUrl:String(p.detail||""),shakemap:null};
 }
 async function attachUSGSShakemaps(events) {
   const indonesia = q => q.lat >= -11 && q.lat <= 6.5 && q.lon >= 94 && q.lon <= 141.5;
@@ -163,115 +171,6 @@ function capValue(block, ...names) {
     }
   }
   return "";
-}
-
-function parseNoaaTsunamiAtom(xml, center) {
-  if (typeof xml !== "string" || !xml.trim()) return [];
-  const entries = xml.match(/<(?:[\w.-]+:)?entry\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?entry\s*>/gi) || [];
-  const readTag = (block, tag) => textBetween(block, tag);
-  const readLink = block => {
-    const m = block.match(/<(?:[\w.-]+:)?link\b[^>]*href=["']([^"']+)["'][^>]*\/?\s*>/i);
-    return m ? m[1] : "";
-  };
-  const centerName = center === "PTWC" ? "Pacific Tsunami Warning Center" : "National Tsunami Warning Center";
-  const out = [];
-  for (const entry of entries) {
-    const identifier = readTag(entry, "id") || readLink(entry);
-    const title = readTag(entry, "title");
-    const summary = readTag(entry, "summary") || readTag(entry, "content");
-    const published = readTag(entry, "published") || readTag(entry, "updated");
-    const cleanText = (title + " " + summary).replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ");
-    if (!/tsunami/i.test(cleanText)) continue;
-    const explicitlyNoThreat = /no tsunami (warning|advisory|watch|threat)|there is no tsunami warning|no tsunami threat/i.test(cleanText);
-    const cancelled = /cancelled|canceled|all clear|no longer in effect/i.test(cleanText);
-    const active = !explicitlyNoThreat && !cancelled &&
-      /\b(warning|advisory|watch|threat)\b/i.test(cleanText) &&
-      !/information statement|earthquake information/i.test(title);
-    const timeMs = Date.parse(published);
-    out.push({
-      key: "noaa-tsunami-atom|" + center + "|" + (identifier || published || title),
-      eventid: identifier || published || title,
-      source: "tsunami.gov / NOAA " + center + " (Atom fallback)",
-      sourceUrl: readLink(entry) || "https://www.tsunami.gov/",
-      center: centerName,
-      subject: title || "Pesan tsunami NOAA",
-      headline: title || "Pesan tsunami NOAA",
-      description: summary,
-      instruction: "",
-      areas: [],
-      severity: "",
-      urgency: "",
-      status: "actual",
-      messageType: cancelled ? "Cancel" : "Update",
-      sent: Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : published,
-      expires: "",
-      active,
-      isTsunamiWarning: active,
-      official: true,
-      potential: active ? title : (title || "Informasi tsunami NOAA"),
-      time: Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : "",
-      ended: !active,
-      feedFormat: "Atom",
-      coverageNote: "Feed Atom resmi NOAA dipakai sebagai cadangan; untuk Indonesia tetap utamakan peringatan BMKG/InaTEWS."
-    });
-  }
-  return out.sort((a,b) => Date.parse(b.time || 0) - Date.parse(a.time || 0)).slice(0, 40);
-}
-
-function parseNoaaTsunamiCap(xml, center) {
-  if (typeof xml !== "string" || !xml.trim()) return [];
-  const alerts = xml.match(/<(?:[\w.-]+:)?alert\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?alert\s*>/gi) || [];
-  const out = [];
-  for (const alert of alerts) {
-    const identifier = textBetween(alert, "identifier");
-    const status = textBetween(alert, "status").toLowerCase();
-    const messageType = textBetween(alert, "msgType").toLowerCase();
-    const sent = textBetween(alert, "sent");
-    const infos = alert.match(/<(?:[\w.-]+:)?info\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?info\s*>/gi) || [];
-    for (const info of infos) {
-      const event = textBetween(info, "event");
-      const headline = textBetween(info, "headline");
-      const description = textBetween(info, "description");
-      const instruction = textBetween(info, "instruction");
-      const areaDescs = (info.match(/<(?:[\w.-]+:)?area\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?area\s*>/gi) || [])
-        .map(area => textBetween(area, "areaDesc")).filter(Boolean);
-      const severity = textBetween(info, "severity");
-      const urgency = textBetween(info, "urgency");
-      const expires = textBetween(info, "expires");
-      const text = [event, headline, description].join(" ");
-      if (!/tsunami/i.test(text)) continue;
-      const active = status === "actual" && !["cancel", "ack"].includes(messageType) &&
-        (!expires || !Number.isFinite(Date.parse(expires)) || Date.parse(expires) > Date.now()) &&
-        !/no tsunami (warning|advisory|watch|threat)|no tsunami threat/i.test(text);
-      const centerName = center === "PTWC" ? "Pacific Tsunami Warning Center" : "National Tsunami Warning Center";
-      out.push({
-        key: "noaa-tsunami|" + center + "|" + (identifier || sent || headline),
-        eventid: identifier || sent || headline,
-        source: "tsunami.gov / NOAA " + center,
-        sourceUrl: "https://www.tsunami.gov/",
-        center: centerName,
-        subject: event || headline || "Pesan tsunami NOAA",
-        headline: headline || event,
-        description,
-        instruction,
-        areas: areaDescs,
-        severity,
-        urgency,
-        status,
-        messageType,
-        sent,
-        expires,
-        active,
-        isTsunamiWarning: active,
-        official: true,
-        potential: active ? (headline || event || "Pesan tsunami aktif dari NOAA") : (headline || event || "Pesan informasi tsunami NOAA"),
-        time: sent && Number.isFinite(Date.parse(sent)) ? new Date(sent).toISOString() : "",
-        ended: !active,
-        coverageNote: "Cakupan tsunami.gov terutama wilayah layanan pusat tsunami AS dan pesan ancaman internasional; bukan pengganti peringatan resmi BMKG/InaTEWS untuk Indonesia."
-      });
-    }
-  }
-  return out.sort((a,b) => Date.parse(b.time || 0) - Date.parse(a.time || 0)).slice(0, 40);
 }
 
 function parseTsunamiCapXml(xml) {
@@ -379,22 +278,22 @@ function parseTsunamiCapXml(xml) {
     .sort((a,b) => new Date(b.timesent || b.time || 0) - new Date(a.timesent || a.time || 0))
     .slice(0, 30);
 }
-async function getText(url, timeoutMs = 4000) {
+async function getText(url, timeoutMs = 4000, cacheTtlSeconds = 30) {
   const res = await fetch(url, {
     signal: AbortSignal.timeout(timeoutMs),
     headers: { accept: "application/xml,text/xml,*/*", referer: "https://inatews.bmkg.go.id/web/tsunami" },
-    cf: { cacheTtl: 30, cacheEverything: true }
+    cf: { cacheTtl: cacheTtlSeconds, cacheEverything: true }
   });
   if (!res.ok) throw new Error("upstream HTTP " + res.status);
   return res.text();
 }
 
-async function getJson(url, live = false, timeoutMs = 4000) {
+async function getJson(url, live = false, timeoutMs = 4000, cacheTtlSeconds = 10) {
   const requestUrl = live ? url + (url.includes("?") ? "&" : "?") + "_wrs_ts=" + Date.now() : url;
   const res = await fetch(requestUrl, {
     signal: AbortSignal.timeout(timeoutMs),
     headers: { accept: "application/json", ...(live ? { "cache-control": "no-cache" } : {}) },
-    ...(live ? { cf: { cacheTtl: 0, cacheEverything: false } } : { cf: { cacheTtl: 10, cacheEverything: true } })
+    ...(live ? { cf: { cacheTtl: 0, cacheEverything: false } } : { cf: { cacheTtl: cacheTtlSeconds, cacheEverything: true } })
   });
   if (!res.ok) throw new Error("upstream HTTP " + res.status);
   return res.json();
@@ -445,16 +344,25 @@ function parseBmkgEarthquakeXml(xml) {
 async function getBmkgFeed(jsonUrl) {
   let jsonError;
   try {
-    const value = await getJson(jsonUrl, false, 3500);
+    // BMKG's public feeds are frequently rate-limited when polled by multiple
+    // edge locations. Cache successful responses longer; this does not cache
+    // the live InaTEWS lastQL stream, which uses its own no-cache request.
+    const value = await getJson(jsonUrl, false, 3500, 60);
     const gempa = value?.Infogempa?.gempa;
     if (gempa && (Array.isArray(gempa) || typeof gempa === "object")) return value;
     jsonError = new Error("respons JSON tidak memiliki Infogempa.gempa");
   } catch (error) {
     jsonError = error;
   }
+  // A 429 is an explicit rate-limit response. Immediately requesting the XML
+  // sibling doubles traffic to the same BMKG service and often receives 429 too.
+  // Back off instead; other independent sources continue to refresh normally.
+  if (/upstream HTTP 429/.test(String(jsonError?.message || jsonError || ""))) {
+    throw new Error("upstream HTTP 429 (BMKG rate limit; XML fallback dilewati agar tidak menambah beban)");
+  }
   const xmlUrl = jsonUrl.replace(/\.json(?:\?.*)?$/i, ".xml");
   try {
-    const xml = await getText(xmlUrl, 3500);
+    const xml = await getText(xmlUrl, 3500, 60);
     const parsed = parseBmkgEarthquakeXml(xml);
     parsed._wrsFallbackFrom = String(jsonError?.message || jsonError || "JSON gagal").slice(0, 100);
     return parsed;
@@ -524,10 +432,6 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
     getJson(USGS, false, 6500),
     getJson(usgsIndonesiaUrl(), false, 6500),
     getText("https://cdn.bmkg.go.id/last30tsunamievent.xml"),
-    getText("https://www.tsunami.gov/events/xml/PHEBCAP.xml", 4500),
-    getText("https://www.tsunami.gov/events/xml/PAAQCAP.xml", 4500),
-    getText("https://www.tsunami.gov/events/xml/PHEBAtom.xml", 4500),
-    getText("https://www.tsunami.gov/events/xml/PAAQAtom.xml", 4500)
   ]);
   const list=[];
   const qlEvents=[];
@@ -629,23 +533,10 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
   const tsunami=results[7];
   let tsunamiHistory=tsunami.status==="fulfilled" ? parseTsunamiCapXml(tsunami.value) : [];
   if(tsunami.status!=="fulfilled") errors.push("InaTEWS tsunami");
-  // tsunami.gov CAP is a supplemental official bulletin source, not a substitute
-  // for BMKG/InaTEWS and not a global all-clear authority for Indonesian coasts.
-  const ptwc=results[8], ntwc=results[9], ptwcAtom=results[10], ntwcAtom=results[11];
-  // CAP tetap utama. Atom resmi dipakai hanya jika CAP feed pusat terkait gagal
-  // atau tidak dapat diparse, sehingga status satu feed tidak mematikan feed lainnya.
-  const ptwcCapMessages = ptwc.status==="fulfilled" ? parseNoaaTsunamiCap(ptwc.value, "PTWC") : [];
-  const ntwcCapMessages = ntwc.status==="fulfilled" ? parseNoaaTsunamiCap(ntwc.value, "NTWC") : [];
-  const ptwcAtomMessages = ptwcAtom.status==="fulfilled" ? parseNoaaTsunamiAtom(ptwcAtom.value, "PTWC") : [];
-  const ntwcAtomMessages = ntwcAtom.status==="fulfilled" ? parseNoaaTsunamiAtom(ntwcAtom.value, "NTWC") : [];
-  const ptwcMessages = ptwcCapMessages.length ? ptwcCapMessages : ptwcAtomMessages;
-  const ntwcMessages = ntwcCapMessages.length ? ntwcCapMessages : ntwcAtomMessages;
-  const tsunamiGovMessages = [...ptwcMessages, ...ntwcMessages]
-    .sort((a,b) => new Date(b.time || 0) - new Date(a.time || 0)).slice(0, 40);
-  const tsunamiGovActive = tsunamiGovMessages.filter(q => q.active);
-  // tsunami.gov is a supplemental international feed, not a dependency of the
-  // BMKG/InaTEWS earthquake API. Report its health separately so a temporary
-  // NOAA outage does not mark the primary Indonesian realtime service degraded.
+  // Feed tsunami.gov/NOAA dinonaktifkan untuk mengurangi permintaan upstream.
+  // Informasi tsunami tetap berasal dari BMKG/InaTEWS; USGS tetap dipakai sebagai sumber gempa tambahan.
+  const tsunamiGovMessages = [];
+  const tsunamiGovActive = [];
   // Riwayat dari feed yang parsial tidak boleh menghapus buletin lama yang masih
   // tersimpan. Gabungkan berdasarkan identitas buletin (event + PD), urut terbaru,
   // lalu batasi ke 30. Arsip ini TIDAK menentukan apakah peringatan sedang aktif.
@@ -785,7 +676,7 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
     fallbackHeaders.set("x-wrs-data-age-seconds", String(staleEdgeAgeSeconds ?? ""));
     return new Response(JSON.stringify(fallback), { status: 200, headers: fallbackHeaders });
   }
-  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,tsunamiGovMessages,tsunamiGovActive,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,tsunamiGov:{ptwcOk:ptwcMessages.length>0,ntwcOk:ntwcMessages.length>0,ptwcCapOk:ptwc.status==="fulfilled"&&ptwcCapMessages.length>0,ntwcCapOk:ntwc.status==="fulfilled"&&ntwcCapMessages.length>0,ptwcAtomOk:ptwcAtom.status==="fulfilled"&&ptwcAtomMessages.length>0,ntwcAtomOk:ntwcAtom.status==="fulfilled"&&ntwcAtomMessages.length>0,ptwcFormat:ptwcCapMessages.length?"CAP":ptwcAtomMessages.length?"Atom":"unavailable",ntwcFormat:ntwcCapMessages.length?"CAP":ntwcAtomMessages.length?"Atom":"unavailable",messageCount:tsunamiGovMessages.length,activeCount:tsunamiGovActive.length,coverage:"supplemental",errors:[...(ptwcMessages.length?[]:["tsunami.gov PTWC CAP+Atom"]),...(ntwcMessages.length?[]:["tsunami.gov NTWC CAP+Atom"])]},client:false,errors}}),{status:200,headers});
+  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,tsunamiGovMessages,tsunamiGovActive,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,tsunamiGov:{disabled:true,coverage:"disabled",messageCount:0,activeCount:0,errors:[]},client:false,errors}}),{status:200,headers});
   if (edgeCache && edgeCacheKey) {
     try {
       const cacheHeaders = new Headers(response.headers);
@@ -847,7 +738,11 @@ export async function onRequestGet(context = {}) {
     try {
       const emergencyResults = await Promise.allSettled([
         ...BMKG_URLS.map(url => getBmkgFeed(url)),
-        getJson(GCS + "/lastQL.json", true, 2500)
+        getJson(GCS + "/lastQL.json", true, 2500),
+        // USGS is an independent backup. Keep it in the emergency path so a
+        // temporary BMKG/InaTEWS outage or edge-specific rate limit does not
+        // force HTTP 503 when the global earthquake feed is still available.
+        getJson(USGS, false, 3500, 60)
       ]);
       const emergencyEvents = [];
       let bmkgOk = 0;
@@ -880,6 +775,23 @@ export async function onRequestGet(context = {}) {
             return null;
           }).filter(Boolean)
         : [];
+      const usgsResult = emergencyResults[4];
+      let usgsEmergencyCount = 0;
+      if (usgsResult.status === "fulfilled" && Array.isArray(usgsResult.value?.features)) {
+        usgsResult.value.features.slice(0, 150).forEach(feature => {
+          try {
+            const event = mapUSGS(feature, 2);
+            if (event) {
+              emergencyEvents.push(event);
+              usgsEmergencyCount++;
+            }
+          } catch (mapError) {
+            console.warn("[WRS API] Emergency USGS event skipped:", String(mapError?.message || mapError).slice(0, 120));
+          }
+        });
+      } else if (usgsResult.status === "rejected") {
+        console.warn("[WRS API] Emergency USGS feed failed:", String(usgsResult.reason?.message || usgsResult.reason).slice(0, 120));
+      }
       const inIndonesia = event => Number.isFinite(event.lat) && Number.isFinite(event.lon) &&
         event.lat >= -11 && event.lat <= 6.5 && event.lon >= 94 && event.lon <= 141.5;
       emergencyEvents.push(...liveEvents);
@@ -925,7 +837,7 @@ export async function onRequestGet(context = {}) {
             public: bmkgOk,
             publicEvents: recent.filter(event => event.source === "BMKG").length,
             inaQL: 0,
-            usgs: 0,
+            usgs: usgsEmergencyCount,
             tsunami: 0,
             emergencyFallback: true,
             errors: ["API utama mengalami gangguan internal; memakai respons darurat BMKG/InaTEWS", "Detail gangguan: " + failure]
@@ -937,6 +849,7 @@ export async function onRequestGet(context = {}) {
         console.error("[WRS API] Emergency core-feed fallback served", {
           bmkgFeedsOk: bmkgOk,
           liveInaTEWSOk: liveResult.status === "fulfilled",
+          usgsEvents: usgsEmergencyCount,
           eventCount: recent.length,
           cause: failure
         });

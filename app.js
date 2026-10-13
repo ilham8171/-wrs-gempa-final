@@ -48,6 +48,11 @@ let lastRenderFingerprint = "";
 let loadInFlight = false;
 let consecutiveLoadFailures = 0;
 let lastSuccessfulLoadAt = 0;
+// Stabilize connection status: one poll must not flip the UI green/red.
+// Degradation/recovery require 3 consecutive primary API results.
+let primaryApiConsecutiveFailures = 0;
+let primaryApiConsecutiveSuccesses = 0;
+let primaryApiHealthState = "unknown"; // unknown | healthy | unstable | degraded | recovering
 // Monotonically increasing token: responses from a previous mode/request must never
 // overwrite the screen after the user switches between simulation and operation.
 let loadRequestId = 0;
@@ -1834,7 +1839,8 @@ function processNew() {
 function status(ok, text) {
   const dot = $("#liveDot");
   const label = $("#liveText");
-  if (dot) dot.className = ok ? "ok" : "bad";
+  // Amber is the transitional state; do not turn red/green on a single poll.
+  if (dot) dot.className = ok === "warning" ? "warn" : ok ? "ok" : "bad";
   if (label) label.textContent = text;
 }
 
@@ -2551,6 +2557,17 @@ async function load(showSpin, force = false) {
           });
           if (!r.ok) throw new Error("API gempa HTTP " + r.status);
           d = await r.json();
+          if (d?.ok === true && Array.isArray(d.recent)) {
+            primaryApiConsecutiveFailures = 0;
+            primaryApiConsecutiveSuccesses++;
+            if (primaryApiConsecutiveSuccesses >= 3) {
+              primaryApiHealthState = "healthy";
+            } else if (primaryApiHealthState === "degraded" || primaryApiHealthState === "recovering" || primaryApiHealthState === "unknown") {
+              primaryApiHealthState = "recovering";
+            }
+          } else {
+            throw new Error("API utama mengembalikan payload yang tidak valid");
+          }
           lastApiError = null;
           break;
         } catch (apiError) {
@@ -2563,6 +2580,13 @@ async function load(showSpin, force = false) {
         }
       }
       if (lastApiError) {
+        primaryApiConsecutiveSuccesses = 0;
+        primaryApiConsecutiveFailures++;
+        if (primaryApiConsecutiveFailures >= 3) {
+          primaryApiHealthState = "degraded";
+        } else if (primaryApiHealthState !== "degraded") {
+          primaryApiHealthState = "unstable";
+        }
         // Endpoint utama gagal dari perangkat: coba BMKG, WRS lastQL, dan USGS langsung.
         // Ini adalah mode cadangan berlabel, bukan klaim bahwa API utama sehat.
         const apiFailure = String(lastApiError?.message || lastApiError).slice(0, 120);
@@ -2652,15 +2676,18 @@ async function load(showSpin, force = false) {
     realtimeEvents = Array.isArray(d.realtimeEvents) ? d.realtimeEvents : [];
     if (!incoming.length) {
       const hasPreviousData = quakes.length > 0;
-      status(false, hasPreviousData ? "MEMAKAI DATA TERAKHIR" : "MENUNGGU DATA");
+      // An empty upstream catalogue is not proof that the whole monitor is offline.
+      // Preserve the existing events and show amber while the next poll checks again.
+      status(hasPreviousData ? "warning" : false, hasPreviousData ? "DATA TERAKHIR · MENUNGGU DATA BARU" : "MENUNGGU DATA");
       const healthText = $("#wrsHealthText");
       const healthTime = $("#wrsLastUpdated");
       const health = $("#wrsHealth");
-      if (healthText) healthText.textContent = hasPreviousData ? "MENUNGGU PEMBARUAN" : "SUMBER BELUM TERSEDIA";
-      if (healthTime) healthTime.textContent = hasPreviousData ? "Data sebelumnya dipertahankan" : "Coba muat ulang sebentar lagi";
+      if (healthText) healthText.textContent = hasPreviousData ? "DATA TERAKHIR DIPERTAHANKAN · MENUNGGU PEMBARUAN" : "SUMBER BELUM TERSEDIA";
+      if (healthTime) healthTime.textContent = hasPreviousData ? "Katalog baru kosong; data dan marker sebelumnya tetap tampil" : "Coba muat ulang sebentar lagi";
       if (health) {
-        health.classList.add("is-error");
-        health.title = "Belum ada katalog gempa yang diterima; data yang sudah tampil tidak dihapus.";
+        health.classList.toggle("is-error", !hasPreviousData);
+        health.classList.toggle("is-warning", hasPreviousData);
+        health.title = "Respons katalog kosong. Data yang sudah tampil tidak dihapus; pemantauan akan mencoba lagi otomatis.";
       }
       return;
     }
@@ -2690,18 +2717,47 @@ async function load(showSpin, force = false) {
     const apiAgeSeconds = Number.isFinite(fetchedAtMs) ? Math.max(0, Math.floor((Date.now() - fetchedAtMs) / 1000)) : null;
     const apiDataStale = apiAgeSeconds == null || apiAgeSeconds > 45;
     const usingFallback = clientFallback || !wrsFeedOk || apiDataStale;
-    status(true, apiDataStale ? "DATA LAMBAT" : clientFallback
-      ? (wrsFeedOk ? "WRS CADANGAN LANGSUNG" : "SUMBER CADANGAN")
-      : (wrsFeedOk ? "WRS LIVE" : "CADANGAN · WRS OFFLINE"));
+    // Brief blips show as a warning; they do not instantly flip the monitor red/green.
+    if (primaryApiHealthState === "unstable") {
+      status("warning", "WRS MEMANTAU · CEK KONEKSI");
+    } else if (primaryApiHealthState === "recovering") {
+      status("warning", "API PULIH · MEMASTIKAN STABIL");
+    } else if (primaryApiHealthState === "degraded") {
+      // A failed primary API with retained data is degraded, not a reason to
+      // claim the entire monitor is offline. Keep it amber while retries continue.
+      status("warning", "DATA CADANGAN · RETRY OTOMATIS");
+    } else if (apiDataStale) {
+      status("warning", "DATA TERAKHIR · MEMERIKSA PEMBARUAN");
+    } else if (clientFallback) {
+      status("warning", "SUMBER CADANGAN · RETRY OTOMATIS");
+    } else if (!wrsFeedOk || d.sources?.errors?.length) {
+      // The API can be reachable while one upstream WRS feed is down.
+      // Report that distinction instead of turning the whole indicator red.
+      status("warning", "API TERHUBUNG · MEMERIKSA FEED WRS");
+    } else {
+      status(true, "WRS LIVE");
+    }
     const healthText = $("#wrsHealthText");
     const healthTime = $("#wrsLastUpdated");
     const health = $("#wrsHealth");
     if (healthText) {
-      healthText.textContent = apiDataStale
-        ? "PEMBARUAN TERLAMBAT · DATA TERAKHIR DIPERTAHANKAN"
-        : clientFallback
-          ? (wrsFeedOk ? "API UTAMA TERGANGGU · WRS LANGSUNG CADANGAN AKTIF" : "API UTAMA TERGANGGU · DATA CADANGAN BMKG/USGS")
-          : (wrsFeedOk ? ((d.sources?.errors?.length) ? "WRS TERHUBUNG · DATA PARSIAL" : "WRS REALTIME TERHUBUNG") : (quakes.length ? "WRS OFFLINE · DATA CADANGAN" : "WRS OFFLINE · DATA TIDAK TERSEDIA"));
+      healthText.textContent = primaryApiHealthState === "unstable"
+        ? "KONEKSI SEDANG DIPERIKSA · DATA TETAP DIPANTAU"
+        : primaryApiHealthState === "recovering"
+          ? "API UTAMA PULIH · MEMASTIKAN STABIL"
+          : primaryApiHealthState === "degraded"
+            ? (clientFallback
+              ? "API UTAMA TERGANGGU · DATA CADANGAN AKTIF"
+              : "PEMBARUAN TERLAMBAT · DATA TERAKHIR DIPERTAHANKAN")
+            : apiDataStale
+              ? "PEMBARUAN TERLAMBAT · DATA TERAKHIR DIPERTAHANKAN"
+              : clientFallback
+                ? "API UTAMA TERGANGGU · SUMBER CADANGAN DIPAKAI"
+                : !wrsFeedOk
+                  ? "API TERJANGKAU · FEED REALTIME WRS BELUM TERKONFIRMASI"
+                  : (d.sources?.errors?.length
+                    ? "WRS TERHUBUNG · SEBAGIAN SUMBER DIPERIKSA"
+                    : "WRS REALTIME TERHUBUNG");
     }
     if (healthTime) {
       const fetchedText = Number.isFinite(fetchedAtMs)
@@ -2712,11 +2768,17 @@ async function load(showSpin, force = false) {
         (clientFallback ? " · API utama: " + String(d.sources?.apiError || "gagal") : "");
     }
     if (health) {
-      // Data parsial saat feed realtime masih aktif adalah peringatan, bukan kegagalan total.
-      // Merah hanya untuk data basi, API utama gagal, atau feed WRS realtime tidak tersedia.
+      // Hysteresis avoids red-green-red flicker: 3 consecutive failures before red,
+      // and 3 consecutive valid primary replies before returning to healthy.
       const partialSources = !!d.sources?.errors?.length;
-      health.classList.toggle("is-error", apiDataStale || clientFallback || !wrsFeedOk);
-      health.classList.toggle("is-warning", !apiDataStale && !clientFallback && wrsFeedOk && partialSources);
+      const stablePrimaryError = primaryApiHealthState === "degraded";
+      const primaryTransition = primaryApiHealthState === "unstable" || primaryApiHealthState === "recovering";
+      // Keep a retained catalogue in warning/amber even after several failed polls.
+      // Red is reserved for a degraded monitor with no usable quake data at all.
+      const hardError = stablePrimaryError && !quakes.length;
+      const warning = !hardError && (primaryTransition || stablePrimaryError || clientFallback || !wrsFeedOk || partialSources || apiDataStale);
+      health.classList.toggle("is-error", hardError);
+      health.classList.toggle("is-warning", warning);
       const sourceErrors = Array.isArray(d.sources?.errors) ? d.sources.errors : [];
       const sourceErrorDetail = sourceErrors.length
         ? " Sumber yang gagal: " + sourceErrors.join("; ") + "."
@@ -2851,15 +2913,19 @@ async function load(showSpin, force = false) {
     // Setelah 6 kegagalan beruntun, jelaskan bahwa data yang tampil adalah data terakhir,
     // tetapi jangan menampilkan status "OFFLINE" atau "MENYAMBUNG ULANG".
     if (hasCachedEvents && consecutiveLoadFailures < 6) {
+      status("warning", "WRS MEMANTAU · CEK KONEKSI");
       if (health) {
+        health.classList.remove("is-error");
+        health.classList.add("is-warning");
         health.title = "Satu pembaruan gagal; data dan marker terakhir tetap tampil. Pemantauan mencoba kembali otomatis.";
       }
     } else if (hasCachedEvents) {
-      status(true, "DATA TERAKHIR · RETRY OTOMATIS");
+      status("warning", "DATA TERAKHIR · RETRY OTOMATIS");
       if (healthText) healthText.textContent = "PEMBARUAN TERLAMBAT · DATA TERAKHIR DIPERTAHANKAN";
       if (healthTime) healthTime.textContent = lastOkText + " · " + String(e?.message || e).slice(0, 85);
       if (health) {
-        health.classList.add("is-error");
+        health.classList.remove("is-error");
+        health.classList.add("is-warning");
         health.title = "Pembaruan belum berhasil setelah beberapa percobaan. Data dan marker terakhir tetap tampil; polling otomatis berlanjut. Penyebab terakhir: " + String(e?.message || e).slice(0, 180);
       }
     } else {
