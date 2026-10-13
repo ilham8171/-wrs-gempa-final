@@ -198,9 +198,9 @@ function normQL(f) {
   const magnitude = num(p.mag ?? p.magnitude);
   if (!Number.isFinite(magnitude) || magnitude < 1.5) return null;
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  // GeoJSON stores depth in coordinates[2] (kilometres). Prefer this canonical
-  // value; properties.depth may be missing, stale, or expressed differently.
-  const depth = parseDepth(c[2] ?? p.depth);
+  // Prefer the explicit WRS depth property when present; coordinates[2] is
+  // a fallback. These fields can disagree in some feed revisions.
+  const depth = parseDepth(p.depth ?? c[2]);
   const time = String(p.time || "").trim();
   const place = String(p.place || "Indonesia").trim();
   const id = String(p.id || `${time}|${magnitude}|${lat}|${lon}`);
