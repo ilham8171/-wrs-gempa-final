@@ -839,6 +839,112 @@ export async function onRequestGet(context = {}) {
         }
       } catch (_) { /* No usable last-known-good response. */ }
     }
+    // Emergency recovery: if the full catalogue handler throws and no cached
+    // last-known-good response exists in this edge location, rebuild a SMALL
+    // response from the primary BMKG feeds and live InaTEWS feed. Optional USGS,
+    // NOAA and historical-catalogue processing must not make the core monitor
+    // return HTTP 503. This is explicitly marked partial and never fabricates data.
+    try {
+      const emergencyResults = await Promise.allSettled([
+        ...BMKG_URLS.map(url => getBmkgFeed(url)),
+        getJson(GCS + "/lastQL.json", true, 2500)
+      ]);
+      const emergencyEvents = [];
+      let bmkgOk = 0;
+      emergencyResults.slice(0, 3).forEach((result, index) => {
+        if (result.status !== "fulfilled") return;
+        bmkgOk++;
+        const raw = result.value?.Infogempa?.gempa;
+        (Array.isArray(raw) ? raw : raw ? [raw] : []).forEach(item => {
+          try {
+            const event = mapPublic(item);
+            if (event) emergencyEvents.push(event);
+          } catch (mapError) {
+            console.warn("[WRS API] Emergency BMKG event skipped:", String(mapError?.message || mapError).slice(0, 120));
+          }
+        });
+      });
+      const liveResult = emergencyResults[3];
+      const liveEvents = liveResult.status === "fulfilled"
+        ? qlFeatures(liveResult.value).map(item => {
+            try {
+              const event = mapQL(item);
+              if (event) {
+                event.source = "InaTEWS WRS";
+                event.wrsRealtime = true;
+                return event;
+              }
+            } catch (mapError) {
+              console.warn("[WRS API] Emergency InaTEWS event skipped:", String(mapError?.message || mapError).slice(0, 120));
+            }
+            return null;
+          }).filter(Boolean)
+        : [];
+      const inIndonesia = event => Number.isFinite(event.lat) && Number.isFinite(event.lon) &&
+        event.lat >= -11 && event.lat <= 6.5 && event.lon >= 94 && event.lon <= 141.5;
+      emergencyEvents.push(...liveEvents);
+      const deduped = new Map();
+      emergencyEvents.forEach(event => {
+        const id = String(event.key || [event.source, event.time, event.lat, event.lon, event.magnitude].join("|"));
+        if (!deduped.has(id)) deduped.set(id, event);
+      });
+      const recent = [...deduped.values()]
+        .sort((a, b) => (Date.parse(b.time || "") || 0) - (Date.parse(a.time || "") || 0))
+        .slice(0, 800);
+      if (recent.length) {
+        const realtimeEvents = liveEvents.filter(inIndonesia)
+          .sort((a, b) => (Date.parse(b.time || "") || 0) - (Date.parse(a.time || "") || 0));
+        const realtime = realtimeEvents[0] || null;
+        const official = recent.find(event => event.source === "BMKG" && event.official && inIndonesia(event)) ||
+          recent.find(event => event.official) || null;
+        const failure = String(error?.message || error).slice(0, 160);
+        const payload = {
+          ok: true,
+          fetchedAt: new Date().toISOString(),
+          refreshSeconds: 8,
+          latest: realtime || official || recent[0] || null,
+          realtime,
+          realtimeEvents,
+          official,
+          recent,
+          count: recent.length,
+          // Do not replace a user's saved 30-bulletin archive with a fabricated or
+          // empty history. The client merges this empty emergency array with its
+          // locally persisted archive; normal responses still supply server history.
+          tsunamiHistory: [],
+          tsunamiGovMessages: [],
+          tsunamiGovActive: [],
+          sources: {
+            wrs: {
+              ok: liveResult.status === "fulfilled",
+              eventCount: realtimeEvents.length,
+              checkedAt: new Date().toISOString(),
+              error: liveResult.status === "rejected" ? String(liveResult.reason?.message || "InaTEWS realtime gagal") : null
+            },
+            wrsHistory: { ok: false, eventCount: 0, error: "Katalog riwayat tidak dimuat pada pemulihan darurat" },
+            public: bmkgOk,
+            publicEvents: recent.filter(event => event.source === "BMKG").length,
+            inaQL: 0,
+            usgs: 0,
+            tsunami: 0,
+            emergencyFallback: true,
+            errors: ["API utama mengalami gangguan internal; memakai respons darurat BMKG/InaTEWS", "Detail gangguan: " + failure]
+          }
+        };
+        const recoveryHeaders = new Headers(headers);
+        recoveryHeaders.set("cache-control", "no-store");
+        recoveryHeaders.set("x-wrs-cache", "EMERGENCY-FALLBACK");
+        console.error("[WRS API] Emergency core-feed fallback served", {
+          bmkgFeedsOk: bmkgOk,
+          liveInaTEWSOk: liveResult.status === "fulfilled",
+          eventCount: recent.length,
+          cause: failure
+        });
+        return new Response(JSON.stringify(payload), { status: 200, headers: recoveryHeaders });
+      }
+    } catch (fallbackError) {
+      console.error("[WRS API] Emergency core-feed fallback failed:", fallbackError);
+    }
     return new Response(JSON.stringify({
       ok: false,
       error: "API gempa sementara tidak tersedia",
