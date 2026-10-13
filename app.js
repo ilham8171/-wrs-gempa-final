@@ -2189,10 +2189,14 @@ function updateDiagnostics(data = null, error = null, simulation = false) {
     const ageSeconds = Number.isFinite(effectiveFetchAt) ? Math.max(0, Math.floor((Date.now() - effectiveFetchAt) / 1000)) : null;
     const source = data?.sources || {};
     const sourceErrors = Array.isArray(source.errors) ? source.errors : [];
-    const isFallback = source.clientFallback === true || source.emergencyFallback === true || source.wrs?.ok === false;
+    // "Cadangan" hanya berarti payload benar-benar berasal dari jalur fallback.
+    // Feed WRS yang gagal diperiksa tidak otomatis berarti API/katalog utamanya fallback.
+    const isFallback = source.clientFallback === true || source.emergencyFallback === true;
+    const wrsFeedUnavailable = source.wrs?.ok === false;
     const stale = ageSeconds == null || ageSeconds > 45;
     put("diagConnection", error ? "GAGAL MEMUAT — mempertahankan data terakhir" :
       isFallback ? (stale ? "SUMBER CADANGAN / WAKTU TERIMA TIDAK VALID" : "SUMBER CADANGAN / DATA PARSIAL") :
+      wrsFeedUnavailable ? (stale ? "FEED WRS BELUM TERVERIFIKASI · DATA TERAKHIR" : "API TERHUBUNG · FEED WRS DIPERIKSA") :
       stale ? "DATA LAMBAT / WAKTU SUMBER TIDAK VALID" :
       sourceErrors.length ? "TERHUBUNG — SEBAGIAN SUMBER BERMASALAH" : "TERHUBUNG");
     const sourceParts = [];
@@ -2587,8 +2591,18 @@ async function load(showSpin, force = false) {
         } else if (primaryApiHealthState !== "degraded") {
           primaryApiHealthState = "unstable";
         }
-        // Endpoint utama gagal dari perangkat: coba BMKG, WRS lastQL, dan USGS langsung.
-        // Ini adalah mode cadangan berlabel, bukan klaim bahwa API utama sehat.
+        // Jangan langsung menganggap API utama mati setelah satu siklus polling.
+        // Jika katalog lama tersedia, tahan data/marker dan tunggu 3 siklus gagal
+        // berturut-turut sebelum mencoba sumber cadangan. Saat pembukaan pertama
+        // tanpa data tersimpan, fallback tetap boleh berjalan agar layar tidak kosong.
+        if (quakes.length > 0 && primaryApiConsecutiveFailures < 3) {
+          throw new Error(
+            "API utama gagal sementara (" + primaryApiConsecutiveFailures +
+            "/3 pemeriksaan); data terakhir dipertahankan sambil mencoba ulang"
+          );
+        }
+        // Setelah ambang gagal terlewati, coba BMKG, WRS lastQL, dan USGS.
+        // Kegagalan feed WRS saja tidak sama dengan kegagalan API utama.
         const apiFailure = String(lastApiError?.message || lastApiError).slice(0, 120);
         const fallback = await fetchClientSide();
         if (Array.isArray(fallback.recent) && fallback.recent.length) {
