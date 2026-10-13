@@ -738,10 +738,22 @@ function showRealtimeUpdate(info, append = false) {
 
 function primaryRealtimeQuake() {
   const valid = q => q && Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon));
-  // The realtime card follows the dedicated InaTEWS/WRS feed, not the newest
-  // record in the merged BMKG/USGS catalog.
-  // Jangan menyamarkan katalog/riwayat sebagai kejadian realtime.
+  // Prioritas utama tetap event langsung InaTEWS/WRS.
   return valid(currentRealtime) ? currentRealtime : null;
+}
+
+function latestIndonesiaCatalogQuake() {
+  const now = Date.now();
+  const valid = q => {
+    const lat = Number(q?.lat), lon = Number(q?.lon);
+    const t = new Date(q?.time || 0).getTime();
+    return Number.isFinite(lat) && Number.isFinite(lon) &&
+      lat >= -11 && lat <= 6.5 && lon >= 94 && lon <= 141.5 &&
+      Number(q?.magnitude) >= 2 && Number.isFinite(t) &&
+      t <= now + 5 * 60 * 1000 && now - t <= 7 * 864e5;
+  };
+  return quakes.filter(valid).sort((a, b) =>
+    new Date(b.time).getTime() - new Date(a.time).getTime())[0] || null;
 }
 
 // Native Android WebView calls this after its first data load. The map and quake
@@ -764,7 +776,7 @@ window.wrsFocusLatestQuake = function () {
   }
 };
 
-function renderRealtime(q) {
+function renderRealtime(q, catalogFallback = false) {
   const el = $("#rtMag");
   if (!q) {
     if (el) {
@@ -773,11 +785,11 @@ function renderRealtime(q) {
       el.style.borderColor = "#64748b";
       el.style.color = "#cbd5e1";
     }
-    if ($("#rtDate")) $("#rtDate").textContent = "Feed realtime belum tersedia";
-    if ($("#rtAgo")) $("#rtAgo").textContent = "Menunggu data live";
+    if ($("#rtDate")) $("#rtDate").textContent = "Belum ada data gempa yang cocok";
+    if ($("#rtAgo")) $("#rtAgo").textContent = "Memeriksa katalog Indonesia 7 hari";
     if ($("#rtCoord")) $("#rtCoord").textContent = "—";
-    if ($("#rtPlace")) $("#rtPlace").textContent = "Belum ada event dari feed realtime InaTEWS/WRS";
-    if ($("#rtSrc")) $("#rtSrc").textContent = "Sumber: menunggu feed realtime";
+    if ($("#rtPlace")) $("#rtPlace").textContent = "Belum ada event Indonesia M2+ dalam katalog yang diterima";
+    if ($("#rtSrc")) $("#rtSrc").textContent = "Sumber: menunggu feed";
     updateRealtimeDistance();
     return;
   }
@@ -790,7 +802,9 @@ function renderRealtime(q) {
   $("#rtAgo").textContent = timeAgo(q);
   $("#rtCoord").textContent = `◎ ${fmtCoord(q)} · ${q.depth} Km`;
   $("#rtPlace").textContent = q.place;
-  $("#rtSrc").textContent = `Sumber: ${q.source || "BMKG"}`;
+  $("#rtSrc").textContent = catalogFallback
+    ? "Katalog Indonesia M2+ · " + (q.source || "BMKG") + " · bukan feed WRS langsung"
+    : "Sumber: " + (q.source || "BMKG");
   // Riwayat pemutakhiran tetap tampil di kotak katalog realtime walau
   // revisi terjadi pada event lain dalam daftar WRS tujuh hari.
   showRealtimeUpdate(null, false);
@@ -2647,9 +2661,10 @@ async function load(showSpin, force = false) {
     // Keep WRS realtime and the official/catalog card as separate event streams.
     currentRealtime = d.realtime || realtimeEvents[0] || null;
     const primary = primaryRealtimeQuake();
-    renderRealtime(primary);
+    const catalogFallbackQuake = primary ? null : latestIndonesiaCatalogQuake();
+    renderRealtime(primary || catalogFallbackQuake, !primary && !!catalogFallbackQuake);
     const rtFilter = $("#rtFilter");
-    if (rtFilter) rtFilter.textContent = "Area Indonesia · Mag > 2 · 7 hari terakhir";
+    if (rtFilter) rtFilter.textContent = "Indonesia · M2+ · 7 hari · feed WRS diutamakan";
     updateModeButtons();
 
     if (oldFingerprint !== newFingerprint || showSpin) drawMarkers(true);
