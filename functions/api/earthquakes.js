@@ -279,14 +279,14 @@ function parseTsunamiCapXml(xml) {
   // InaTEWS' XML feed has changed wrapper formats over time. Parse CAP alert
   // records when present, but also accept Atom/RSS entry/item wrappers and a
   // bare info record. Read each field from info first, then parent metadata.
-  const alerts = xml.match(/<(?:[\\w.-]+:)?alert\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?alert\\s*>/gi) || [];
+  const alerts = xml.match(/<(?:[\w.-]+:)?alert\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?alert\s*>/gi) || [];
   const entries = alerts.length ? alerts :
-    (xml.match(/<(?:[\\w.-]+:)?(?:entry|item)\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?(?:entry|item)\\s*>/gi) || []);
+    (xml.match(/<(?:[\w.-]+:)?(?:entry|item)\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?(?:entry|item)\s*>/gi) || []);
   const parents = entries.length ? entries : [xml];
   const list = [];
   const value = (info, parent, ...names) => capValue(info, ...names) || (parent !== info ? capValue(parent, ...names) : "");
   for (const parent of parents) {
-    const infos = parent.match(/<(?:[\\w.-]+:)?info\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?info\\s*>/gi) || [];
+    const infos = parent.match(/<(?:[\w.-]+:)?info\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?info\s*>/gi) || [];
     const records = infos.length ? infos : [parent];
     for (const block of records) {
       const subject = value(block, parent, "subject", "headline") || "WARNING TSUNAMI";
@@ -310,7 +310,7 @@ function parseTsunamiCapXml(xml) {
       let lat = coords.length > 1 ? coords[1] : parseLat(latRaw);
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
         const circle = value(block, parent, "circle");
-        const m = circle.match(/(-?\\d+(?:[.,]\\d+)?)\\s*,\\s*(-?\\d+(?:[.,]\\d+)?)/);
+        const m = circle.match(/(-?\d+(?:[.,]\d+)?)\s*,\s*(-?\d+(?:[.,]\d+)?)/);
         if (m) { lat = num(m[1]); lon = num(m[2]); }
       }
       const mag = num(value(block, parent, "magnitude", "EventMagnitude"));
@@ -318,7 +318,7 @@ function parseTsunamiCapXml(xml) {
       const depth = depthRaw.match(/[0-9]+(?:[.,][0-9]+)?/)?.[0] || "—";
       const area = value(block, parent, "area", "EventLocationName", "ShortLocationName", "areaDesc") || "Indonesia";
       const eventid = value(block, parent, "eventid", "EventID", "identifier", "id") || [date, time, mag, lat, lon].join("|");
-      const pdMatch = (subject + " " + headline + " " + description).match(/PD[-\\s]?([\\d.]+)/i);
+      const pdMatch = (subject + " " + headline + " " + description).match(/PD[-\s]?([\d.]+)/i);
       const pd = pdMatch ? pdMatch[1] : "";
       const potential = value(block, parent, "potential") || subject || headline;
       const instruction = value(block, parent, "instruction");
@@ -363,7 +363,7 @@ function parseTsunamiCapXml(xml) {
         shakemap: mapCapAsset(shakemap) || null,
         wzmap: mapCapAsset(wzmap), ttmap: mapCapAsset(ttmap), sshmap: mapCapAsset(sshmap),
         ...(sshBounds ? { sshBounds } : {}),
-        ended: /telah\\s*berakhir|berakhir|all[\\s-]?clear|dinyatakan\\s*telah\\s*berakhir/i.test(headline + " " + description + " " + subject),
+        ended: /telah\s*berakhir|berakhir|all[\s-]?clear|dinyatakan\s*telah\s*berakhir/i.test(headline + " " + description + " " + subject),
         source: "InaTEWS", isTsunamiWarning: true, official: true
       });
     }
@@ -745,6 +745,9 @@ export async function onRequestGet(context = {}) {
   try {
     return await handleEarthquakesRequest(context);
   } catch (error) {
+    // Keep a stack trace in Cloudflare Pages Functions logs so intermittent
+    // HTTP 503 responses can be tied to the actual server-side exception.
+    console.error("[WRS API] Unexpected earthquake handler failure:", error);
     const request = context.request;
     const edgeCache = typeof caches !== "undefined" ? caches.default : null;
     if (edgeCache && request?.url) {
