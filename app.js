@@ -2676,15 +2676,18 @@ async function load(showSpin, force = false) {
     realtimeEvents = Array.isArray(d.realtimeEvents) ? d.realtimeEvents : [];
     if (!incoming.length) {
       const hasPreviousData = quakes.length > 0;
-      status(false, hasPreviousData ? "MEMAKAI DATA TERAKHIR" : "MENUNGGU DATA");
+      // An empty upstream catalogue is not proof that the whole monitor is offline.
+      // Preserve the existing events and show amber while the next poll checks again.
+      status(hasPreviousData ? "warning" : false, hasPreviousData ? "DATA TERAKHIR · MENUNGGU DATA BARU" : "MENUNGGU DATA");
       const healthText = $("#wrsHealthText");
       const healthTime = $("#wrsLastUpdated");
       const health = $("#wrsHealth");
-      if (healthText) healthText.textContent = hasPreviousData ? "MENUNGGU PEMBARUAN" : "SUMBER BELUM TERSEDIA";
-      if (healthTime) healthTime.textContent = hasPreviousData ? "Data sebelumnya dipertahankan" : "Coba muat ulang sebentar lagi";
+      if (healthText) healthText.textContent = hasPreviousData ? "DATA TERAKHIR DIPERTAHANKAN · MENUNGGU PEMBARUAN" : "SUMBER BELUM TERSEDIA";
+      if (healthTime) healthTime.textContent = hasPreviousData ? "Katalog baru kosong; data dan marker sebelumnya tetap tampil" : "Coba muat ulang sebentar lagi";
       if (health) {
-        health.classList.add("is-error");
-        health.title = "Belum ada katalog gempa yang diterima; data yang sudah tampil tidak dihapus.";
+        health.classList.toggle("is-error", !hasPreviousData);
+        health.classList.toggle("is-warning", hasPreviousData);
+        health.title = "Respons katalog kosong. Data yang sudah tampil tidak dihapus; pemantauan akan mencoba lagi otomatis.";
       }
       return;
     }
@@ -2912,6 +2915,8 @@ async function load(showSpin, force = false) {
     if (hasCachedEvents && consecutiveLoadFailures < 6) {
       status("warning", "WRS MEMANTAU · CEK KONEKSI");
       if (health) {
+        health.classList.remove("is-error");
+        health.classList.add("is-warning");
         health.title = "Satu pembaruan gagal; data dan marker terakhir tetap tampil. Pemantauan mencoba kembali otomatis.";
       }
     } else if (hasCachedEvents) {
