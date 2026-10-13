@@ -244,6 +244,7 @@ async function fetchClientSide() {
     "https://data.bmkg.go.id/DataMKG/TEWS/gempadirasakan.json",
   ];
   const pub = [];
+  let publicFeedCount = 0;
   await Promise.all(urls.map(async (url) => {
     try {
       const r = await fetch(url + "?t=" + Date.now(), {
@@ -252,6 +253,10 @@ async function fetchClientSide() {
       if (!r.ok) return;
       const j = await r.json();
       const g = j?.Infogempa?.gempa;
+      // Count healthy BMKG endpoints separately from the number of earthquake
+      // records they contain. A feed can return many events, but still counts
+      // as one of the three configured public feeds.
+      if (g && (Array.isArray(g) || typeof g === "object")) publicFeedCount++;
       if (Array.isArray(g)) g.forEach((x) => { const n = normPublic(x); if (n) pub.push(n); });
       else if (g) { const n = normPublic(g); if (n) pub.push(n); }
     } catch { /* skip */ }
@@ -342,7 +347,7 @@ async function fetchClientSide() {
     realtimeEvents,
     count: recent.length,
     sources: {
-      client: true, public: pub.length, inaQL: ql.length,
+      client: true, public: publicFeedCount, publicEvents: pub.length, inaQL: ql.length,
       wrs: { ok: wrsFeedOk, eventCount: realtimeEvents.length },
       errors: wrsFeedOk ? [] : ["Feed realtime WRS langsung belum terverifikasi"]
     },
