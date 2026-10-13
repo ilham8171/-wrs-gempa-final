@@ -198,7 +198,9 @@ function normQL(f) {
   const magnitude = num(p.mag ?? p.magnitude);
   if (!Number.isFinite(magnitude) || magnitude < 1.5) return null;
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  const depth = parseDepth(p.depth);
+  // GeoJSON stores depth in coordinates[2] (kilometres). Prefer this canonical
+  // value; properties.depth may be missing, stale, or expressed differently.
+  const depth = parseDepth(c[2] ?? p.depth);
   const time = String(p.time || "").trim();
   const place = String(p.place || "Indonesia").trim();
   const id = String(p.id || `${time}|${magnitude}|${lat}|${lon}`);
@@ -768,6 +770,9 @@ function renderRealtime(q) {
   // revisi terjadi pada event lain dalam daftar WRS tujuh hari.
   showRealtimeUpdate(null, false);
   updateRealtimeDistance();
+  // Try to obtain the device location once so the realtime card can show
+  // epicentre distance automatically when the user grants permission.
+  if (!userLocation && !locationAttempted && navigator.geolocation) activateLocation(false);
 }
 
 /** Parse daftar daerah dari deskripsi buletin tsunami BMKG */
@@ -1434,6 +1439,9 @@ function activateLocation(showAlert) {
     return;
   }
   setLocStatus(false, "Lokasi · meminta izin…");
+  // Mark the attempt before the asynchronous callback so the 4-second live
+  // polling loop cannot trigger repeated permission/location requests.
+  locationAttempted = true;
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       userLocation = { lat: pos.coords.latitude, lon: pos.coords.longitude };
