@@ -6,7 +6,9 @@ const BMKG_URLS = [
 const GCS = "https://bmkg-content-inatews.storage.googleapis.com";
 const USGS = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson";
 function usgsIndonesiaUrl() {
-  const starttime = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 19);
+  // This regional request is a supplemental fallback, so keep its payload
+  // bounded to the latest 72 hours; BMKG/InaTEWS remains the primary catalogue.
+  const starttime = new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 19);
   return "https://earthquake.usgs.gov/fdsnws/event/1/query?" + new URLSearchParams({
     format: "geojson",
     starttime,
@@ -16,7 +18,7 @@ function usgsIndonesiaUrl() {
     maxlongitude: "141.5",
     minmagnitude: "2",
     orderby: "time",
-    limit: "150"
+    limit: "100"
   }).toString();
 }
 const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" };
