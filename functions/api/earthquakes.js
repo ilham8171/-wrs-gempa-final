@@ -287,6 +287,16 @@ export async function onRequestGet({ request, waitUntil } = {}) {
       }
     } catch (_) { /* Cache API is optional; continue with live upstream requests. */ }
   }
+  const validEventTime = value => {
+    const t = new Date(value || 0).getTime();
+    return Number.isFinite(t) && t > 0 ? t : NaN;
+  };
+  const distanceKm = (a, b) => {
+    const rad = n => n * Math.PI / 180;
+    const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+    const x = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(Math.max(0, 1 - x)));
+  };
   const errors=[];
   const results=await Promise.allSettled([
     ...BMKG_URLS.map(url=>getJson(url)),
@@ -382,16 +392,6 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   const validTime = q => {
     const t = new Date(q.time || 0).getTime();
     return Number.isFinite(t) && t > 0 ? t : NaN;
-  };
-  const validEventTime = value => {
-    const t = new Date(value || 0).getTime();
-    return Number.isFinite(t) && t > 0 ? t : NaN;
-  };
-  const distanceKm = (a, b) => {
-    const rad = n => n * Math.PI / 180;
-    const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
-    const x = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
-    return 6371 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(Math.max(0, 1 - x)));
   };
   const sameEvent = (a, b) => {
     if (a.key === b.key) return true;
