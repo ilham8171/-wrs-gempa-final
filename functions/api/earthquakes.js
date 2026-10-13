@@ -164,6 +164,60 @@ function capValue(block, ...names) {
   }
   return "";
 }
+
+function parseNoaaTsunamiAtom(xml, center) {
+  if (typeof xml !== "string" || !xml.trim()) return [];
+  const entries = xml.match(/<(?:[\\w.-]+:)?entry\\b[^>]*>[\\s\\S]*?<\\/(?:[\\w.-]+:)?entry\\s*>/gi) || [];
+  const readTag = (block, tag) => textBetween(block, tag);
+  const readLink = block => {
+    const m = block.match(/<(?:[\\w.-]+:)?link\\b[^>]*href=["']([^"']+)["'][^>]*\\/?\\s*>/i);
+    return m ? m[1] : "";
+  };
+  const centerName = center === "PTWC" ? "Pacific Tsunami Warning Center" : "National Tsunami Warning Center";
+  const out = [];
+  for (const entry of entries) {
+    const identifier = readTag(entry, "id") || readLink(entry);
+    const title = readTag(entry, "title");
+    const summary = readTag(entry, "summary") || readTag(entry, "content");
+    const published = readTag(entry, "published") || readTag(entry, "updated");
+    const text = (title + " " + summary).replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ");
+    if (!/tsunami/i.test(text)) continue;
+    const explicitlyNoThreat = /no tsunami (warning|advisory|watch|threat)|there is no tsunami warning|no tsunami threat/i.test(text);
+    const cancelled = /cancelled|canceled|all clear|no longer in effect/i.test(text);
+    const active = !explicitlyNoThreat && !cancelled &&
+      /warning|advisory|watch|threat/i.test(text) &&
+      !/information statement|earthquake information/i.test(title);
+    const timeMs = Date.parse(published);
+    out.push({
+      key: "noaa-tsunami-atom|" + center + "|" + (identifier || published || title),
+      eventid: identifier || published || title,
+      source: "tsunami.gov / NOAA " + center + " (Atom fallback)",
+      sourceUrl: readLink(entry) || "https://www.tsunami.gov/",
+      center: centerName,
+      subject: title || "Pesan tsunami NOAA",
+      headline: title || "Pesan tsunami NOAA",
+      description: summary,
+      instruction: "",
+      areas: [],
+      severity: "",
+      urgency: "",
+      status: "actual",
+      messageType: cancelled ? "Cancel" : "Update",
+      sent: Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : published,
+      expires: "",
+      active,
+      isTsunamiWarning: active,
+      official: true,
+      potential: active ? title : (title || "Informasi tsunami NOAA"),
+      time: Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : "",
+      ended: !active,
+      feedFormat: "Atom",
+      coverageNote: "Feed Atom resmi NOAA dipakai sebagai cadangan; untuk Indonesia tetap utamakan peringatan BMKG/InaTEWS."
+    });
+  }
+  return out.sort((a,b) => Date.parse(b.time || 0) - Date.parse(a.time || 0)).slice(0, 40);
+}
+
 function parseNoaaTsunamiCap(xml, center) {
   if (typeof xml !== "string" || !xml.trim()) return [];
   const alerts = xml.match(/<(?:[\w.-]+:)?alert\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?alert\s*>/gi) || [];
@@ -407,7 +461,9 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
     getJson(usgsIndonesiaUrl(), false, 6500),
     getText("https://cdn.bmkg.go.id/last30tsunamievent.xml"),
     getText("https://www.tsunami.gov/events/xml/PHEBCAP.xml", 4500),
-    getText("https://www.tsunami.gov/events/xml/PAAQCAP.xml", 4500)
+    getText("https://www.tsunami.gov/events/xml/PAAQCAP.xml", 4500),
+    getText("https://www.tsunami.gov/events/xml/PHEBAtom.xml", 4500),
+    getText("https://www.tsunami.gov/events/xml/PAAQAtom.xml", 4500)
   ]);
   const list=[];
   const qlEvents=[];
@@ -511,11 +567,17 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
   if(tsunami.status!=="fulfilled") errors.push("InaTEWS tsunami");
   // tsunami.gov CAP is a supplemental official bulletin source, not a substitute
   // for BMKG/InaTEWS and not a global all-clear authority for Indonesian coasts.
-  const ptwc=results[8], ntwc=results[9];
-  const tsunamiGovMessages = [
-    ...(ptwc.status==="fulfilled" ? parseNoaaTsunamiCap(ptwc.value, "PTWC") : []),
-    ...(ntwc.status==="fulfilled" ? parseNoaaTsunamiCap(ntwc.value, "NTWC") : [])
-  ].sort((a,b) => new Date(b.time || 0) - new Date(a.time || 0)).slice(0, 40);
+  const ptwc=results[8], ntwc=results[9], ptwcAtom=results[10], ntwcAtom=results[11];
+  // CAP tetap utama. Atom resmi dipakai hanya jika CAP feed pusat terkait gagal
+  // atau tidak dapat diparse, sehingga status satu feed tidak mematikan feed lainnya.
+  const ptwcCapMessages = ptwc.status==="fulfilled" ? parseNoaaTsunamiCap(ptwc.value, "PTWC") : [];
+  const ntwcCapMessages = ntwc.status==="fulfilled" ? parseNoaaTsunamiCap(ntwc.value, "NTWC") : [];
+  const ptwcAtomMessages = ptwcAtom.status==="fulfilled" ? parseNoaaTsunamiAtom(ptwcAtom.value, "PTWC") : [];
+  const ntwcAtomMessages = ntwcAtom.status==="fulfilled" ? parseNoaaTsunamiAtom(ntwcAtom.value, "NTWC") : [];
+  const ptwcMessages = ptwcCapMessages.length ? ptwcCapMessages : ptwcAtomMessages;
+  const ntwcMessages = ntwcCapMessages.length ? ntwcCapMessages : ntwcAtomMessages;
+  const tsunamiGovMessages = [...ptwcMessages, ...ntwcMessages]
+    .sort((a,b) => new Date(b.time || 0) - new Date(a.time || 0)).slice(0, 40);
   const tsunamiGovActive = tsunamiGovMessages.filter(q => q.active);
   // tsunami.gov is a supplemental international feed, not a dependency of the
   // BMKG/InaTEWS earthquake API. Report its health separately so a temporary
@@ -659,7 +721,7 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
     fallbackHeaders.set("x-wrs-data-age-seconds", String(staleEdgeAgeSeconds ?? ""));
     return new Response(JSON.stringify(fallback), { status: 200, headers: fallbackHeaders });
   }
-  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,tsunamiGovMessages,tsunamiGovActive,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,tsunamiGov:{ptwcOk:ptwc.status==="fulfilled",ntwcOk:ntwc.status==="fulfilled",messageCount:tsunamiGovMessages.length,activeCount:tsunamiGovActive.length,coverage:"supplemental",errors:[...(ptwc.status!=="fulfilled"?["tsunami.gov PTWC CAP"]:[]),...(ntwc.status!=="fulfilled"?["tsunami.gov NTWC CAP"]:[])]},client:false,errors}}),{status:200,headers});
+  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,tsunamiGovMessages,tsunamiGovActive,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:(usgs.status==="fulfilled"?(usgs.value.features||[]).length:0)+(usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0),usgsGlobal:usgs.status==="fulfilled"?(usgs.value.features||[]).length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?(usgsIndonesia.value.features||[]).length:0,tsunami:tsunamiHistory.length,tsunamiGov:{ptwcOk:ptwcMessages.length>0,ntwcOk:ntwcMessages.length>0,ptwcCapOk:ptwc.status==="fulfilled"&&ptwcCapMessages.length>0,ntwcCapOk:ntwc.status==="fulfilled"&&ntwcCapMessages.length>0,ptwcAtomOk:ptwcAtom.status==="fulfilled"&&ptwcAtomMessages.length>0,ntwcAtomOk:ntwcAtom.status==="fulfilled"&&ntwcAtomMessages.length>0,ptwcFormat:ptwcCapMessages.length?"CAP":ptwcAtomMessages.length?"Atom":"unavailable",ntwcFormat:ntwcCapMessages.length?"CAP":ntwcAtomMessages.length?"Atom":"unavailable",messageCount:tsunamiGovMessages.length,activeCount:tsunamiGovActive.length,coverage:"supplemental",errors:[...(ptwcMessages.length?[]:["tsunami.gov PTWC CAP+Atom"]),...(ntwcMessages.length?[]:["tsunami.gov NTWC CAP+Atom"])]},client:false,errors}}),{status:200,headers});
   if (edgeCache && edgeCacheKey) {
     try {
       const cacheHeaders = new Headers(response.headers);
