@@ -3013,7 +3013,10 @@ function openHistory(mode = "all") {
         }
       };
     } else {
-      tr.innerHTML = `<td class="hist-mag">${q.magnitude.toFixed(1)}</td><td>${shortDate(q)}</td><td>${q.place}${isTsunamiPotential(q.potential) ? ' <span class="ts-badge">TS</span>' : ""}</td><td>${q.depth} km</td>`;
+      const tsunamiBadge = q.usgsTsunamiFlag === true
+        ? ' <span class="ts-badge" title="Flag USGS terkait tsunami; bukan konfirmasi peringatan resmi">TSUNAMI · USGS</span>'
+        : isTsunamiPotential(q.potential) ? ' <span class="ts-badge">TS</span>' : "";
+      tr.innerHTML = `<td class="hist-mag">${q.magnitude.toFixed(1)}</td><td>${shortDate(q)}</td><td>${q.place}${tsunamiBadge}</td><td>${q.depth} km</td>`;
       tr.onclick = () => {
         openModal(q);
         if (Number.isFinite(q.lat)) {
