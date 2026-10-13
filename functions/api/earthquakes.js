@@ -397,8 +397,14 @@ export async function onRequestGet({ request, waitUntil } = {}) {
   // Peta USGS dimuat on-demand ketika pengguna membuka detail event; ini menjaga
   // polling operasional tetap cepat dan tidak membebani feed pada setiap refresh.
   const tsunami=results[7];
-  const tsunamiHistory=tsunami.status==="fulfilled" ? parseTsunamiCapXml(tsunami.value) : [];
+  let tsunamiHistory=tsunami.status==="fulfilled" ? parseTsunamiCapXml(tsunami.value) : [];
   if(tsunami.status!=="fulfilled") errors.push("InaTEWS tsunami");
+  // Feed riwayat yang kosong/tidak terbaca tidak boleh menghapus 30 buletin terakhir
+  // yang masih tersimpan di edge cache. Ini bukan status aktif; hanya mempertahankan arsip.
+  if (!tsunamiHistory.length && staleEdgeData?.tsunamiHistory?.length) {
+    tsunamiHistory = staleEdgeData.tsunamiHistory;
+    errors.push("InaTEWS tsunami: memakai riwayat terakhir tersimpan");
+  }
   // Prioritaskan data resmi BMKG, lalu feed WRS live, katalog InaTEWS, dan USGS.
   const eventPriority = q => q.source === "BMKG" && q.official ? 4 :
     q.source === "InaTEWS WRS" ? 3 : q.source === "InaTEWS" ? 2 : q.source === "USGS" ? 1 : 0;
