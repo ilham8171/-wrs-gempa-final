@@ -1,3 +1,21 @@
+/* Restored essential WRS GEMPA AI popup styling. */
+.wrs-ai-panel{position:fixed;z-index:1201;display:flex;flex-direction:column;overflow:hidden;min-height:220px;border:1px solid #155e75;border-radius:20px;background:#07111ff5;color:#e6f7ff;box-shadow:0 20px 65px #000b,0 0 25px #0891b233;-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrs-ai-panel[hidden]{display:none!important}
+.wrs-ai-head{display:flex;align-items:center;gap:11px;padding:15px;border-bottom:1px solid #164e63;background:linear-gradient(100deg,#0c354b,#0b1728);flex-shrink:0}
+.wrs-ai-mark{display:grid;place-items:center;width:39px;height:39px;border-radius:13px;background:#083344;border:1px solid #22d3ee;color:#67e8f9;font-size:24px}
+.wrs-ai-title{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}.wrs-ai-title strong{font-size:14px;letter-spacing:.4px}.wrs-ai-title span{font-size:11px;color:#9fb8cc}
+.wrs-ai-close{border:0;background:transparent;color:#cde6f3;font-size:26px;cursor:pointer;padding:3px 7px}
+.wrs-ai-notice{padding:9px 13px;background:#42200655;border-bottom:1px solid #92400e66;color:#fde68a;font-size:10px;line-height:1.45;flex-shrink:0}
+.wrs-ai-messages{display:flex;flex:1;min-height:0;flex-direction:column;gap:10px;overflow:auto;padding:14px;overscroll-behavior:contain}
+.wrs-ai-msg{max-width:94%;white-space:pre-wrap;overflow-wrap:anywhere;padding:11px 12px;border-radius:14px;font-size:12px;line-height:1.6}
+.wrs-ai-msg.assistant{align-self:flex-start;background:#10263a;border:1px solid #1e4057;color:#e0f2fe}.wrs-ai-msg.user{align-self:flex-end;background:#075985;border:1px solid #0e7490;color:#ecfeff}.wrs-ai-msg.error{align-self:flex-start;background:#451a1a;border:1px solid #991b1b;color:#fecaca}.wrs-ai-msg.pending{color:#a5f3fc}
+.wrs-ai-form{display:flex;align-items:flex-end;gap:8px;padding:11px;border-top:1px solid #164e63;background:#081523;flex-shrink:0}
+#wrsAiInput{flex:1;min-width:0;resize:none;border:1px solid #28516a;border-radius:12px;background:#0b1b2b;color:#e6f7ff;padding:11px;font:12px/1.5 system-ui,sans-serif;outline:none}
+#wrsAiInput:focus{border-color:#22d3ee;box-shadow:0 0 0 2px #22d3ee22}#wrsAiInput::placeholder{color:#7895aa}
+.wrs-ai-send{border:0;border-radius:11px;padding:12px;background:#0891b2;color:white;font-weight:700;font-size:12px;cursor:pointer;flex-shrink:0}.wrs-ai-send:disabled{opacity:.55;cursor:wait}
+.wrs-ai-foot{padding:0 12px 10px;background:#081523;color:#7895aa;font-size:9px;line-height:1.4;flex-shrink:0}
+.wrs-ai-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
 /* Compact WRS GEMPA AI dock: raised above the event/tsunami summary. */
 #wrsAiDock{
   position:fixed;z-index:1200;right:10px;bottom:clamp(220px,25vh,270px);
