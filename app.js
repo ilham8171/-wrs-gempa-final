@@ -888,7 +888,9 @@ function showRealtimeUpdate(info, append = false) {
 }
 
 function primaryRealtimeQuake() {
-  const valid = q => q && Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon));
+  // Use the same strict coordinate validator as Leaflet markers. Number(null)
+  // evaluates to 0, so Number.isFinite(Number(...)) alone is not sufficient.
+  const valid = q => hasValidCoordinates(q);
   // Prioritas utama tetap event langsung InaTEWS/WRS.
   return valid(currentRealtime) ? currentRealtime : null;
 }
@@ -2166,6 +2168,25 @@ function removeTsunamiMapControl(){
   tsunamiMapControl=null;
   tsunamiMapControlNode=null;
 }
+function validTsunamiBounds(bounds) {
+  if (!bounds || typeof bounds !== "object") return null;
+  const read = (key, min, max) => {
+    const raw = bounds[key];
+    if (raw == null || (typeof raw === "string" && raw.trim() === "")) return NaN;
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= min && value <= max ? value : NaN;
+  };
+  const normalized = {
+    minLat: read("minLat", -90, 90),
+    minLon: read("minLon", -180, 180),
+    maxLat: read("maxLat", -90, 90),
+    maxLon: read("maxLon", -180, 180)
+  };
+  if (!Object.values(normalized).every(Number.isFinite) ||
+      normalized.minLat >= normalized.maxLat ||
+      normalized.minLon >= normalized.maxLon) return null;
+  return normalized;
+}
 function renderOfficialTsunamiMap(){
   if(!map||!tsunamiMapLayer)return;
   // The quake marker group is separate and is never cleared or recreated here.
@@ -2187,20 +2208,18 @@ function renderOfficialTsunamiMap(){
    const t=tsunamiBulletinTime(q);
    return !isTsunamiEnded(q)&&Number.isFinite(t)&&t>0&&Date.now()-t<=6*60*60*1000;
   });
-  const latest=active.find(q=>{
-   const b=q.sshBounds;
-   const url=safeTsunamiAssetUrl(q.sshmap);
-   return url&&b&&Number.isFinite(Number(b.minLat))&&Number.isFinite(Number(b.minLon))&&
-    Number.isFinite(Number(b.maxLat))&&Number.isFinite(Number(b.maxLon))&&
-    Number(b.minLat)<Number(b.maxLat)&&Number(b.minLon)<Number(b.maxLon)&&
-    Number(b.minLat)>=-90&&Number(b.maxLat)<=90&&Number(b.minLon)>=-180&&Number(b.maxLon)<=180;
-  });
+  const latest=active.find(q => safeTsunamiAssetUrl(q.sshmap) && validTsunamiBounds(q.sshBounds));
   if(!latest)return;
-  const b=latest.sshBounds;
+  const b=validTsunamiBounds(latest.sshBounds);
+  if (!b) return;
+  const imageUrl = safeTsunamiAssetUrl(latest.sshmap);
+  if (!imageUrl) return;
   // Non-interactive official raster sits beneath Leaflet markers; quake click targets remain intact.
-  L.imageOverlay(safeTsunamiAssetUrl(latest.sshmap),[
-   [Number(b.minLat),Number(b.minLon)],
-   [Number(b.maxLat),Number(b.maxLon)]
+  // Revalidate all four coordinates immediately before calling Leaflet: malformed upstream
+  // bounds must never become an Invalid LatLng (NaN, NaN) exception in the map renderer.
+  L.imageOverlay(imageUrl,[
+   [b.minLat,b.minLon],
+   [b.maxLat,b.maxLon]
   ],{opacity:0.62,interactive:false,alt:"Lapisan SSHmax resmi InaTEWS BMKG"}).addTo(tsunamiMapLayer);
 }
 
@@ -3033,6 +3052,31 @@ async function load(showSpin, force = false) {
     }
   } catch (e) {
     if (requestId !== loadRequestId || wrsMode === "simulation") return;
+    // A Leaflet coordinate error is a rendering/data-shape problem, not proof that
+    // the API request failed. Keep connection counters unchanged so diagnostics do
+    // not mislabel a healthy HTTP response as an offline/server failure.
+    if (/Invalid LatLng object/i.test(String(e?.message || e))) {
+      console.error("[WRS MAP] Koordinat peta tidak valid; status koneksi API tidak diturunkan.", e);
+      updateDiagnostics({
+        fetchedAt: lastGoodServerFetchedAt,
+        savedAt: lastGoodSavedAt,
+        sources: lastGoodSourceSnapshot
+      });
+      const connection = $("#diagConnection");
+      const lastError = $("#diagError");
+      if (connection) connection.textContent = "API DIPERIKSA · KESALAHAN KOORDINAT PETA";
+      if (lastError) lastError.textContent = String(e?.message || e).slice(0, 180);
+      const healthText = $("#wrsHealthText");
+      const health = $("#wrsHealth");
+      if (healthText) healthText.textContent = "KESALAHAN PETA · DATA TERAKHIR TETAP DIPERTAHANKAN";
+      if (health) {
+        health.classList.remove("is-error");
+        health.classList.add("is-warning");
+        health.title = "Rendering peta menerima koordinat tidak valid. Status ini tidak dihitung sebagai kegagalan koneksi API; peta akan dicoba lagi pada refresh berikutnya.";
+      }
+      status("warning", "API DIPANTAU · PERBAIKAN TAMPILAN PETA DIPERLUKAN");
+      return;
+    }
     consecutiveLoadFailures += 1;
     updateDiagnostics(null, e);
     console.warn("WRS refresh gagal; percobaan ulang dijadwalkan.", e);
