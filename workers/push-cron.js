@@ -154,15 +154,23 @@ async function runPush(env) {
     console.error("PUSH_SUBSCRIPTIONS KV binding is missing.");
     return;
   }
-  const [privateText, publicKey] = await Promise.all([
-    env.PUSH_SUBSCRIPTIONS.get("vapid:private"),
-    env.PUSH_SUBSCRIPTIONS.get("vapid:public")
-  ]);
-  if (!privateText || !publicKey) {
-    console.warn("VAPID key pair is not initialized yet. Open /api/push-key once.");
-    return;
+  // VAPID configuration controls browser delivery only. It must not abort event processing.
+  let privateJwk = null;
+  let publicKey = null;
+  try {
+    const [privateText, publicText] = await Promise.all([
+      env.PUSH_SUBSCRIPTIONS.get("vapid:private"),
+      env.PUSH_SUBSCRIPTIONS.get("vapid:public")
+    ]);
+    if (privateText && publicText) {
+      privateJwk = JSON.parse(privateText);
+      publicKey = publicText;
+    } else {
+      console.warn("VAPID key pair is not initialized; Web Push delivery will be skipped.");
+    }
+  } catch (error) {
+    console.error("Web Push configuration unavailable:", error.message || error);
   }
-  const privateJwk = JSON.parse(privateText);
   const subject = SITE;
   const res = await fetch(SITE + "/api/earthquakes?push=" + Date.now(), {
     headers: { "Accept": "application/json", "Cache-Control": "no-cache" }
@@ -180,7 +188,7 @@ async function runPush(env) {
       const age = now - eventTime(q);
       if (age < -60000 || age > MAX_QUAKE_ALERT_AGE_MS) return false;
       const mag = Number(q.magnitude || 0);
-      return isIndonesia(q) ? mag >= 4.0 : mag >= 5.0;
+      return isIndonesia(q) ? mag >= 3.0 : mag >= 5.0;
     })
     .sort((a,b) => eventTime(b)-eventTime(a))
     .slice(0, MAX_EVENTS_PER_RUN)
@@ -188,6 +196,8 @@ async function runPush(env) {
   const events = [...warnings, ...quakes].filter((q, i, a) => a.findIndex(x => x.key === q.key) === i);
   if (!events.length) return;
 
+  // Skip only browser delivery when VAPID keys are unavailable; event selection still runs.
+  if (!privateJwk || !publicKey) return;
   const subscriptions = await listSubscriptions(env.PUSH_SUBSCRIPTIONS);
   for (const entry of subscriptions) {
     const storageKey = entry.name;
