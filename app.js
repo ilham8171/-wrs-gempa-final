@@ -1,6 +1,6 @@
 const API = "/api/earthquakes";
 const SUBSCRIBE_API = "/api/subscribe";
-const NORMAL_INTERVAL = 8000; // Selaras dengan refreshSeconds API; mengurangi polling yang tidak perlu.
+const NORMAL_INTERVAL = 15000; // Selaras dengan refreshSeconds API; mengurangi polling yang tidak perlu.
 const currentInterval = () => NORMAL_INTERVAL;
 const SHAKEMAP_BASE = "https://bmkg-content-inatews.storage.googleapis.com/";
 const $ = (s) => document.querySelector(s);
@@ -2330,9 +2330,8 @@ function updateDiagnostics(data = null, error = null, simulation = false) {
     const sourceParts = [];
     if (source.wrs) sourceParts.push("InaTEWS realtime: " + (source.wrs.ok ? "OK" : "gagal"));
     if (source.public != null) sourceParts.push("BMKG: " + source.public + "/3 feed");
-    if (source.usgsGlobal != null || source.usgsIndonesia != null) {
-      if (source.usgsGlobal != null) sourceParts.push("USGS global M5+: " + source.usgsGlobal);
-      if (source.usgsIndonesia != null) sourceParts.push("USGS Indonesia M2+: " + source.usgsIndonesia);
+    if (source.usgsGlobal != null) {
+      sourceParts.push("USGS global M5+ luar Indonesia: " + source.usgsGlobal);
     } else if (source.usgs != null) {
       sourceParts.push("USGS: " + source.usgs + " event");
     }
