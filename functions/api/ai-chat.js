@@ -78,7 +78,7 @@ export async function onRequestPost({ request, env }) {
     // General educational questions can still be answered, but live data is marked unavailable.
   }
 
-  const model = cleanText(env.GROQ_MODEL || "llama-3.3-70b-versatile", 100);
+  const model = cleanText(env.GROQ_MODEL || "openai/gpt-oss-20b", 100);
   let upstream;
   try {
     upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
