@@ -459,6 +459,18 @@ function parseTsunamiCapXml(xml) {
     .sort((a,b) => new Date(b.timesent || b.time || 0) - new Date(a.timesent || a.time || 0))
     .slice(0, 30);
 }
+async function loadCachedTsunamiHistory(options) {
+  return loadNormalizedFeed({
+    ...options,
+    name: "inatews-tsunami-history-v1",
+    // The 30-bulletin archive changes far less often than the live earthquake feed.
+    // Cache parsed bulletins so every 4-second browser poll does not re-run the XML parser.
+    ttlMs: 30 * 1000,
+    load: () => getText("https://cdn.bmkg.go.id/last30tsunamievent.xml", 4000, 30),
+    map: parseTsunamiCapXml
+  });
+}
+
 async function getText(url, timeoutMs = 4000, cacheTtlSeconds = 30) {
   const res = await fetch(url, {
     signal: AbortSignal.timeout(timeoutMs),
@@ -605,17 +617,19 @@ async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
     return 6371 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(Math.max(0, 1 - x)));
   };
   const errors=[];
-  const [results, historyQL, usgs] = await Promise.all([
+  const [results, historyQL, usgs, tsunamiFeed] = await Promise.all([
     Promise.allSettled([
       ...BMKG_URLS.map(url=>getBmkgFeed(url)),
       // This live feed remains uncached and is checked on every actual edge refresh.
-      getJson(GCS+"/lastQL.json", true, 3500),
-      getText("https://cdn.bmkg.go.id/last30tsunamievent.xml"),
+      getJson(GCS+"/lastQL.json", true, 3500)
     ]),
     // Historical and global catalogues are normalized once per cache window;
-    // they are optional and have their own stale-cache fallback.
+    // these caches avoid repeatedly parsing large feeds on each catalogue poll.
     loadCachedHistoryEvents({ cache: edgeCache, request }),
-    loadCachedUSGSEvents({ cache: edgeCache, request })
+    loadCachedUSGSEvents({ cache: edgeCache, request }),
+    // The tsunami archive is history, not the live warning state. Cache its parsed
+    // records briefly to lower CPU use without hiding new bulletins for long.
+    loadCachedTsunamiHistory({ cache: edgeCache, request })
   ]);
   const list=[];
   const qlEvents=[];
@@ -697,9 +711,14 @@ async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
   // Jangan menunggu permintaan detail ShakeMap USGS untuk mengirim katalog.
   // Peta USGS dimuat on-demand ketika pengguna membuka detail event; ini menjaga
   // polling operasional tetap cepat dan tidak membebani feed pada setiap refresh.
-  const tsunami=results[4];
-  let tsunamiHistory=tsunami.status==="fulfilled" ? parseTsunamiCapXml(tsunami.value) : [];
-  if(tsunami.status!=="fulfilled") errors.push("InaTEWS tsunami");
+  const tsunami = tsunamiFeed;
+  let tsunamiHistory = tsunami.status === "fulfilled" && Array.isArray(tsunami.value) ? tsunami.value : [];
+  if (tsunami.status !== "fulfilled") {
+    errors.push("InaTEWS tsunami: " + String(tsunami.reason?.message || "riwayat sementara tidak tersedia").slice(0, 180));
+  } else if (tsunami.stale) {
+    errors.push("InaTEWS tsunami: memakai cache sebelumnya (" + tsunami.cacheAgeSeconds +
+      " detik); pembaruan gagal: " + String(tsunami.sourceError || "sumber sementara gagal").slice(0, 120));
+  }
   // Riwayat dari feed yang parsial tidak boleh menghapus buletin lama yang masih
   // tersimpan. Gabungkan berdasarkan identitas buletin (event + PD), urut terbaru,
   // lalu batasi ke 30. Arsip ini TIDAK menentukan apakah peringatan sedang aktif.
