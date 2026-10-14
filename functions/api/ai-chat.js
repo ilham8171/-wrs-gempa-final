@@ -18,15 +18,12 @@ function json(data, status = 200) {
 }
 
 function cleanText(value, max = 500) {
-  return String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, max);
+  return String(value ?? "").replace(/[\\u0000-\\u001f\\u007f]/g, " ").trim().slice(0, max);
 }
 
 function summarizeCatalog(payload) {
   if (!payload || typeof payload !== "object") return { available: false, note: "Katalog gempa tidak tersedia." };
-  const candidates = [
-    payload.recent, payload.earthquakes, payload.events, payload.features,
-    payload.data?.recent, payload.data?.earthquakes
-  ];
+  const candidates = [payload.recent, payload.earthquakes, payload.events, payload.features, payload.data?.recent, payload.data?.earthquakes];
   const list = candidates.find(Array.isArray) || [];
   const events = list.slice(0, 35).map(item => {
     const p = item?.properties || item || {};
@@ -53,47 +50,57 @@ function summarizeCatalog(payload) {
 }
 
 export async function onRequestPost({ request, env }) {
-  if (!env.OPENAI_API_KEY) {
-    return json({ error: "AI belum dikonfigurasi. Admin perlu menambahkan secret OPENAI_API_KEY di Cloudflare Pages." }, 503);
+  if (!env.GROQ_API_KEY) {
+    return json({ error: "AI belum dikonfigurasi. Admin perlu menambahkan secret GROQ_API_KEY di Cloudflare Pages." }, 503);
   }
   let body;
   try { body = await request.json(); } catch { return json({ error: "Format permintaan tidak valid." }, 400); }
-  const question = cleanText(body?.message, 1200);
+  const rawMessage = typeof body?.message === "string" ? body.message : "";
+  if (rawMessage.length > 1200) return json({ error: "Pertanyaan terlalu panjang (maksimal 1.200 karakter)." }, 413);
+  const question = cleanText(rawMessage, 1200);
   if (!question || question.length < 2) return json({ error: "Tulis pertanyaan terlebih dahulu." }, 400);
-  if (question.length > 1200) return json({ error: "Pertanyaan terlalu panjang (maksimal 1.200 karakter)." }, 413);
 
   let catalog = { available: false, note: "Katalog live tidak berhasil dibaca." };
   try {
     const catalogUrl = new URL("/api/earthquakes", request.url);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4500);
-    const response = await fetch(catalogUrl, {
-      headers: { accept: "application/json" },
-      signal: controller.signal
-    });
-    clearTimeout(timer);
-    if (response.ok) catalog = summarizeCatalog(await response.json());
+    try {
+      const response = await fetch(catalogUrl, {
+        headers: { accept: "application/json" },
+        signal: controller.signal
+      });
+      if (response.ok) catalog = summarizeCatalog(await response.json());
+    } finally {
+      clearTimeout(timer);
+    }
   } catch (_) {
-    // The assistant can still answer general educational questions, but must state that live data is unavailable.
+    // General educational questions can still be answered, but live data is marked unavailable.
   }
 
-  const model = cleanText(env.OPENAI_MODEL || "gpt-4.1-mini", 80);
+  const model = cleanText(env.GROQ_MODEL || "llama-3.3-70b-versatile", 100);
   let upstream;
   try {
-    upstream = await fetch("https://api.openai.com/v1/responses", {
+    upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
-        authorization: "Bearer " + env.OPENAI_API_KEY,
+        authorization: "Bearer " + env.GROQ_API_KEY,
         "content-type": "application/json"
       },
       body: JSON.stringify({
         model,
-        instructions: SYSTEM_PROMPT,
-        input: "KONTEKS KATALOG WRS GEMPA (data dapat tidak lengkap):\n" +
-          JSON.stringify(catalog).slice(0, 14000) +
-          "\n\nPERTANYAAN PENGGUNA:\n" + question,
-        max_output_tokens: 550,
-        store: false
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: "KONTEKS KATALOG WRS GEMPA (data dapat tidak lengkap):\\n" +
+              JSON.stringify(catalog).slice(0, 14000) +
+              "\\n\\nPERTANYAAN PENGGUNA:\\n" + question
+          }
+        ],
+        max_tokens: 650,
+        temperature: 0.2,
+        stream: false
       }),
       signal: AbortSignal.timeout(18000)
     });
@@ -103,22 +110,18 @@ export async function onRequestPost({ request, env }) {
 
   if (!upstream.ok) {
     const status = upstream.status;
-    // Never forward provider response bodies or secret-bearing diagnostics to clients.
-    console.error("[WRS AI] Provider request failed with status", status);
-    if (status === 401 || status === 403) return json({ error: "Konfigurasi API AI ditolak. Admin perlu memeriksa secret dan akses model." }, 502);
-    if (status === 429) return json({ error: "Kuota atau batas permintaan AI tercapai. Coba lagi nanti." }, 429);
+    console.error("[WRS AI] Groq request failed with status", status);
+    if (status === 401 || status === 403) return json({ error: "Konfigurasi API Groq ditolak. Admin perlu memeriksa secret dan akses model." }, 502);
+    if (status === 429) return json({ error: "Kuota atau batas permintaan Groq tercapai. Coba lagi nanti." }, 429);
+    if (status === 400 || status === 404) return json({ error: "Model AI tidak tersedia atau permintaan ditolak. Admin perlu memeriksa GROQ_MODEL." }, 502);
     return json({ error: "AI belum berhasil memproses pertanyaan. Coba lagi nanti." }, 502);
   }
 
   let result;
   try { result = await upstream.json(); } catch { return json({ error: "Respons AI tidak dapat dibaca." }, 502); }
-  const answer = cleanText(
-    result.output_text ||
-    (result.output || []).flatMap(item => item.content || []).filter(part => part.type === "output_text").map(part => part.text).join("\n"),
-    6000
-  );
+  const answer = cleanText(result.choices?.[0]?.message?.content || "", 6000);
   if (!answer) return json({ error: "AI tidak memberikan jawaban. Silakan coba lagi." }, 502);
-  return json({ answer, model, liveCatalogAvailable: Boolean(catalog.available) });
+  return json({ answer, model, provider: "Groq", liveCatalogAvailable: Boolean(catalog.available) });
 }
 
 export async function onRequestOptions() {
