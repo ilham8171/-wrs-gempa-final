@@ -4,7 +4,8 @@ const BMKG_URLS = [
   "https://data.bmkg.go.id/DataMKG/TEWS/gempadirasakan.json"
 ];
 const GCS = "https://bmkg-content-inatews.storage.googleapis.com";
-const USGS = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson";
+// Use USGS's prefiltered M5+ feed: it is much smaller than all_week.geojson and avoids parsing thousands of irrelevant low-magnitude records on cold edge refreshes.
+const USGS = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/5.0_week.geojson";
 function usgsIndonesiaUrl() {
   // This regional request is a supplemental fallback, so keep its payload
   // bounded to the latest 72 hours; BMKG/InaTEWS remains the primary catalogue.
