@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07111f">
+<meta name="description" content="Panduan kesiapsiagaan gempa dan tsunami WRS GEMPA, tersedia untuk dibaca secara offline.">
+<title>Pusat Siaga — WRS GEMPA</title>
+<style>
+:root{color-scheme:dark;--bg:#07111f;--panel:#101c2e;--panel2:#16253b;--text:#eaf2ff;--muted:#a9bad1;--cyan:#71e7f7;--red:#ff7474;--yellow:#ffd27a;--green:#8ee5b2;--line:#29415f}
+*{box-sizing:border-box}html{min-height:100%;background:var(--bg)}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:radial-gradient(ellipse at 10% 0%,#142d49 0%,var(--bg) 52%);color:var(--text);line-height:1.5}
+a{color:var(--cyan);text-underline-offset:3px}.wrap{max-width:980px;margin:auto;padding:calc(16px + env(safe-area-inset-top)) 14px calc(32px + env(safe-area-inset-bottom))}
+.top{display:flex;gap:12px;justify-content:space-between;align-items:center;margin-bottom:18px}.brand{font-size:12px;letter-spacing:.16em;color:var(--cyan);font-weight:900}.eyebrow{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em}.back{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:12px;padding:10px 13px;background:#102039;color:var(--text);font-weight:700;text-decoration:none}
+h1{font-size:clamp(26px,6vw,42px);line-height:1.12;margin:8px 0 10px;letter-spacing:-.03em}h2{font-size:19px;margin:0 0 10px}h3{font-size:15px;margin:0 0 6px}.lede{color:var(--muted);max-width:720px;margin:0 0 20px}
+.card{background:linear-gradient(145deg,rgba(22,37,59,.96),rgba(12,24,41,.96));border:1px solid var(--line);border-radius:18px;padding:17px;margin:13px 0;box-shadow:0 10px 28px rgba(0,0,0,.16)}
+.urgent{border-color:#914b55;background:linear-gradient(140deg,rgba(86,28,41,.78),rgba(30,24,38,.96))}.urgent h2{color:#ffc3c3}.urgent strong{color:#fff}.urgent p{margin:8px 0}.urgent .big{font-size:clamp(18px,4vw,24px);font-weight:900;line-height:1.3}
+.action-row{display:flex;flex-wrap:wrap;gap:9px;margin-top:12px}.btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:10px 14px;border-radius:12px;border:1px solid #3a597c;background:#14304d;color:var(--text);font:inherit;font-size:14px;font-weight:800;text-decoration:none;cursor:pointer}.btn.primary{background:#123b52;border-color:#287e97;color:#bff8ff}.btn.danger{background:#4b232a;border-color:#a34d59;color:#ffe2e2}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.grid .card{margin:0}.status-top{display:flex;justify-content:space-between;gap:12px;align-items:center}.badge{font-size:11px;font-weight:900;letter-spacing:.04em;padding:5px 9px;border-radius:999px;background:#23364f;color:var(--muted)}.badge.good{background:#123d34;color:var(--green)}.badge.warn{background:#49391d;color:var(--yellow)}.badge.bad{background:#4b232a;color:#ffc1c1}.small{font-size:12px;color:var(--muted)}.source-list{display:grid;gap:9px;margin-top:13px}.source-row{display:flex;gap:10px;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:9px}.source-row strong{font-size:13px}.source-row span{font-size:12px;color:var(--muted);text-align:right}.event{padding:10px 0;border-top:1px solid var(--line)}.event:first-of-type{border-top:0}.event p{margin:4px 0;color:var(--muted);font-size:13px}
+ul,ol{padding-left:21px;margin:8px 0}li{margin:7px 0}.checklist{display:grid;gap:9px}.check{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--line);border-radius:12px;background:rgba(8,17,31,.48)}.check input{width:19px;height:19px;margin:2px 0 0;accent-color:#5ed8ca;flex:none}.check span{font-size:14px}.check input:checked+span{text-decoration:line-through;color:#9eb5c5}.input-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.input-row input{flex:1;min-width:170px;border-radius:10px;border:1px solid var(--line);padding:11px;background:#081525;color:var(--text);font:inherit}
+.callout{padding:12px;border-left:4px solid var(--yellow);border-radius:8px;background:rgba(91,67,22,.2);font-size:13px}.footer{margin:22px 3px 0;font-size:12px;color:var(--muted)}.footer p{margin:7px 0}
+@media(max-width:640px){.grid{grid-template-columns:1fr}.card{padding:14px}.top{align-items:flex-start}.back{padding:9px 10px;font-size:12px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="top">
+    <div><div class="brand">WRS GEMPA · PUSAT SIAGA</div><div class="eyebrow">Panduan kesiapsiagaan resmi & lokal</div></div>
+    <button class="back" type="button" id="backButton">← Kembali</button>
+  </header>
+  <h1>Siap sebelum guncangan terjadi.</h1>
+  <p class="lede">Panduan ringkas gempa dan tsunami yang tetap dapat dibaca saat internet terganggu. WRS GEMPA adalah pemantau pelengkap, bukan pengganti peringatan resmi.</p>
+
+  <section class="card urgent" aria-labelledby="urgentTitle">
+    <div class="eyebrow">Tindakan penting di pesisir</div>
+    <h2 id="urgentTitle">Gempa kuat atau berlangsung lama?</h2>
+    <p class="big">Lindungi diri saat guncangan. Setelah guncangan mereda, segera menjauh dari pantai dan menuju tempat tinggi atau lokasi evakuasi resmi.</p>
+    <p>Jangan menunggu notifikasi ponsel, sirene, atau halaman web jika merasakan tanda bahaya tsunami. Ikuti jalur evakuasi setempat dan arahan petugas.</p>
+    <div class="action-row">
+      <a class="btn danger" href="https://inatews.bmkg.go.id/web/tsunami" target="_blank" rel="noopener noreferrer">Status tsunami InaTEWS ↗</a>
+      <a class="btn" href="https://www.bmkg.go.id/gempabumi/mitigasi/edukasi-gempabumi-tsunami" target="_blank" rel="noopener noreferrer">Edukasi BMKG ↗</a>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="apiTitle">
+    <div class="status-top"><div><h2 id="apiTitle">Kesehatan sumber data WRS</h2><div class="small" id="statusUpdated">Memeriksa API WRS…</div></div><span id="overallBadge" class="badge">MEMERIKSA</span></div>
+    <p class="small">Status ini hanya menjelaskan apakah data berhasil diambil dan seberapa lama data yang ditampilkan. Status hijau bukan pernyataan aman dari gempa atau tsunami.</p>
+    <div id="latestEvent" class="event"><strong>Data gempa</strong><p>Menunggu hasil pemeriksaan.</p></div>
+    <div id="sourceRows" class="source-list" aria-live="polite"></div>
+    <div class="action-row"><button class="btn primary" id="refreshStatus" type="button">↻ Periksa lagi</button><a class="btn" href="https://inatews.bmkg.go.id/" target="_blank" rel="noopener noreferrer">Buka InaTEWS ↗</a></div>
+    <div id="apiFootnote" class="small" style="margin-top:10px">Data terakhir tidak dapat dianggap baru sebelum waktu pembaruannya diverifikasi.</div>
+  </section>
+
+  <section class="card" aria-labelledby="historyTitle">
+    <div class="status-top"><h2 id="historyTitle">Arsip buletin tsunami InaTEWS</h2><span id="historyCount" class="badge">Belum dimuat</span></div>
+    <p class="small">Arsip dan pembaruan buletin ditampilkan sebagai riwayat. Daftar ini tidak menentukan apakah peringatan tsunami sedang aktif sekarang.</p>
+    <div id="tsunamiHistory"><p class="small">Riwayat akan dimuat ketika API tersedia.</p></div>
+    <div class="action-row"><a class="btn" href="https://inatews.bmkg.go.id/web/tsunami" target="_blank" rel="noopener noreferrer">Verifikasi status terkini di InaTEWS ↗</a></div>
+  </section>
+
+  <section class="grid" aria-label="Panduan tindakan">
+    <article class="card"><h2>Saat gempa</h2><ol><li>Merunduk, berlindung di bawah meja kokoh jika tersedia, dan berpegangan.</li><li>Jauhi kaca, lemari, dan benda yang dapat jatuh. Jangan berlari ke tangga saat bangunan masih berguncang.</li><li>Di luar ruangan, jauhi bangunan, tiang, dan kabel.</li><li>Di pantai, setelah guncangan mereda, evakuasi ke tempat tinggi atau area aman sesuai rute resmi jika gempa kuat atau lama.</li></ol></article>
+    <article class="card"><h2>Setelah gempa</h2><ol><li>Waspadai gempa susulan dan kerusakan bangunan.</li><li>Jangan memasuki bangunan rusak sebelum dinyatakan aman.</li><li>Di wilayah pesisir, tetap di tempat aman sampai otoritas menyatakan kondisi aman.</li><li>Ikuti BMKG, BPBD, dan petugas setempat. Jangan menyebarkan pesan yang sumbernya tidak jelas.</li></ol></article>
+  </section>
+
+  <section class="card">
+    <div class="status-top"><h2>Checklist kesiapsiagaan keluarga</h2><span id="checkCount" class="badge">0/6 selesai</span></div>
+    <p class="small">Centang item yang sudah disiapkan. Status tersimpan di penyimpanan lokal perangkat ini dan dapat dibuka tanpa internet setelah halaman tersimpan.</p>
+    <div class="checklist" id="checklist">
+      <label class="check"><input type="checkbox" data-check="bag"><span><strong>Siapkan tas darurat</strong><br>Air minum, makanan siap konsumsi, senter, power bank, peluit, P3K, dan salinan dokumen penting.</span></label>
+      <label class="check"><input type="checkbox" data-check="route"><span><strong>Kenali jalur evakuasi</strong><br>Pelajari rute dan titik kumpul resmi dari BPBD/desa/kelurahan; jangan mengandalkan perkiraan aplikasi.</span></label>
+      <label class="check"><input type="checkbox" data-check="family"><span><strong>Sepakati titik temu keluarga</strong><br>Tentukan kontak keluarga dan lokasi temu jika jaringan seluler terganggu.</span></label>
+      <label class="check"><input type="checkbox" data-check="offline"><span><strong>Simpan informasi untuk offline</strong><br>Simpan peta/rute resmi yang tersedia dan petunjuk keselamatan di perangkat.</span></label>
+      <label class="check"><input type="checkbox" data-check="power"><span><strong>Siapkan daya dan komunikasi</strong><br>Isi daya ponsel, siapkan power bank, senter, dan radio bila ada.</span></label>
+      <label class="check"><input type="checkbox" data-check="practice"><span><strong>Latih tindakan bersama keluarga</strong><br>Semua anggota tahu tempat berlindung dan cara menuju titik evakuasi.</span></label>
+    </div>
+    <h3 style="margin-top:18px">Kontak darurat lokal (opsional)</h3>
+    <p class="small">Catat nomor BPBD atau kontak darurat yang sudah kamu verifikasi. Nomor ini hanya disimpan secara lokal di perangkat.</p>
+    <div class="input-row"><input id="localContact" type="text" maxlength="100" placeholder="Nama layanan dan nomor telepon"><button class="btn" id="saveContact" type="button">Simpan</button></div>
+    <p id="contactStatus" class="small" aria-live="polite">Belum ada kontak tersimpan.</p>
+  </section>
+
+  <section class="card">
+    <h2>Info penting agar tidak keliru</h2>
+    <ul><li>Potensi megathrust bukan prediksi tanggal atau jam kejadian. Gempa belum bisa dipastikan waktunya secara tepat.</li><li>Tidak semua gempa besar menimbulkan tsunami. Ikuti buletin resmi, bukan hanya magnitudo atau tanda di aplikasi.</li><li>Peta MMI/ShakeMap bisa tidak tersedia atau diperbarui kemudian. Peta pelengkap harus jelas sumber dan waktu datanya.</li><li>Jika internet mati, WRS GEMPA mungkin tidak memperoleh data baru. Panduan keselamatan tetap dapat dibaca, tetapi gunakan pengamatan langsung dan arahan resmi yang tersedia.</li></ul>
+    <div class="action-row"><a class="btn primary" href="https://inatews.bmkg.go.id/" target="_blank" rel="noopener noreferrer">InaTEWS BMKG ↗</a><a class="btn" href="https://www.bmkg.go.id/" target="_blank" rel="noopener noreferrer">Situs BMKG ↗</a></div>
+  </section>
+  <footer class="footer"><p><strong>WRS GEMPA · Pusat Siaga</strong></p><p>Panduan edukasi ringkas. Selalu utamakan peringatan resmi, jalur evakuasi lokal, dan arahan petugas berwenang.</p><p id="offlineNotice">Panduan dapat dibaca offline setelah halaman ini berhasil disimpan pada perangkat.</p></footer>
+</main>
+<script>
+(function(){
+  const $ = (selector) => document.querySelector(selector);
+  const esc = (value) => String(value == null ? "" : value).replace(/[&<>"']/g, function(ch){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch];});
+  const fmtTime = (value) => { const d = new Date(value); return Number.isNaN(d.getTime()) ? "waktu tidak tersedia" : d.toLocaleString("id-ID",{dateStyle:"medium",timeStyle:"medium",timeZone:"Asia/Jakarta"})+" WIB"; };
+  const formatMag = (value) => { const n=Number(value); return Number.isFinite(n) ? "M"+n.toFixed(1) : "Magnitudo —"; };
+  const setBadge = (label,kind) => { const node=$("#overallBadge"); node.textContent=label; node.className="badge "+kind; };
+  async function loadStatus(){
+    $("#refreshStatus").disabled=true;
+    $("#statusUpdated").textContent="Memeriksa endpoint API…";
+    try{
+      const controller = new AbortController();
+      const timeout = setTimeout(()=>controller.abort(),6500);
+      let response;
+      try { response=await fetch("/api/earthquakes?preparedness="+Date.now(),{cache:"no-store",signal:controller.signal,headers:{"accept":"application/json"}}); }
+      finally { clearTimeout(timeout); }
+      if(!response.ok) throw new Error("API HTTP "+response.status);
+      const data=await response.json();
+      if(data.ok!==true) throw new Error(data.error||"API belum mengembalikan data valid");
+      const sources=data.sources||{};
+      const stale=Boolean(sources.staleCache||sources.durableStaleCache||sources.emergencyFallback);
+      const fetchedMs=Date.parse(data.fetchedAt||"");
+      const ageSeconds=Number.isFinite(Number(sources.staleAgeSeconds))?Number(sources.staleAgeSeconds):(Number.isFinite(fetchedMs)?Math.max(0,Math.floor((Date.now()-fetchedMs)/1000)):null);
+      let label="DATA BERHASIL DIAMBIL",kind="good";
+      if(stale||ageSeconds==null||ageSeconds>90){label="DATA LAMA / CADANGAN";kind="warn";}
+      setBadge(label,kind);
+      $("#statusUpdated").textContent="Respons API diterima · "+fmtTime(data.fetchedAt||Date.now());
+      const event=data.latest||data.official||(Array.isArray(data.recent)?data.recent[0]:null);
+      $("#latestEvent").innerHTML=event?("<strong>"+esc(formatMag(event.magnitude))+" · "+esc(event.place||"Lokasi tidak tersedia")+"</strong><p>Waktu kejadian: "+esc(fmtTime(event.time))+"<br>Kedalaman: "+esc(event.depth||"—")+" km · Sumber: "+esc(event.source||event.status||"tidak diketahui")+"</p>"):"<strong>Belum ada kejadian untuk ditampilkan</strong><p class='small'>Katalog kosong tidak berarti tidak ada bahaya.</p>";
+      const rows=[
+        ["InaTEWS realtime",sources.wrs&&sources.wrs.ok===true?"Berhasil":"Belum terverifikasi",sources.wrs&&sources.wrs.ok===true],
+        ["Feed publik BMKG",Number(sources.public||0)>0?(Number(sources.public)+" feed berhasil"):"Tidak ada feed berhasil",Number(sources.public||0)>0],
+        ["Riwayat InaTEWS",sources.wrsHistory&&sources.wrsHistory.ok===true?((sources.wrsHistory.cached?"Menggunakan cache":"Berhasil")+" · "+String(sources.wrsHistory.eventCount||0)+" event"):"Belum terverifikasi",sources.wrsHistory&&sources.wrsHistory.ok===true],
+        ["Sumber pelengkap", "Event dalam katalog: "+String(Array.isArray(data.recent)?data.recent.length:0),Array.isArray(data.recent)&&data.recent.length>0]
+      ];
+      $("#sourceRows").innerHTML=rows.map(function(row){return "<div class='source-row'><strong>"+esc(row[0])+"</strong><span>"+(row[2]?"✓ ":"! ")+esc(row[1])+"</span></div>";}).join("");
+      const tsunami=Array.isArray(data.tsunamiHistory)?data.tsunamiHistory:[];
+      $("#historyCount").textContent=tsunami.length+" buletin";
+      $("#tsunamiHistory").innerHTML=tsunami.length?tsunami.slice(0,8).map(function(item){
+        const title=item.headline||item.subject||item.potential||"Buletin tsunami InaTEWS";
+        const meta=[item.time?fmtTime(item.time):"",item.place||"",item.magnitude!=null?formatMag(item.magnitude):"",item.ended===true?"Feed menandai buletin berakhir":"Riwayat — verifikasi status saat ini"].filter(Boolean).join(" · ");
+        return "<article class='event'><strong>"+esc(title)+"</strong><p>"+esc(meta)+"</p></article>";
+      }).join(""):"<p class='small'>Riwayat tidak tersedia dalam respons ini. Buka halaman resmi InaTEWS untuk memeriksa buletin terbaru.</p>";
+      $("#apiFootnote").textContent="Usia data menurut API: "+(ageSeconds==null?"tidak diketahui":ageSeconds+" detik")+(stale?" · respons menandai penggunaan data cadangan/terakhir.":"")+".";
+      $("#offlineNotice").textContent="Terakhir berhasil memeriksa API: "+fmtTime(Date.now())+". Panduan tetap tersedia offline, tetapi status live tidak diperbarui tanpa jaringan.";
+    }catch(error){
+      setBadge("API BELUM TERVERIFIKASI","bad");
+      $("#statusUpdated").textContent="Pemeriksaan gagal · "+String(error&&error.message||"jaringan tidak tersedia");
+      $("#latestEvent").innerHTML="<strong>Status live tidak dapat diperiksa sekarang.</strong><p>Jangan menyimpulkan kondisi aman dari kegagalan koneksi. Gunakan panduan offline dan periksa sumber resmi saat jaringan tersedia.</p>";
+      $("#sourceRows").innerHTML="<div class='source-row'><strong>API WRS</strong><span>Belum dapat diverifikasi</span></div>";
+      $("#apiFootnote").textContent="Koneksi gagal tidak membuktikan sumber data rusak dan tidak membuktikan wilayah aman.";
+    }finally{$("#refreshStatus").disabled=false;}
+  }
+  const checklistKey="wrsPreparednessChecklistV1";
+  let checked={};
+  try{checked=JSON.parse(localStorage.getItem(checklistKey)||"{}")||{};}catch(_){checked={};}
+  function updateChecklist(){
+    const inputs=Array.from(document.querySelectorAll("[data-check]"));
+    let count=0;
+    inputs.forEach(function(input){input.checked=checked[input.dataset.check]===true;if(input.checked)count++;});
+    $("#checkCount").textContent=count+"/"+inputs.length+" selesai";
+    inputs.forEach(function(input){input.onchange=function(){checked[input.dataset.check]=input.checked;try{localStorage.setItem(checklistKey,JSON.stringify(checked));}catch(_){}updateChecklist();};});
+  }
+  updateChecklist();
+  const contactKey="wrsPreparednessLocalContactV1";
+  try{$("#localContact").value=localStorage.getItem(contactKey)||"";if($("#localContact").value)$("#contactStatus").textContent="Kontak tersimpan lokal di perangkat ini.";}catch(_){}
+  $("#saveContact").addEventListener("click",function(){
+    try{localStorage.setItem(contactKey,$("#localContact").value.trim());$("#contactStatus").textContent=$("#localContact").value.trim()?"Kontak tersimpan lokal di perangkat ini.":"Kontak lokal dihapus.";}
+    catch(_){$("#contactStatus").textContent="Penyimpanan lokal tidak tersedia di browser ini.";}
+  });
+  $("#refreshStatus").addEventListener("click",loadStatus);
+  $("#backButton").addEventListener("click",function(){if(history.length>1)history.back();else location.href="/";});
+  if("serviceWorker" in navigator){$("#offlineNotice").textContent="Panduan ini akan disimpan oleh layanan offline WRS saat service worker aktif dan halaman berhasil dimuat.";}
+  loadStatus();
+})();
+</script>
+</body>
+</html>
