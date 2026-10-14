@@ -49,6 +49,22 @@ function validCoordinates(lat, lon) {
   return Number.isFinite(lat) && Number.isFinite(lon) &&
     Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
 }
+function isIndonesiaArea(lat, lon) {
+  return Number.isFinite(lat) && Number.isFinite(lon) &&
+    lat >= -11 && lat <= 6.5 && lon >= 94 && lon <= 141.5;
+}
+function filterGlobalUsgsFeatures(value) {
+  return {
+    ...value,
+    features: featureList(value).filter(feature => {
+      const coordinates = feature?.geometry?.coordinates || [];
+      const lat = num(coordinates[1]);
+      const lon = num(coordinates[0]);
+      return Number(feature?.properties?.mag) >= 5 &&
+        validCoordinates(lat, lon) && !isIndonesiaArea(lat, lon);
+    })
+  };
+}
 function mapBmkg(raw) {
   if (!raw) return null;
   const coordinateText = text(raw.Coordinates, raw.coordinates);
@@ -162,14 +178,14 @@ async function fetchUsgsGlobal() {
   try {
     const primary = await fetchJson(USGS_GLOBAL_URL, "USGS global M4.5+", 5000, 30);
     if (!Array.isArray(primary?.features)) throw new Error("USGS 4.5+ response has no feature list");
-    return { ...primary, features: primary.features.filter(feature => Number(feature?.properties?.mag) >= 5) };
+    return filterGlobalUsgsFeatures(primary);
   } catch (primaryError) {
     const fallback = await fetchJson(USGS_ALL_URL, "USGS all-week fallback", 6500, 30);
     if (!Array.isArray(fallback?.features)) {
       throw new Error("USGS primary failed (" + String(primaryError?.message || primaryError).slice(0, 90) +
         "); fallback has no feature list");
     }
-    return { ...fallback, features: fallback.features.filter(feature => Number(feature?.properties?.mag) >= 5) };
+    return filterGlobalUsgsFeatures(fallback);
   }
 }
 async function fetchTsunamiXml() {
@@ -317,28 +333,12 @@ function mergeEvents(events) {
   }
   return output.sort((a, b) => (timestampMs(b.time) || 0) - (timestampMs(a.time) || 0)).slice(0, 800);
 }
-function buildRegionalUsgsUrl() {
-  const roundedNow = Math.floor(Date.now() / 60000) * 60000;
-  const starttime = new Date(roundedNow - 3 * 864e5).toISOString().slice(0, 19);
-  return "https://earthquake.usgs.gov/fdsnws/event/1/query?" + new URLSearchParams({
-    format: "geojson",
-    starttime,
-    minlatitude: "-11",
-    maxlatitude: "6.5",
-    minlongitude: "94",
-    maxlongitude: "141.5",
-    minmagnitude: "2",
-    orderby: "time",
-    limit: "100"
-  }).toString();
-}
 export async function onRequestGet() {
   const errors = [];
   const jobs = await Promise.allSettled([
     ...BMKG_URLS.map((url, index) => fetchJson(url, "BMKG feed " + (index + 1), 4000, 20)),
     fetchJson(WRS_LIVE_URL, "InaTEWS realtime", 3500, 0, true),
     fetchUsgsGlobal(),
-    fetchJson(buildRegionalUsgsUrl(), "USGS Indonesia M2+", 4500, 30),
     fetchTsunamiXml()
   ]);
   const bmkgResults = jobs.slice(0, 3);
@@ -369,12 +369,7 @@ export async function onRequestGet() {
     ? featureList(global.value).map(item => mapUsgsFeature(item, 5)).filter(Boolean)
     : [];
   if (global.status !== "fulfilled") errors.push("USGS global: " + String(global.reason?.message || global.reason).slice(0, 120));
-  const regional = jobs[5];
-  const regionalEvents = regional.status === "fulfilled"
-    ? featureList(regional.value).map(item => mapUsgsFeature(item, 2)).filter(Boolean)
-    : [];
-  if (regional.status !== "fulfilled") errors.push("USGS Indonesia: " + String(regional.reason?.message || regional.reason).slice(0, 120));
-  const tsunamiResult = jobs[6];
+  const tsunamiResult = jobs[5];
   let tsunamiHistory = [];
   if (tsunamiResult.status === "fulfilled") {
     try {
@@ -385,13 +380,13 @@ export async function onRequestGet() {
   } else {
     errors.push("InaTEWS tsunami: " + String(tsunamiResult.reason?.message || tsunamiResult.reason).slice(0, 120));
   }
-  const recent = mergeEvents([...bmkgEvents, ...wrsEvents, ...globalEvents, ...regionalEvents]);
+  const recent = mergeEvents([...bmkgEvents, ...wrsEvents, ...globalEvents]);
   const official = [...bmkgEvents].sort((a, b) =>
     (timestampMs(b.time) || 0) - (timestampMs(a.time) || 0))[0] ||
     [...wrsEvents].sort((a, b) => (timestampMs(b.time) || 0) - (timestampMs(a.time) || 0))[0] ||
     null;
   const successCount = bmkgOk + (live.status === "fulfilled" ? 1 : 0) +
-    (global.status === "fulfilled" ? 1 : 0) + (regional.status === "fulfilled" ? 1 : 0) +
+    (global.status === "fulfilled" ? 1 : 0) +
     (tsunamiResult.status === "fulfilled" ? 1 : 0);
   if (successCount === 0) {
     return new Response(JSON.stringify({
@@ -416,7 +411,6 @@ export async function onRequestGet() {
       wrs: { ok: live.status === "fulfilled", eventCount: wrsEvents.length },
       public: bmkgOk,
       usgsGlobal: global.status === "fulfilled" ? globalEvents.length : 0,
-      usgsIndonesia: regional.status === "fulfilled" ? regionalEvents.length : 0,
       tsunami: tsunamiHistory.length,
       errors
     }
