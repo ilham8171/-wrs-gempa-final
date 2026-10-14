@@ -5,6 +5,20 @@ const currentInterval = () => NORMAL_INTERVAL;
 const SHAKEMAP_BASE = "https://bmkg-content-inatews.storage.googleapis.com/";
 const $ = (s) => document.querySelector(s);
 
+// Never pass untrusted/missing coordinates into Leaflet. JSON null, empty
+// strings and non-numeric values must not become (0,0) or NaN map positions.
+function quakeCoordinates(q) {
+  if (!q || q.lat == null || q.lon == null ||
+      String(q.lat).trim() === "" || String(q.lon).trim() === "") return null;
+  const lat = Number(q.lat), lon = Number(q.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) ||
+      lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  return [lat, lon];
+}
+function hasValidCoordinates(q) {
+  return quakeCoordinates(q) !== null;
+}
+
 let map, markers, miniMap, miniMarker, faultLayer, radiusLayer, latestStarLayer, baseLayer, histMap, tsunamiMapLayer;
 let userMarker = null;
 let quakes = [];
@@ -513,7 +527,7 @@ function getFilteredQuakes() {
   const now = Date.now();
   const maxAge = Number(filterState.age || 168) * 3600000;
   return quakes.filter((q) => {
-    if (!Number.isFinite(q.lat) || !Number.isFinite(q.lon)) return false;
+    if (!hasValidCoordinates(q)) return false;
     if (q.magnitude < Number(filterState.mag || 1.5)) return false;
     if (filterState.source !== "ALL" && q.source !== filterState.source) return false;
     if (q.time) {
@@ -589,12 +603,15 @@ function drawMarkers(force = false) {
   });
   const latestKey = equivalentLatest?.key || list[0]?.key;
   list.slice(0, 800).forEach((q) => {
+    const coordinates = quakeCoordinates(q);
+    if (!coordinates) return;
+    const [lat, lon] = coordinates;
     const latest = q.key === latestKey;
     const fill = magColor(q.magnitude);
     const edge = depthColor(q.depth);
     const size = radius(q.magnitude);
 
-    const marker = L.circleMarker([q.lat, q.lon], {
+    const marker = L.circleMarker(coordinates, {
       radius: size,
       // Warna tepi selalu mengikuti kedalaman; bintang terpisah menandai gempa terbaru.
       color: edge,
@@ -618,7 +635,7 @@ function drawMarkers(force = false) {
         iconSize: [38, 40],
         iconAnchor: [19, 20],
       });
-      L.marker([q.lat, q.lon], {
+      L.marker(quakeCoordinates(q), {
         icon: starIcon,
         keyboard: false,
         interactive: false,
@@ -628,7 +645,7 @@ function drawMarkers(force = false) {
       // Dua cincin berbasis piksel menandai gempa terbaru tanpa membentuk halo geografis.
       // Radius layar tetap kecil saat zoom dan tidak menyerupai radius dampak/tsunami.
       [size + 8, size + 17].forEach((ringRadius, ringIndex) => {
-        L.circleMarker([q.lat, q.lon], {
+        L.circleMarker(quakeCoordinates(q), {
           radius: ringRadius,
           color: "#ff354f",
           weight: ringIndex === 0 ? 2.2 : 1.5,
@@ -792,15 +809,12 @@ function latestIndonesiaCatalogQuake() {
 window.wrsFocusLatestQuake = function () {
   try {
     if (!map || typeof map.setView !== "function") return false;
-    const valid = q => q &&
-      Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon)) &&
-      Number(q.lat) >= -90 && Number(q.lat) <= 90 &&
-      Number(q.lon) >= -180 && Number(q.lon) <= 180;
+    const valid = q => hasValidCoordinates(q);
     const q = primaryRealtimeQuake() ||
       quakes.filter(valid).sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0))[0];
     if (!valid(q)) return false;
     map.invalidateSize({ animate: false });
-    map.setView([Number(q.lat), Number(q.lon)], 6, { animate: false });
+    map.setView(quakeCoordinates(q), 6, { animate: false });
     return true;
   } catch (_) {
     return false;
@@ -1001,11 +1015,12 @@ function renderOfficial(q) {
     };
   }
 
-  if (Number.isFinite(q.lat) && Number.isFinite(q.lon)) {
-    miniMap.setView([q.lat, q.lon], 6);
+  const officialCoordinates = quakeCoordinates(q);
+  if (officialCoordinates) {
+    miniMap.setView(officialCoordinates, 6);
     if (miniMarker) miniMap.removeLayer(miniMarker);
     const miniSize = Math.max(12, Math.min(18, Math.round(9 + Number(q.magnitude || 0))));
-    miniMarker = L.marker([q.lat, q.lon], {
+    miniMarker = L.marker(officialCoordinates, {
       icon: L.divIcon({
         className: "quake-marker-wrap",
         html: '<span class="quake-diamond is-latest" style="--quake-fill:' + magColor(q.magnitude) + ';--quake-edge:' + depthColor(q.depth) + ';--quake-size:' + miniSize + 'px" aria-hidden="true"></span>',
@@ -1441,7 +1456,7 @@ function updatePopupDistance(q) {
   const distEl = $("#popDistance");
   const locEl = $("#popUserLocation");
   if (!distEl || !locEl) return;
-  if (userLocation && Number.isFinite(q.lat) && Number.isFinite(q.lon)) {
+  if (userLocation && hasValidCoordinates(q)) {
     const km = haversineKm(userLocation.lat, userLocation.lon, q.lat, q.lon);
     distEl.textContent = `📍 Jarak dari lokasi Anda: ${km < 10 ? km.toFixed(1) : Math.round(km).toLocaleString("id-ID")} km`;
     locEl.textContent = `Lokasi Anda: ${userLocation.lat.toFixed(4)}°, ${userLocation.lon.toFixed(4)}°`;
@@ -1462,7 +1477,10 @@ function setLocStatus(ok, text) {
 
 function updateUserMarker(fly) {
   if (!map || !userLocation) return;
-  const latlng = [userLocation.lat, userLocation.lon];
+  const lat = Number(userLocation.lat), lon = Number(userLocation.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) ||
+      lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
+  const latlng = [lat, lon];
   if (!userMarker) {
     userMarker = L.marker(latlng, {
       icon: L.divIcon({
@@ -1486,7 +1504,7 @@ function updateRealtimeDistance() {
   const el = $("#rtDist");
   if (!el) return;
   const q = primaryRealtimeQuake();
-  if (userLocation && q && Number.isFinite(q.lat) && Number.isFinite(q.lon)) {
+  if (userLocation && hasValidCoordinates(q)) {
     const km = haversineKm(userLocation.lat, userLocation.lon, q.lat, q.lon);
     const dist =
       km < 10 ? km.toFixed(1) : Math.round(km).toLocaleString("id-ID");
@@ -1818,9 +1836,10 @@ function processNew() {
     saveParamCache();
   }
   showPopup(q);
-  if (Number.isFinite(q.lat) && Number.isFinite(q.lon)) {
-    map.flyTo([q.lat, q.lon], 7, { duration: 0.8 });
-    const highlight = L.circleMarker([q.lat, q.lon], {
+  const eventCoordinates = quakeCoordinates(q);
+  if (eventCoordinates) {
+    map.flyTo(eventCoordinates, 7, { duration: 0.8 });
+    const highlight = L.circleMarker(eventCoordinates, {
       radius: 20, color: "#ffffff", weight: 3, fillColor: "#22d3ee", fillOpacity: 0.16,
       className: "quake-new-event-highlight"
     }).addTo(map);
@@ -2674,11 +2693,11 @@ async function load(showSpin, force = false) {
     // yang ditampilkan di daftar/peta. Jangan mengganggu posisi pengguna saat refresh berikutnya.
     if (!window.__wrsInitialMapCentered && map) {
       const preferred = d.realtime || d.official || quakes[0];
-      const focus = preferred && Number.isFinite(Number(preferred.lat)) && Number.isFinite(Number(preferred.lon))
+      const focus = hasValidCoordinates(preferred)
         ? preferred
-        : quakes.find(q => Number.isFinite(q.lat) && Number.isFinite(q.lon));
+        : quakes.find(q => hasValidCoordinates(q));
       if (focus) {
-        map.setView([focus.lat, focus.lon], Math.max(map.getZoom(), 6), { animate: false });
+        map.setView(quakeCoordinates(focus), Math.max(map.getZoom(), 6), { animate: false });
         window.__wrsInitialMapCentered = true;
       }
     }
@@ -2796,10 +2815,7 @@ async function load(showSpin, force = false) {
       const isDeepLink = urlParams.has("quake") || urlParams.has("event") ||
         (urlParams.has("lat") && urlParams.has("lon"));
       if (!isDeepLink && map) {
-        const validFocus = q => q &&
-          Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon)) &&
-          Number(q.lat) >= -90 && Number(q.lat) <= 90 &&
-          Number(q.lon) >= -180 && Number(q.lon) <= 180;
+        const validFocus = q => hasValidCoordinates(q);
         const latestFocus = validFocus(primaryRealtimeQuake())
           ? primaryRealtimeQuake()
           : quakes.filter(validFocus).sort((x,y) =>
@@ -2829,9 +2845,10 @@ async function load(showSpin, force = false) {
           (!paramsTime || Math.abs(new Date(q.time).getTime() - new Date(paramsTime).getTime()) < 6 * 3600000));
       if (target) {
         window.__wrsHandledQuakeDeepLink = true;
-        if (Number.isFinite(target.lat) && Number.isFinite(target.lon)) {
-          map?.flyTo([target.lat, target.lon], 8, { duration: 0.8 });
-          const marker = L.circleMarker([target.lat, target.lon], {
+        const targetCoordinates = quakeCoordinates(target);
+        if (targetCoordinates) {
+          map?.flyTo(targetCoordinates, 8, { duration: 0.8 });
+          const marker = L.circleMarker(targetCoordinates, {
             radius: 22, color: "#ffffff", weight: 3, fillColor: "#38bdf8", fillOpacity: 0.18,
             className: "quake-deeplink-highlight"
           }).addTo(map);
@@ -3072,9 +3089,10 @@ function openHistory(mode = "all") {
         <td>${q.depth} km</td>`;
       tr.onclick = () => {
         openTsunamiModal(q);
-        if (Number.isFinite(q.lat)) {
-          map.flyTo([q.lat, q.lon], 7);
-          if (histMap) histMap.setView([q.lat, q.lon], 6);
+        const coordinates = quakeCoordinates(q);
+        if (coordinates) {
+          map.flyTo(coordinates, 7);
+          if (histMap) histMap.setView(coordinates, 6);
         }
       };
     } else {
@@ -3084,9 +3102,10 @@ function openHistory(mode = "all") {
       tr.innerHTML = `<td class="hist-mag">${q.magnitude.toFixed(1)}</td><td>${shortDate(q)}</td><td>${q.place}${tsunamiBadge}</td><td>${q.depth} km</td>`;
       tr.onclick = () => {
         openModal(q);
-        if (Number.isFinite(q.lat)) {
-          map.flyTo([q.lat, q.lon], 8);
-          if (histMap) histMap.setView([q.lat, q.lon], 7);
+        const coordinates = quakeCoordinates(q);
+        if (coordinates) {
+          map.flyTo(coordinates, 8);
+          if (histMap) histMap.setView(coordinates, 7);
         }
       };
     }
@@ -3126,10 +3145,12 @@ function openHistory(mode = "all") {
       if (l instanceof L.Marker || l instanceof L.CircleMarker) histMap.removeLayer(l);
     });
     list
-      .filter((q) => Number.isFinite(q.lat))
+      .filter((q) => hasValidCoordinates(q))
       .slice(0, 50)
       .forEach((q) => {
-        L.circleMarker([q.lat, q.lon], {
+        const coordinates = quakeCoordinates(q);
+        if (!coordinates) return;
+        L.circleMarker(coordinates, {
           radius: Math.max(4, q.magnitude),
           // Samakan legenda peta riwayat: isi = magnitudo, tepi = kedalaman.
           color: depthColor(q.depth),
@@ -3297,7 +3318,7 @@ function buildExportCard(q, page = 0, pageCount = 1, pageLabel = "Ringkasan") {
   const title = isTs ? (q.subject || "INFORMASI TSUNAMI") : (q.felt ? "INFO GEMPA DIRASAKAN" : (mag >= 5 ? "INFO GEMPA M≥5" : "INFO GEMPA"));
   const esc = v => String(v == null ? "—" : v).replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
   const exportMmiUrl = q.shakemap || q.exportShakeMapUrl || ""; const maps = []; if(exportMmiUrl) maps.push({label:q.shakemap ? "ShakeMap BMKG / MMI" : "ShakeMap USGS / MMI",url:exportMmiUrl}); if(q.sshmap) maps.push({label:"SSHmax · Tinggi muka laut",url:q.sshmap}); if(q.wzmap) maps.push({label:"Warning Zone",url:q.wzmap}); if(q.ttmap) maps.push({label:"Estimasi waktu tiba tsunami",url:q.ttmap});
-  const hasCoords = Number.isFinite(Number(q.lat)) && Number.isFinite(Number(q.lon)); const lat=Number(q.lat), lon=Number(q.lon);
+  const exportCoordinates = quakeCoordinates(q); const hasCoords = !!exportCoordinates; const lat=exportCoordinates?.[0] ?? 0, lon=exportCoordinates?.[1] ?? 0;
   const satUrl = hasCoords ? "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox="+encodeURIComponent((lon-5)+","+(lat-2.25)+","+(lon+5)+","+(lat+2.25))+"&bboxSR=4326&imageSR=4326&size=976,440&format=jpg&f=image" : "";
   const box = (h,body) => '<section style="margin-top:8px;padding:9px 10px;background:#fff;border:1px solid #dbe3ee;border-radius:8px"><div style="font-size:10px;font-weight:800;color:#475569;margin-bottom:5px">' + h + '</div>' + body + '</section>';
   const sat = hasCoords ? '<div style="position:relative;height:165px;overflow:hidden;border-radius:8px;background:#dbeafe"><img src="' + satUrl + '" crossorigin="anonymous" alt="Peta satelit episenter" style="width:100%;height:165px;object-fit:cover;display:block"><span style="position:absolute;left:50%;top:50%;width:' + Math.max(9, Math.min(36, radius(q.magnitude) * 2)) + 'px;height:' + Math.max(9, Math.min(36, radius(q.magnitude) * 2)) + 'px;transform:translate(-50%,-50%);border:' + (Number(q.depth) > 600 ? 3 : 2) + 'px solid ' + depthColor(q.depth) + ';border-radius:50%;background:' + magColor(q.magnitude) + ';box-shadow:0 0 0 4px ' + depthColor(q.depth) + '55' + '"></span><b style="position:absolute;right:6px;bottom:6px;background:#07111fdd;color:white;padding:4px 6px;border-radius:4px;font-size:10px">WRS Gempa</b></div><div style="font-size:9px;color:#64748b;margin-top:4px">Isi titik = magnitudo · Tepi titik = kedalaman · Citra satelit © Esri dan penyedia datanya</div><div style="margin-top:6px;padding:7px 8px;background:#f8fafc;border:1px solid #dbe3ee;border-radius:7px"><div style="font-size:10px;font-weight:800;color:#334155;border-bottom:1px solid #dbe3ee;padding-bottom:4px;margin-bottom:4px">Legenda</div><div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:4px 0"><b style="font-size:9px;color:#64748b;margin-right:2px">Isi = Mag:</b><span style="display:inline-grid;place-items:center;width:17px;height:17px;border-radius:50%;background:#6b7280;color:#fff;font-size:8px;font-weight:800">1</span><span style="display:inline-grid;place-items:center;width:17px;height:17px;border-radius:50%;background:#60a5fa;color:#fff;font-size:8px;font-weight:800">2</span><span style="display:inline-grid;place-items:center;width:17px;height:17px;border-radius:50%;background:#fbbf24;color:#fff;font-size:8px;font-weight:800">3</span><span style="display:inline-grid;place-items:center;width:17px;height:17px;border-radius:50%;background:#f59e0b;color:#fff;font-size:8px;font-weight:800">4</span><span style="display:inline-grid;place-items:center;width:17px;height:17px;border-radius:50%;background:#ef4444;color:#fff;font-size:8px;font-weight:800">5</span><span style="display:inline-grid;place-items:center;width:17px;height:17px;border-radius:50%;background:#dc2626;color:#fff;font-size:8px;font-weight:800">6</span><span style="display:inline-grid;place-items:center;width:17px;height:17px;border-radius:50%;background:#b91c1c;color:#fff;font-size:8px;font-weight:800">7</span><span style="display:inline-grid;place-items:center;width:21px;height:17px;border-radius:9px;background:#7c3aed;color:#fff;font-size:8px;font-weight:800">8+</span></div><div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:4px 0"><b style="font-size:9px;color:#64748b;margin-right:2px">Tepi = Kedalaman:</b><span style="white-space:nowrap;font-size:8px"><i style="display:inline-block;width:9px;height:9px;background:#ef4444;border:1px solid #cbd5e1;border-radius:2px;vertical-align:middle;margin-right:2px"></i>≤50</span><span style="white-space:nowrap;font-size:8px"><i style="display:inline-block;width:9px;height:9px;background:#eab308;border:1px solid #cbd5e1;border-radius:2px;vertical-align:middle;margin-right:2px"></i>51–100</span><span style="white-space:nowrap;font-size:8px"><i style="display:inline-block;width:9px;height:9px;background:#86efac;border:1px solid #cbd5e1;border-radius:2px;vertical-align:middle;margin-right:2px"></i>101–250</span><span style="white-space:nowrap;font-size:8px"><i style="display:inline-block;width:9px;height:9px;background:#16a34a;border:1px solid #cbd5e1;border-radius:2px;vertical-align:middle;margin-right:2px"></i>251–600</span><span style="white-space:nowrap;font-size:8px"><i style="display:inline-block;width:9px;height:9px;background:#1e3a8a;border:1px solid #cbd5e1;border-radius:2px;vertical-align:middle;margin-right:2px"></i>&gt;600</span></div><div style="font-size:8px;color:#64748b;margin-top:4px"><b>Ukuran:</b> simbol lebih besar = magnitudo lebih tinggi</div></div>' : '<div style="font-size:11px">Koordinat episenter tidak tersedia.</div>';
@@ -3756,8 +3777,11 @@ load(false);
 function openSharedEventFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const eventKey = params.get("event");
-  const lat = Number(params.get("lat")), lon = Number(params.get("lon"));
-  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+  const latRaw = params.get("lat"), lonRaw = params.get("lon");
+  const lat = Number(latRaw), lon = Number(lonRaw);
+  if (latRaw !== null && lonRaw !== null &&
+      Number.isFinite(lat) && Number.isFinite(lon) &&
+      lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
     try { map?.setView([lat, lon], 7, { animate: false }); } catch {}
   }
   if (!eventKey) return;
@@ -3899,8 +3923,8 @@ window.addEventListener("wrs:mobile-page-shown", () => {
       if (map) map.invalidateSize({ animate: false });
       if (miniMap) {
         miniMap.invalidateSize({ animate: false });
-        if (currentOfficial && Number.isFinite(currentOfficial.lat) && Number.isFinite(currentOfficial.lon)) {
-          miniMap.setView([currentOfficial.lat, currentOfficial.lon], 6, { animate: false });
+        if (hasValidCoordinates(currentOfficial)) {
+          miniMap.setView(quakeCoordinates(currentOfficial), 6, { animate: false });
         }
       }
     } catch (error) {
