@@ -4,14 +4,26 @@
 
   const style = document.createElement("link");
   style.rel = "stylesheet";
-  style.href = "/ai-chat.css";
+  style.href = "/ai-chat.css?v=20261014-2";
   document.head.appendChild(style);
+
+  const dock = document.createElement("div");
+  dock.id = "wrsAiDock";
+  dock.className = "wrs-ai-dock";
 
   const launcher = document.createElement("button");
   launcher.id = "wrsAiLauncher";
   launcher.type = "button";
   launcher.setAttribute("aria-label", "Buka WRS GEMPA AI");
-  launcher.innerHTML = '<span class="wrs-ai-spark">✦</span><span>AI GEMPA</span>';
+  launcher.innerHTML = '<span class="wrs-ai-spark">✦</span><span class="wrs-ai-label">AI GEMPA</span>';
+
+  const tuck = document.createElement("button");
+  tuck.id = "wrsAiTuck";
+  tuck.type = "button";
+  tuck.className = "wrs-ai-tuck";
+  tuck.setAttribute("aria-label", "Kecilkan tombol AI GEMPA");
+  tuck.title = "Kecilkan tombol agar peta lebih terlihat";
+  tuck.textContent = "‹";
 
   const panel = document.createElement("section");
   panel.id = "wrsAiPanel";
@@ -36,7 +48,8 @@
     <div class="wrs-ai-foot">Didukung AI · Jangan jadikan jawaban AI sebagai peringatan resmi.</div>
   `;
 
-  document.body.append(launcher, panel);
+  dock.append(launcher, tuck);
+  document.body.append(dock, panel);
   const messages = panel.querySelector(".wrs-ai-messages");
   const form = panel.querySelector("form");
   const input = panel.querySelector("textarea");
@@ -55,7 +68,26 @@
     launcher.setAttribute("aria-expanded", String(open));
     if (open) input.focus();
   }
-  launcher.addEventListener("click", () => setOpen(panel.hidden));
+  let isTucked = false;
+  function setTucked(tucked) {
+    isTucked = tucked;
+    dock.classList.toggle("wrs-ai-tucked", tucked);
+    launcher.setAttribute("aria-label", tucked ? "Tampilkan tombol WRS GEMPA AI" : "Buka WRS GEMPA AI");
+    tuck.setAttribute("aria-label", tucked ? "Tampilkan tombol AI GEMPA" : "Kecilkan tombol AI GEMPA");
+    tuck.title = tucked ? "Tampilkan tombol AI GEMPA" : "Kecilkan tombol agar peta lebih terlihat";
+  }
+  launcher.addEventListener("click", () => {
+    if (isTucked) {
+      setTucked(false);
+      return;
+    }
+    setOpen(panel.hidden);
+  });
+  tuck.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    setTucked(true);
+  });
   panel.querySelector(".wrs-ai-close").addEventListener("click", () => setOpen(false));
 
   form.addEventListener("submit", async event => {
