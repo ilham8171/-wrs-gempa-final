@@ -700,3 +700,12 @@ button:focus-visible, a:focus-visible, select:focus-visible {
   .global-tsunami-links { display:grid; grid-template-columns:1fr; }
   .global-tsunami-links a { justify-content:center; }
 }
+
+/* USGS tsunami flag is supplemental metadata, never an official all-clear or active local warning. */
+.modal-tsunami.usgs-neutral {
+  background: linear-gradient(135deg, #3c2a07, #1d180b) !important;
+  border-color: rgba(236, 185, 72, .45) !important;
+  color: #ffdf9c !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
