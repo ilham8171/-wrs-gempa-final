@@ -4,7 +4,8 @@ const BMKG_URLS = [
   "https://data.bmkg.go.id/DataMKG/TEWS/gempadirasakan.json"
 ];
 const WRS_LIVE_URL = "https://bmkg-content-inatews.storage.googleapis.com/lastQL.json";
-const USGS_GLOBAL_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/5.0_week.geojson";
+const USGS_GLOBAL_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson";
+const USGS_ALL_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson";
 const TSUNAMI_URL = "https://cdn.bmkg.go.id/last30tsunamievent.xml";
 
 const responseHeaders = {
@@ -156,6 +157,20 @@ async function fetchJson(url, label, timeoutMs = 4500, cacheSeconds = 15, live =
   });
   if (!result.ok) throw new Error(label + " HTTP " + result.status);
   return result.json();
+}
+async function fetchUsgsGlobal() {
+  try {
+    const primary = await fetchJson(USGS_GLOBAL_URL, "USGS global M4.5+", 5000, 30);
+    if (!Array.isArray(primary?.features)) throw new Error("USGS 4.5+ response has no feature list");
+    return { ...primary, features: primary.features.filter(feature => Number(feature?.properties?.mag) >= 5) };
+  } catch (primaryError) {
+    const fallback = await fetchJson(USGS_ALL_URL, "USGS all-week fallback", 6500, 30);
+    if (!Array.isArray(fallback?.features)) {
+      throw new Error("USGS primary failed (" + String(primaryError?.message || primaryError).slice(0, 90) +
+        "); fallback has no feature list");
+    }
+    return { ...fallback, features: fallback.features.filter(feature => Number(feature?.properties?.mag) >= 5) };
+  }
 }
 async function fetchTsunamiXml() {
   const result = await fetch(TSUNAMI_URL, {
@@ -322,7 +337,7 @@ export async function onRequestGet() {
   const jobs = await Promise.allSettled([
     ...BMKG_URLS.map((url, index) => fetchJson(url, "BMKG feed " + (index + 1), 4000, 20)),
     fetchJson(WRS_LIVE_URL, "InaTEWS realtime", 3500, 0, true),
-    fetchJson(USGS_GLOBAL_URL, "USGS global M5+", 4500, 30),
+    fetchUsgsGlobal(),
     fetchJson(buildRegionalUsgsUrl(), "USGS Indonesia M2+", 4500, 30),
     fetchTsunamiXml()
   ]);
