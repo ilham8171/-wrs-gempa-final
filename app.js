@@ -22,6 +22,9 @@ function hasValidCoordinates(q) {
 let map, markers, miniMap, miniMarker, faultLayer, radiusLayer, latestStarLayer, baseLayer, histMap, tsunamiMapLayer;
 let userMarker = null;
 let quakes = [];
+let lastGoodSourceSnapshot = null;
+let lastGoodServerFetchedAt = null;
+let lastGoodSavedAt = 0;
 /** Riwayat peringatan dini tsunami dari InaTEWS (last30tsunamievent.xml).
  * Pulihkan dari katalog terakhir agar gangguan API tidak mengosongkan riwayat. */
 let tsunamiHistory = [];
@@ -30,6 +33,11 @@ try {
   if (Array.isArray(cachedCatalog?.tsunamiHistory) && cachedCatalog.tsunamiHistory.length) {
     tsunamiHistory = cachedCatalog.tsunamiHistory;
   }
+  if (cachedCatalog?.sources && typeof cachedCatalog.sources === "object") {
+    lastGoodSourceSnapshot = cachedCatalog.sources;
+  }
+  if (cachedCatalog?.fetchedAt) lastGoodServerFetchedAt = String(cachedCatalog.fetchedAt);
+  lastGoodSavedAt = Number(cachedCatalog?.savedAt) || 0;
 } catch { /* Abaikan cache lokal yang rusak; data live akan mengisi ulang. */ }
 
 // Pesan pusat tsunami internasional dipisahkan dari arsip resmi InaTEWS.
@@ -2273,14 +2281,22 @@ function updateDiagnostics(data = null, error = null, simulation = false) {
       put("diagError", "Tidak ada permintaan data operasional pada mode simulasi");
       return;
     }
-    const fetchedAt = Date.parse(data?.fetchedAt || "");
-    // If the server timestamp is absent/invalid but this device did receive a
-    // structurally valid payload, report the device receipt age explicitly
-    // instead of hiding a known successful receipt behind "Waktu fetch tidak tersedia".
-    const deviceReceiptFallback = !Number.isFinite(fetchedAt) && lastSuccessfulLoadAt > 0;
-    const effectiveFetchAt = Number.isFinite(fetchedAt) ? fetchedAt : (deviceReceiptFallback ? lastSuccessfulLoadAt : NaN);
+    // When the current polling attempt fails, retain the last-known source
+    // diagnostics rather than replacing them with "Status sumber belum tersedia".
+    const diagnosticData = data || (error && lastGoodSourceSnapshot ? {
+      fetchedAt: lastGoodServerFetchedAt,
+      savedAt: lastGoodSavedAt,
+      sources: lastGoodSourceSnapshot
+    } : null);
+    const fetchedAt = Date.parse(diagnosticData?.fetchedAt || "");
+    // Prefer the original server timestamp. If missing, show how old the last
+    // successful device save is rather than resetting the diagnostic age to zero.
+    const savedAt = Number(diagnosticData?.savedAt || 0);
+    const localReceiptAt = savedAt > 0 ? savedAt : lastSuccessfulLoadAt;
+    const deviceReceiptFallback = !Number.isFinite(fetchedAt) && localReceiptAt > 0;
+    const effectiveFetchAt = Number.isFinite(fetchedAt) ? fetchedAt : (deviceReceiptFallback ? localReceiptAt : NaN);
     const ageSeconds = Number.isFinite(effectiveFetchAt) ? Math.max(0, Math.floor((Date.now() - effectiveFetchAt) / 1000)) : null;
-    const source = data?.sources || {};
+    const source = diagnosticData?.sources || {};
     const sourceErrors = Array.isArray(source.errors) ? source.errors : [];
     // "Cadangan" hanya berarti payload benar-benar berasal dari jalur fallback.
     // Feed WRS yang gagal diperiksa tidak otomatis berarti API/katalog utamanya fallback.
@@ -2295,8 +2311,20 @@ function updateDiagnostics(data = null, error = null, simulation = false) {
     const sourceParts = [];
     if (source.wrs) sourceParts.push("InaTEWS realtime: " + (source.wrs.ok ? "OK" : "gagal"));
     if (source.public != null) sourceParts.push("BMKG: " + source.public + "/3 feed");
-    if (source.usgs != null) sourceParts.push("USGS: " + source.usgs + " event");
-    if (source.tsunami != null) sourceParts.push("Buletin tsunami BMKG: " + source.tsunami);
+    if (source.usgsGlobal != null || source.usgsIndonesia != null) {
+      if (source.usgsGlobal != null) sourceParts.push("USGS global M5+: " + source.usgsGlobal);
+      if (source.usgsIndonesia != null) sourceParts.push("USGS Indonesia M2+: " + source.usgsIndonesia);
+    } else if (source.usgs != null) {
+      sourceParts.push("USGS: " + source.usgs + " event");
+    }
+    if (source.tsunami != null) sourceParts.push("Arsip tsunami InaTEWS: " + source.tsunami);
+    if (source.globalTsunami) {
+      const ptwc = source.globalTsunami.ptwc || {};
+      const ntwc = source.globalTsunami.ntwc || {};
+      sourceParts.push("Pesan PTWC: " + (ptwc.count ?? "—") + (ptwc.cached ? " cache" : ptwc.ok ? " OK" : " cek"));
+      sourceParts.push("Pesan NTWC: " + (ntwc.count ?? "—") + (ntwc.cached ? " cache" : ntwc.ok ? " OK" : " cek"));
+    }
+    if (error && sourceParts.length) sourceParts.push("status sumber = pemeriksaan terakhir berhasil, belum tentu terkini");
     put("diagSources", sourceParts.join(" · ") || "Status sumber belum tersedia");
     put("diagFetchAge", ageSeconds == null
       ? "Waktu fetch tidak tersedia"
@@ -2731,6 +2759,7 @@ async function load(showSpin, force = false) {
               official: saved.recent.find(q => q?.official) || saved.recent[0],
               tsunamiHistory: Array.isArray(saved.tsunamiHistory) ? saved.tsunamiHistory : [],
               sources: {
+                ...(saved.sources || {}),
                 clientFallback: true,
                 staleLocalCache: true,
                 apiError: apiFailure,
@@ -2785,8 +2814,14 @@ async function load(showSpin, force = false) {
     // Persist the last structurally valid catalogue so a page reload during an outage
     // can still show the last known events without pretending they are live.
     try {
+      const catalogSavedAt = Date.now();
+      lastGoodSavedAt = catalogSavedAt;
+      lastGoodServerFetchedAt = d.fetchedAt || null;
+      lastGoodSourceSnapshot = d.sources && typeof d.sources === "object" ? d.sources : null;
       localStorage.setItem("wrsLastGoodCatalogV1", JSON.stringify({
-        savedAt: Date.now(),
+        savedAt: catalogSavedAt,
+        fetchedAt: d.fetchedAt || null,
+        sources: lastGoodSourceSnapshot,
         recent: incoming,
         realtimeEvents: Array.isArray(d.realtimeEvents) ? d.realtimeEvents : [],
         // Jangan pernah menimpa riwayat yang tersimpan dengan array kosong saat feed tsunami gagal/berubah format.
@@ -2954,7 +2989,7 @@ async function load(showSpin, force = false) {
               new Date(y.time || 0).getTime() - new Date(x.time || 0).getTime())[0];
         if (validFocus(latestFocus)) {
           map.invalidateSize({ animate: false });
-          map.setView([Number(latestFocus.lat), Number(latestFocus.lon)], 6, { animate: false });
+          map.setView(quakeCoordinates(latestFocus), 6, { animate: false });
           window.__wrsInitialLatestFocused = true;
         }
       } else if (isDeepLink) {
