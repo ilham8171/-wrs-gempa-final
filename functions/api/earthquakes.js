@@ -298,6 +298,74 @@ async function loadCachedUSGSIndonesiaEvents(options) {
   });
 }
 
+function plainAtomText(value) {
+  return decodeXmlText(String(value ?? ""))
+    .replace(/<!\[CDATA\[|\]\]>/g, "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseAtomTsunamiFeed(xml, center) {
+  if (typeof xml !== "string" || !xml.trim()) return [];
+  const entries = xml.match(/<(?:[\w.-]+:)?entry\b[^>]*>[\s\S]*?<\/(?:[\w.-]+:)?entry\s*>/gi) || [];
+  const messages = [];
+  for (const entry of entries.slice(0, 20)) {
+    const title = plainAtomText(textBetween(entry, "title"));
+    const summary = plainAtomText(textBetween(entry, "summary") || textBetween(entry, "content"));
+    const updatedRaw = plainAtomText(textBetween(entry, "updated") || textBetween(entry, "published"));
+    if (!title && !summary) continue;
+    const parsedTime = Date.parse(updatedRaw);
+    const updated = Number.isFinite(parsedTime) ? new Date(parsedTime).toISOString() : updatedRaw.slice(0, 80);
+    const linkTags = entry.match(/<(?:[\w.-]+:)?link\b[^>]*>/gi) || [];
+    const linkTag = linkTags.find(tag => !/\brel\s*=\s*["']self["']/i.test(tag)) || linkTags[0] || "";
+    const linkMatch = linkTag.match(/\bhref\s*=\s*["']([^"']+)["']/i);
+    const url = linkMatch ? plainAtomText(linkMatch[1]).replace(/&amp;/g, "&") : "https://www.tsunami.gov/";
+    const scope = center === "PTWC"
+      ? "Pasifik, Karibia, dan wilayah layanan internasional PTWC"
+      : "Alaska, pesisir Amerika Serikat, dan Kanada";
+    messages.push({
+      key: center + "|" + (url || updated || title),
+      source: center,
+      title: title.slice(0, 220) || "Pesan tsunami resmi",
+      summary: summary.slice(0, 650),
+      updated,
+      url,
+      scope
+    });
+  }
+  const unique = new Map();
+  messages.forEach(message => { if (!unique.has(message.key)) unique.set(message.key, message); });
+  return [...unique.values()].sort((a, b) =>
+    (Date.parse(b.updated || "") || 0) - (Date.parse(a.updated || "") || 0)).slice(0, 12);
+}
+
+async function loadCachedGlobalTsunamiFeed(options, center, url) {
+  return loadNormalizedFeed({
+    ...options,
+    name: "official-tsunami-" + center.toLowerCase() + "-atom-v1",
+    ttlMs: 30 * 1000,
+    load: async () => {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(4500),
+        headers: { accept: "application/atom+xml, application/xml, text/xml, */*" },
+        cf: { cacheTtl: 30, cacheEverything: true }
+      });
+      if (!response.ok) throw new Error(center + " feed HTTP " + response.status);
+      const xml = await response.text();
+      if (!/<(?:[\w.-]+:)?feed\b/i.test(xml)) throw new Error(center + " feed bukan dokumen Atom");
+      if (!/<(?:[\w.-]+:)?entry\b/i.test(xml)) throw new Error(center + " feed tidak memuat pesan yang dapat dibaca");
+      return xml;
+    },
+    map: xml => {
+      const messages = parseAtomTsunamiFeed(xml, center);
+      if (!messages.length) throw new Error(center + " feed tidak memuat pesan yang dapat dibaca");
+      return messages;
+    }
+  });
+}
+
 async function attachUSGSShakemaps(events) {
   const indonesia = q => q.lat >= -11 && q.lat <= 6.5 && q.lon >= 94 && q.lon <= 141.5;
   const candidates = events
@@ -640,7 +708,7 @@ async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
     return 6371 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(Math.max(0, 1 - x)));
   };
   const errors=[];
-  const [results, historyQL, usgs, usgsIndonesia, tsunamiFeed] = await Promise.all([
+  const [results, historyQL, usgs, usgsIndonesia, tsunamiFeed, ptwcFeed, ntwcFeed] = await Promise.all([
     Promise.allSettled([
       ...BMKG_URLS.map(url=>getBmkgFeed(url)),
       // This live feed remains uncached and is checked on every actual edge refresh.
@@ -652,9 +720,10 @@ async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
     loadCachedUSGSEvents({ cache: edgeCache, request }),
     // Independent 72-hour regional search can supplement missing BMKG/InaTEWS entries.
     loadCachedUSGSIndonesiaEvents({ cache: edgeCache, request }),
-    // The tsunami archive is history, not the live warning state. Cache its parsed
-    // records briefly to lower CPU use without hiding new bulletins for long.
-    loadCachedTsunamiHistory({ cache: edgeCache, request })
+    // InaTEWS history is kept separate from currently issued international messages.
+    loadCachedTsunamiHistory({ cache: edgeCache, request }),
+    loadCachedGlobalTsunamiFeed({ cache: edgeCache, request }, "PTWC", "https://www.tsunami.gov/events/xml/PHEBAtom.xml"),
+    loadCachedGlobalTsunamiFeed({ cache: edgeCache, request }, "NTWC", "https://www.tsunami.gov/events/xml/PAAQAtom.xml")
   ]);
   const list=[];
   const qlEvents=[];
@@ -773,6 +842,21 @@ async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
       errors.push("InaTEWS tsunami: riwayat parsial digabung dengan arsip terakhir tersimpan");
     }
   }
+  // Global warning-center messages are supplementary context, not proof of a warning for Indonesia.
+  // The app shows the centers' latest messages and links instead of deriving an active warning from earthquake magnitude.
+  const ptwcMessages = ptwcFeed.status === "fulfilled" ? ptwcFeed.value : [];
+  const ntwcMessages = ntwcFeed.status === "fulfilled" ? ntwcFeed.value : [];
+  const globalTsunamiMessages = [...ptwcMessages, ...ntwcMessages]
+    .sort((a, b) => (Date.parse(b.updated || "") || 0) - (Date.parse(a.updated || "") || 0))
+    .slice(0, 12);
+  const feedSourceState = (result) => ({
+    ok: result.status === "fulfilled" && result.stale !== true,
+    cached: result.status === "fulfilled" && result.stale === true,
+    count: result.status === "fulfilled" && Array.isArray(result.value) ? result.value.length : 0,
+    error: result.status === "rejected" ? String(result.reason?.message || "feed sementara tidak tersedia").slice(0, 160) : null
+  });
+  const globalTsunamiSources = { ptwc: feedSourceState(ptwcFeed), ntwc: feedSourceState(ntwcFeed) };
+
   // Prioritaskan data resmi BMKG, lalu feed WRS live, katalog InaTEWS, dan USGS.
   const eventPriority = q => q.source === "BMKG" && q.official ? 4 :
     q.source === "InaTEWS WRS" ? 3 : q.source === "InaTEWS" ? 2 : q.source === "USGS" ? 1 : 0;
@@ -894,7 +978,7 @@ async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
     fallbackHeaders.set("x-wrs-data-age-seconds", String(staleEdgeAgeSeconds ?? ""));
     return new Response(JSON.stringify(fallback), { status: 200, headers: fallbackHeaders });
   }
-  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):historyQL.stale?("Cache riwayat digunakan; refresh gagal: "+String(historyQL.sourceError||"sumber sementara gagal")):null,cached:historyQL.cacheHit===true,cacheAgeSeconds:historyQL.cacheAgeSeconds??null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:recent.filter(q=>q.source==="USGS").length,usgsGlobal:usgs.status==="fulfilled"?usgs.value.length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?usgsIndonesia.value.length:0,tsunami:tsunamiHistory.length,client:false,errors}}),{status:200,headers});
+  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,globalTsunamiMessages,globalTsunamiSources,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):historyQL.stale?("Cache riwayat digunakan; refresh gagal: "+String(historyQL.sourceError||"sumber sementara gagal")):null,cached:historyQL.cacheHit===true,cacheAgeSeconds:historyQL.cacheAgeSeconds??null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:recent.filter(q=>q.source==="USGS").length,usgsGlobal:usgs.status==="fulfilled"?usgs.value.length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?usgsIndonesia.value.length:0,tsunami:tsunamiHistory.length,globalTsunami:globalTsunamiSources,client:false,errors}}),{status:200,headers});
   if (edgeCache && edgeCacheKey) {
     try {
       const cacheHeaders = new Headers(response.headers);
