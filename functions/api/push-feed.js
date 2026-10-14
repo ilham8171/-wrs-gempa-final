@@ -54,6 +54,12 @@ function mapBmkg(raw) {
   const coords = coordinateText.split(",");
   let lat = coords.length > 1 ? parseLat(coords[0]) : NaN;
   let lon = coords.length > 1 ? parseLon(coords[1]) : NaN;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    const latToken = coordinateText.match(/[+-]?\d+(?:[.,]\d+)?\s*(?:LS|LU|S|N)\b/i)?.[0];
+    const lonToken = coordinateText.match(/[+-]?\d+(?:[.,]\d+)?\s*(?:BT|BB|E|W)\b/i)?.[0];
+    if (!Number.isFinite(lat) && latToken) lat = parseLat(latToken);
+    if (!Number.isFinite(lon) && lonToken) lon = parseLon(lonToken);
+  }
   if (!Number.isFinite(lat)) lat = parseLat(raw.Lintang);
   if (!Number.isFinite(lon)) lon = parseLon(raw.Bujur);
   const magnitude = num(raw.Magnitude ?? raw.magnitude);
@@ -226,6 +232,7 @@ function parseTsunamiHistory(xml) {
         place: read("area", "EventLocationName", "ShortLocationName", "areaDesc") || "Indonesia",
         time: eventTime,
         timesent: sent,
+        expires: read("expires", "expiry"),
         subject,
         headline,
         description,
