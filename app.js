@@ -3586,13 +3586,27 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 async function setupPush() {
-  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-    $("#pushStatus").textContent = "Browser ini tidak mendukung notifikasi latar belakang";
-    $("#btnPush").disabled = true;
+  const nativeAlertsAvailable = Boolean(
+    window.AndroidWrs && typeof window.AndroidWrs.enableAlerts === "function"
+  );
+  if (!("serviceWorker" in navigator)) {
+    if (!nativeAlertsAvailable) {
+      $("#pushStatus").textContent = "Browser ini tidak mendukung Service Worker";
+      $("#btnPush").disabled = true;
+    }
     return;
   }
   try {
-    const reg = await navigator.serviceWorker.register("/sw.js");
+    // Register the worker for offline navigation even when this browser/WebView
+    // does not support PushManager. Push support is checked separately below.
+    const reg = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
+    if (!("PushManager" in window)) {
+      if (!nativeAlertsAvailable) {
+        $("#pushStatus").textContent = "Halaman offline tersedia; notifikasi latar belakang tidak didukung browser ini";
+        $("#btnPush").disabled = true;
+      }
+      return;
+    }
     const existing = await reg.pushManager.getSubscription();
     if (existing) {
       $("#btnPush")?.classList.add("on");
@@ -3600,6 +3614,9 @@ async function setupPush() {
     }
   } catch (e) {
     console.error("SW register gagal", e);
+    if (!nativeAlertsAvailable) {
+      $("#pushStatus").textContent = "Service Worker belum tersedia; coba muat ulang saat koneksi stabil";
+    }
   }
 }
 
