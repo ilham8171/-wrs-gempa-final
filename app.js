@@ -31,6 +31,101 @@ try {
     tsunamiHistory = cachedCatalog.tsunamiHistory;
   }
 } catch { /* Abaikan cache lokal yang rusak; data live akan mengisi ulang. */ }
+
+// Pesan pusat tsunami internasional dipisahkan dari arsip resmi InaTEWS.
+let globalTsunamiMessages = [];
+let globalTsunamiFeedStatus = null;
+let globalTsunamiCheckedAt = 0;
+let globalTsunamiLastPersistAt = 0;
+try {
+  const saved = JSON.parse(localStorage.getItem("wrsGlobalTsunamiMessagesV1") || "null");
+  if (Array.isArray(saved?.messages)) globalTsunamiMessages = saved.messages.slice(0, 12);
+  if (saved?.sources && typeof saved.sources === "object") globalTsunamiFeedStatus = saved.sources;
+  globalTsunamiCheckedAt = Number(saved?.checkedAt) || 0;
+  globalTsunamiLastPersistAt = Number(saved?.savedAt) || 0;
+} catch { /* Cache pesan internasional bersifat opsional. */ }
+
+function mergeGlobalTsunamiMessages(incoming) {
+  const merged = new Map();
+  const all = [...(Array.isArray(incoming) ? incoming : []), ...globalTsunamiMessages];
+  for (const item of all) {
+    if (!item || typeof item !== "object") continue;
+    const key = String(item.key || [item.source, item.url, item.updated, item.title].join("|"));
+    if (!key) continue;
+    const previous = merged.get(key);
+    const time = Date.parse(item.updated || "") || 0;
+    const previousTime = Date.parse(previous?.updated || "") || 0;
+    if (!previous || time >= previousTime) merged.set(key, item);
+  }
+  return [...merged.values()]
+    .sort((a,b) => (Date.parse(b.updated || "") || 0) - (Date.parse(a.updated || "") || 0))
+    .slice(0, 12);
+}
+
+function renderGlobalTsunamiMessages() {
+  const panel = $("#globalTsunamiPanel");
+  const list = $("#globalTsunamiItems");
+  const status = $("#globalTsunamiStatus");
+  if (!panel || !list || !status) return;
+  const show = window._wrsHistoryMode === "tsunami";
+  panel.classList.toggle("hidden", !show);
+  if (!show) return;
+
+  const feedStatus = globalTsunamiFeedStatus || {};
+  const sourceLabel = (name, record) => {
+    if (record?.ok) return name + ": tersambung";
+    if (record?.cached) return name + ": memakai cache terakhir";
+    return name + ": belum tersedia";
+  };
+  const checkedText = globalTsunamiCheckedAt
+    ? " · cek " + new Date(globalTsunamiCheckedAt).toLocaleTimeString("id-ID", {hour:"2-digit",minute:"2-digit"})
+    : "";
+  status.textContent = sourceLabel("PTWC", feedStatus.ptwc) + " · " +
+    sourceLabel("NTWC", feedStatus.ntwc) + checkedText;
+  list.replaceChildren();
+
+  if (!globalTsunamiMessages.length) {
+    const empty = document.createElement("div");
+    empty.className = "global-tsunami-empty";
+    empty.textContent = "Belum ada pesan internasional yang berhasil dimuat. Ini bukan bukti bahwa tidak ada ancaman. Periksa sumber resmi secara langsung.";
+    list.appendChild(empty);
+    return;
+  }
+
+  globalTsunamiMessages.forEach(message => {
+    const card = document.createElement("article");
+    card.className = "global-tsunami-item";
+    const top = document.createElement("div");
+    top.className = "global-tsunami-item-top";
+    const badge = document.createElement("span");
+    badge.className = "global-tsunami-badge";
+    badge.textContent = String(message.source || "PUSAT TSUNAMI");
+    const updated = document.createElement("time");
+    const timestamp = Date.parse(message.updated || "");
+    updated.textContent = Number.isFinite(timestamp)
+      ? new Date(timestamp).toLocaleString("id-ID", {day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})
+      : "Waktu tidak tersedia";
+    top.append(badge, updated);
+    const title = document.createElement("h4");
+    title.textContent = String(message.title || "Pesan tsunami resmi");
+    const summary = document.createElement("p");
+    summary.textContent = String(message.summary || "Ringkasan tidak tersedia; buka pesan sumber untuk rincian.");
+    const meta = document.createElement("small");
+    meta.textContent = String(message.scope || "Cakupan pusat peringatan berbeda menurut wilayah.");
+    const sourceLink = document.createElement("a");
+    sourceLink.textContent = "Buka pesan sumber ↗";
+    sourceLink.target = "_blank";
+    sourceLink.rel = "noopener noreferrer";
+    let safeUrl = "https://www.tsunami.gov/";
+    try {
+      const parsedUrl = new URL(String(message.url || safeUrl));
+      if (parsedUrl.protocol === "https:") safeUrl = parsedUrl.href;
+    } catch {}
+    sourceLink.href = safeUrl;
+    card.append(top, title, summary, meta, sourceLink);
+    list.appendChild(card);
+  });
+}
 /** Gabungkan riwayat baru dengan arsip lokal agar feed parsial tidak menghapus
  * buletin lama. Identitas per buletin mempertahankan beberapa PD untuk satu gempa. */
 function mergeTsunamiHistory(incoming) {
@@ -2649,6 +2744,28 @@ async function load(showSpin, force = false) {
     consecutiveLoadFailures = 0;
     lastSuccessfulLoadAt = Date.now();
 
+    if (Array.isArray(d.globalTsunamiMessages)) {
+      const previousFingerprint = JSON.stringify(globalTsunamiMessages);
+      globalTsunamiMessages = mergeGlobalTsunamiMessages(d.globalTsunamiMessages);
+      if (previousFingerprint !== JSON.stringify(globalTsunamiMessages)) globalTsunamiLastPersistAt = 0;
+    }
+    if (d.globalTsunamiSources && typeof d.globalTsunamiSources === "object") {
+      globalTsunamiFeedStatus = d.globalTsunamiSources;
+      globalTsunamiCheckedAt = Date.now();
+    }
+    if (Date.now() - globalTsunamiLastPersistAt > 30000) {
+      try {
+        localStorage.setItem("wrsGlobalTsunamiMessagesV1", JSON.stringify({
+          savedAt: Date.now(),
+          checkedAt: globalTsunamiCheckedAt,
+          sources: globalTsunamiFeedStatus,
+          messages: globalTsunamiMessages
+        }));
+        globalTsunamiLastPersistAt = Date.now();
+      } catch {}
+    }
+    if (window._wrsHistoryMode === "tsunami") renderGlobalTsunamiMessages();
+
     const incoming = d.recent;
     // Persist the last structurally valid catalogue so a page reload during an outage
     // can still show the last known events without pretending they are live.
@@ -3018,6 +3135,7 @@ function historyRegionFilter(list, mode) {
 function openHistory(mode = "all") {
   window._wrsHistoryMode = mode;
   ensureHistoryRegionControls();
+  renderGlobalTsunamiMessages();
   renderHistoryTimeline();
   const body = $("#histBody");
   body.innerHTML = "";
