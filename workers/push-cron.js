@@ -120,9 +120,15 @@ function makeQuakePayload(q) {
   };
 }
 function activeTsunamiPayload(item, now) {
-  if (!item || item.ended) return null;
-  const age = now - eventTime(item);
-  if (age < -60000 || age > 24 * 60 * 60 * 1000) return null;
+  if (!item || item.ended || item.official !== true || item.isTsunamiWarning !== true) return null;
+  // The API exposes the last-30 bulletin archive, not an "active now" feed.
+  // Only notify when CAP lifecycle fields prove this is a public live warning.
+  const status = String(item.capStatus || "").trim().toLowerCase();
+  const msgType = String(item.capMsgType || "").trim().toLowerCase();
+  const scope = String(item.capScope || "").trim().toLowerCase();
+  const expiresAt = Date.parse(item.expires || "");
+  if (status !== "actual" || !["alert", "update"].includes(msgType) ||
+      scope !== "public" || !Number.isFinite(expiresAt) || expiresAt <= now) return null;
   const text = [item.subject, item.headline, item.potential].join(" ").toLowerCase();
   const negative = text.includes("tidak berpotensi tsunami") || text.includes("tidak ada peringatan") || text.includes("no tsunami");
   if (negative || !(text.includes("warning tsunami") || text.includes("peringatan dini tsunami") || text.includes("berpotensi tsunami"))) return null;
