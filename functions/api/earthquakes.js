@@ -34,6 +34,27 @@ const DURABLE_LAST_GOOD_MAX_AGE_MS = 20 * 60 * 1000;
 const DURABLE_LAST_GOOD_TTL_SECONDS = 30 * 60;
 let lastDurableCacheWriteAt = 0;
 
+// Cache persistence must never turn an otherwise valid API response into a
+// request failure. Some runtimes can reject waitUntil when its execution
+// context is no longer valid; in that case, try the cache task directly.
+async function scheduleCacheTask(task, waitUntil, label) {
+  if (typeof waitUntil === "function") {
+    try {
+      waitUntil(task);
+      return;
+    } catch (error) {
+      console.warn("[WRS API] waitUntil unavailable for " + label + "; using direct task:",
+        String(error?.message || error).slice(0, 120));
+    }
+  }
+  try {
+    await task;
+  } catch (error) {
+    console.warn("[WRS API] Cache task failed (" + label + "):",
+      String(error?.message || error).slice(0, 120));
+  }
+}
+
 async function readDurableLastGood(env) {
   const kv = env?.WRS_API_CACHE;
   if (!kv || typeof kv.get !== "function") return null;
@@ -828,9 +849,11 @@ async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
       cacheHeaders.set("cache-control", "public, max-age=900");
       cacheHeaders.set("x-wrs-cache", "MISS");
       const cacheResponse = new Response(response.clone().body, { status: response.status, headers: cacheHeaders });
-      if (typeof waitUntil === "function") waitUntil(edgeCache.put(edgeCacheKey, cacheResponse));
-      else await edgeCache.put(edgeCacheKey, cacheResponse);
-    } catch (_) { /* Never fail the live API solely because edge caching failed. */ }
+      await scheduleCacheTask(edgeCache.put(edgeCacheKey, cacheResponse), waitUntil, "edge last-good");
+    } catch (cacheError) {
+      console.warn("[WRS API] Edge cache write skipped:",
+        String(cacheError?.message || cacheError).slice(0, 120));
+    }
   }
 
   // Save only a normal full catalogue, never an emergency/partial response.
@@ -839,8 +862,7 @@ async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
     .then(payload => writeDurableLastGood(env, payload))
     .catch(error => console.warn("[WRS API] Durable cache scheduling failed:",
       String(error?.message || error).slice(0, 120)));
-  if (typeof waitUntil === "function") waitUntil(durableWrite);
-  else await durableWrite;
+  await scheduleCacheTask(durableWrite, waitUntil, "durable last-good");
   return response;
 }
 
