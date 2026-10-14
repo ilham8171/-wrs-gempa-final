@@ -724,6 +724,18 @@ async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
             cachedHeaders.set("x-wrs-cache", "HIT");
             cachedHeaders.set("x-wrs-fetched-at-ms", String(fetchedAtMs));
             cachedHeaders.set("x-wrs-payload-valid", "1");
+            // Upgrade old cache entries once so future hot hits do not parse their JSON.
+            if (!metadataValid && cachedData?.ok === true && Array.isArray(cachedData.recent) && cachedData.recent.length > 0) {
+              const persistentHeaders = new Headers(cached.headers);
+              persistentHeaders.set("cache-control", "public, max-age=900");
+              persistentHeaders.set("x-wrs-fetched-at-ms", String(fetchedAtMs));
+              persistentHeaders.set("x-wrs-payload-valid", "1");
+              persistentHeaders.set("x-wrs-cache", "MIGRATED");
+              const migration = edgeCache.put(edgeCacheKey, new Response(cached.clone().body, {
+                status: cached.status, headers: persistentHeaders
+              }));
+              await scheduleCacheTask(migration, waitUntil, "edge cache metadata migration");
+            }
             // Reuse the cached response body verbatim; do not JSON.parse/JSON.stringify it.
             return new Response(cached.body, { status: 200, headers: cachedHeaders });
           }
@@ -1023,8 +1035,8 @@ async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
   if (edgeCache && edgeCacheKey) {
     try {
       const cacheHeaders = new Headers(response.headers);
-      // Retain the last known-good payload for recovery, but the handler above
-      // only serves it as fresh for 10 seconds; older copies are fallback-only.
+      // Retain the last known-good payload for recovery; only the short freshness
+      // window above can return it as a normal cache hit. Older copies are fallback-only.
       cacheHeaders.set("cache-control", "public, max-age=900");
       cacheHeaders.set("x-wrs-cache", "MISS");
       cacheHeaders.set("x-wrs-fetched-at-ms", String(Date.parse(responseFetchedAt)));
