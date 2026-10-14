@@ -1,0 +1,8 @@
+node_modules/
+.git/
+.wrangler/
+functions/
+netlify/
+package.json
+bun.lock
+bun.lockb
