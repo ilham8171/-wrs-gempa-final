@@ -4,7 +4,7 @@
 
   const style = document.createElement("link");
   style.rel = "stylesheet";
-  style.href = "/ai-chat.css?v=20261014-2";
+  style.href = "/ai-chat.css?v=20261014-3";
   document.head.appendChild(style);
 
   const dock = document.createElement("div");
@@ -76,9 +76,11 @@
     tuck.setAttribute("aria-label", tucked ? "Tampilkan tombol AI GEMPA" : "Kecilkan tombol AI GEMPA");
     tuck.title = tucked ? "Tampilkan tombol AI GEMPA" : "Kecilkan tombol agar peta lebih terlihat";
   }
+  // When minimized to an icon, a single tap must restore AND open the chat.
   launcher.addEventListener("click", () => {
     if (isTucked) {
       setTucked(false);
+      setOpen(true);
       return;
     }
     setOpen(panel.hidden);
@@ -86,6 +88,7 @@
   tuck.addEventListener("click", event => {
     event.preventDefault();
     event.stopPropagation();
+    setOpen(false);
     setTucked(true);
   });
   panel.querySelector(".wrs-ai-close").addEventListener("click", () => setOpen(false));
@@ -108,7 +111,7 @@
       const data = await response.json().catch(() => ({}));
       waiting.remove();
       if (!response.ok) throw new Error(data.error || "AI belum dapat menjawab. Coba lagi.");
-      addMessage(data.answer + (data.liveCatalogAvailable ? "\n\nKonteks katalog live tersedia; tetap periksa sumber resmi." : "\n\nCatatan: katalog live tidak tersedia saat permintaan ini; jawaban bukan laporan gempa terkini."), "assistant");
+      addMessage(data.answer + (data.liveCatalogAvailable ? "\\n\\nKonteks katalog live tersedia; tetap periksa sumber resmi." : "\\n\\nCatatan: katalog live tidak tersedia saat permintaan ini; jawaban bukan laporan gempa terkini."), "assistant");
     } catch (error) {
       waiting.remove();
       addMessage(error.message || "Koneksi AI terganggu. Coba lagi nanti.", "error");
