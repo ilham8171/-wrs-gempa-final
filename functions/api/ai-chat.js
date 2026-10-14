@@ -181,117 +181,61 @@ function summarizeCatalog(payload) {
 }
 
 export async function onRequestPost({ request, env }) {
-  if (!env.GROQ_API_KEY) {
-    return json({ error: "AI belum dikonfigurasi. Admin perlu menambahkan secret GROQ_API_KEY di Cloudflare Pages." }, 503);
+  if (!env.GEMINI_API_KEY) {
+    return json({ error: "AI belum dikonfigurasi. Admin perlu menambahkan Secret GEMINI_API_KEY di Cloudflare Pages Production." }, 503);
   }
-
   let body;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ error: "Format permintaan tidak valid." }, 400);
-  }
-
+  try { body = await request.json(); } catch { return json({ error: "Format permintaan tidak valid." }, 400); }
   const rawMessage = typeof body?.message === "string" ? body.message : "";
-  if (rawMessage.length > 1200) {
-    return json({ error: "Pertanyaan terlalu panjang (maksimal 1.200 karakter)." }, 413);
-  }
-
+  if (rawMessage.length > 1200) return json({ error: "Pertanyaan terlalu panjang (maksimal 1.200 karakter)." }, 413);
   const question = cleanText(rawMessage, 1200);
-  if (!question || question.length < 2) {
-    return json({ error: "Tulis pertanyaan terlebih dahulu." }, 400);
-  }
-
+  if (!question || question.length < 2) return json({ error: "Tulis pertanyaan terlebih dahulu." }, 400);
   let catalog = { available: false, note: "Katalog live tidak berhasil dibaca." };
   try {
-    const catalogUrl = new URL("/api/earthquakes", request.url);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4500);
     try {
-      const response = await fetch(catalogUrl, {
-        headers: { accept: "application/json" },
-        signal: controller.signal
-      });
-      if (response.ok) {
-        catalog = summarizeCatalog(await response.json());
-      } else {
-        catalog.note = "Endpoint katalog merespons HTTP " + response.status + ".";
-      }
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch (error) {
-    catalog.note = "Katalog live tidak berhasil dibaca: " + cleanText(error?.message || "koneksi atau waktu tunggu habis", 120);
-  }
-
-  const model = cleanText(env.GROQ_MODEL || "openai/gpt-oss-120b", 100);
+      const response = await fetch(new URL("/api/earthquakes", request.url), { headers: { accept: "application/json" }, signal: controller.signal });
+      if (response.ok) catalog = summarizeCatalog(await response.json());
+      else catalog.note = "Endpoint katalog merespons HTTP " + response.status + ".";
+    } finally { clearTimeout(timer); }
+  } catch (error) { catalog.note = "Katalog live tidak berhasil dibaca: " + cleanText(error?.message || "koneksi atau waktu tunggu habis", 120); }
+  const model = cleanText(env.GEMINI_MODEL || "gemini-3.5-flash-lite", 100);
+  const userPrompt = "WAKTU PERMINTAAN UTC: " + new Date().toISOString() +
+    "\nKONTEKS KATALOG WRS GEMPA. Data dapat tidak lengkap; arsip tsunami bukan status aktif:\n" +
+    JSON.stringify(catalog).slice(0, 14000) + "\n\nPERTANYAAN PENGGUNA:\n" + question;
   let upstream;
   try {
-    upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    upstream = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
       method: "POST",
-      headers: {
-        authorization: "Bearer " + env.GROQ_API_KEY,
-        "content-type": "application/json"
-      },
+      headers: { "x-goog-api-key": env.GEMINI_API_KEY, "content-type": "application/json" },
       body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: "WAKTU PERMINTAAN UTC: " + new Date().toISOString() +
-              "\nKONTEKS KATALOG WRS GEMPA. Data dapat tidak lengkap; arsip tsunami bukan status aktif:\n" +
-              JSON.stringify(catalog).slice(0, 14000) +
-              "\n\nPERTANYAAN PENGGUNA:\n" + question
-          }
-        ],
-        max_tokens: 650,
-        temperature: 0.2,
-        stream: false
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 1600 }
       }),
-      signal: AbortSignal.timeout(18000)
+      signal: AbortSignal.timeout(25000)
     });
   } catch (error) {
-    console.error("[WRS AI] Groq request failed:", cleanText(error?.message || "network or timeout", 160));
-    return json({ error: "Layanan AI sedang tidak dapat dijangkau atau membutuhkan waktu terlalu lama. Coba lagi sebentar." }, 502);
+    console.error("[WRS AI] Gemini request failed:", cleanText(error?.message || "network or timeout", 180));
+    return json({ error: "Layanan Gemini sedang tidak dapat dijangkau atau membutuhkan waktu terlalu lama. Coba lagi sebentar." }, 502);
   }
-
-  if (!upstream.ok) {
-    const status = upstream.status;
-    console.error("[WRS AI] Groq request failed with status", status);
-    if (status === 401 || status === 403) {
-      return json({ error: "Konfigurasi API Groq ditolak. Admin perlu memeriksa secret dan akses model." }, 502);
-    }
-    if (status === 429) {
-      return json({ error: "Kuota atau batas permintaan Groq tercapai. Coba lagi nanti." }, 429);
-    }
-    if (status === 400 || status === 404) {
-      return json({ error: "Model AI atau parameter permintaan tidak tersedia. Admin perlu memeriksa GROQ_MODEL dan dukungan model." }, 502);
-    }
-    return json({ error: "AI belum berhasil memproses pertanyaan. Coba lagi nanti." }, 502);
-  }
-
   let result;
-  try {
-    result = await upstream.json();
-  } catch {
-    return json({ error: "Respons AI tidak dapat dibaca." }, 502);
+  try { result = await upstream.json(); } catch { return json({ error: "Respons Gemini tidak dapat dibaca." }, 502); }
+  if (!upstream.ok) {
+    console.error("[WRS AI] Gemini request failed with status", upstream.status, cleanText(result?.error?.message || "", 220));
+    if (upstream.status === 429) return json({ error: "Batas penggunaan Gemini tercapai untuk sementara. Coba lagi nanti atau periksa kuota proyek di Google AI Studio." }, 429);
+    if (upstream.status === 401 || upstream.status === 403) return json({ error: "Google Gemini menolak API key atau aksesnya. Periksa Secret GEMINI_API_KEY di Cloudflare Pages Production dan pastikan deployment terbaru aktif." }, 502);
+    if (upstream.status === 400 || upstream.status === 404) return json({ error: "Permintaan Gemini atau nama model tidak diterima. Periksa GEMINI_MODEL; model default adalah gemini-3.5-flash-lite." }, 502);
+    return json({ error: "Gemini belum berhasil memproses pertanyaan. Coba lagi nanti." }, 502);
   }
-
-  const answer = normalizeAnswer(result.choices?.[0]?.message?.content || "", 6000);
+  const answer = normalizeAnswer((result.candidates?.[0]?.content?.parts || []).map(part => typeof part.text === "string" ? part.text : "").join("\n"), 6000);
   if (!answer) {
-    return json({ error: "AI tidak memberikan jawaban. Silakan coba lagi." }, 502);
+    console.error("[WRS AI] Gemini returned no usable text.");
+    return json({ error: "Gemini tidak memberikan jawaban teks. Silakan coba lagi." }, 502);
   }
-
-  return json({
-    answer,
-    model,
-    provider: "Groq",
-    liveCatalogAvailable: Boolean(catalog.available),
-    catalogFetchedAt: catalog.fetchedAt || null
-  });
+  return json({ answer, model, provider: "Gemini", liveCatalogAvailable: Boolean(catalog.available), catalogFetchedAt: catalog.fetchedAt || null });
 }
-
 export async function onRequestOptions() {
   return new Response(null, {
     status: 204,
