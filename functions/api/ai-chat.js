@@ -225,7 +225,6 @@ export async function onRequestPost({ request, env }) {
   }
 
   const model = cleanText(env.GROQ_MODEL || "openai/gpt-oss-120b", 100);
-  const supportsReasoningEffort = /^openai\/gpt-oss-(20b|120b)$/.test(model);
   let upstream;
   try {
     upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -236,22 +235,21 @@ export async function onRequestPost({ request, env }) {
       },
       body: JSON.stringify({
         model,
-        ...(supportsReasoningEffort ? { reasoning_effort: "high" } : {}),
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           {
             role: "user",
             content: "WAKTU PERMINTAAN UTC: " + new Date().toISOString() +
               "\nKONTEKS KATALOG WRS GEMPA. Data dapat tidak lengkap; arsip tsunami bukan status aktif:\n" +
-              JSON.stringify(catalog).slice(0, 18000) +
+              JSON.stringify(catalog).slice(0, 14000) +
               "\n\nPERTANYAAN PENGGUNA:\n" + question
           }
         ],
-        max_completion_tokens: 2500,
+        max_tokens: 650,
         temperature: 0.2,
         stream: false
       }),
-      signal: AbortSignal.timeout(25000)
+      signal: AbortSignal.timeout(18000)
     });
   } catch (error) {
     console.error("[WRS AI] Groq request failed:", cleanText(error?.message || "network or timeout", 160));
