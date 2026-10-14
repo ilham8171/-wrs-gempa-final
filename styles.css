@@ -1622,3 +1622,20 @@ body.battery-saver *,body.battery-saver *::before,body.battery-saver *::after{sc
 @media(prefers-reduced-motion:reduce){
   .eq-pulse-ring,.eq-star,#rightPanel.felt-event-pulse .rp-mag-bar,#rightPanel.felt-event-pulse .rp-mag-bar::after{animation:none!important}
 }
+
+
+/* WRS preparedness center navigation: accessible on desktop and mobile. */
+.rp-links .wrs-preparedness-link,
+.wrs-preparedness-link {
+  color: #ffe1e1 !important;
+  border: 1px solid rgba(251, 113, 133, .58) !important;
+  background: rgba(127, 29, 29, .28) !important;
+  font-weight: 800 !important;
+  text-decoration: none !important;
+}
+.rp-links .wrs-preparedness-link:hover,
+.wrs-preparedness-link:focus-visible {
+  background: rgba(153, 27, 27, .5) !important;
+  outline: 2px solid rgba(253, 164, 175, .8);
+  outline-offset: 2px;
+}
