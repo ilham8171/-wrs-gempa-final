@@ -35,6 +35,8 @@ const headers = { "content-type": "application/json; charset=utf-8", "cache-cont
 const DURABLE_LAST_GOOD_KEY = "catalogue:last-good:v1";
 const DURABLE_LAST_GOOD_MAX_AGE_MS = 20 * 60 * 1000;
 const DURABLE_LAST_GOOD_TTL_SECONDS = 30 * 60;
+// Keep edge refreshes modest while preserving the last known-good live catalogue.
+const EDGE_FRESH_MS = 15 * 1000;
 let lastDurableCacheWriteAt = 0;
 
 // Cache persistence must never turn an otherwise valid API response into a
@@ -368,12 +370,12 @@ async function loadCachedGlobalTsunamiFeed(options, center, url) {
   return loadNormalizedFeed({
     ...options,
     name: "official-tsunami-" + center.toLowerCase() + "-atom-v1",
-    ttlMs: 30 * 1000,
+    ttlMs: 120 * 1000,
     load: async () => {
       const response = await fetch(url, {
         signal: AbortSignal.timeout(4500),
         headers: { accept: "application/atom+xml, application/xml, text/xml, */*" },
-        cf: { cacheTtl: 30, cacheEverything: true }
+        cf: { cacheTtl: 120, cacheEverything: true }
       });
       if (!response.ok) throw new Error(center + " feed HTTP " + response.status);
       const xml = await response.text();
@@ -579,8 +581,8 @@ async function loadCachedTsunamiHistory(options) {
     name: "inatews-tsunami-history-v1",
     // The 30-bulletin archive changes far less often than the live earthquake feed.
     // Cache parsed bulletins so every 4-second browser poll does not re-run the XML parser.
-    ttlMs: 30 * 1000,
-    load: () => getText("https://cdn.bmkg.go.id/last30tsunamievent.xml", 4000, 30),
+    ttlMs: 60 * 1000,
+    load: () => getText("https://cdn.bmkg.go.id/last30tsunamievent.xml", 4000, 60),
     map: parseTsunamiCapXml
   });
 }
@@ -686,9 +688,9 @@ function qlFeatures(value) {
 }
 async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
   // Share a single upstream refresh across clients in the same Cloudflare edge location.
-  // The browser polls every 4s; a 10s freshness window lets overlapping polls and
-  // nearby clients reuse the same response. The live InaTEWS lastQL feed is still
-  // fetched without upstream caching on each actual edge refresh.
+  // The browser polls frequently, but a short freshness window lets overlapping polls
+  // reuse the original cached response without parsing and serializing the full catalogue.
+  // The live InaTEWS lastQL feed is still fetched without upstream caching on each refresh.
   const edgeCache = typeof caches !== "undefined" ? caches.default : null;
   let edgeCacheKey = null;
   let staleEdgeData = null;
@@ -701,21 +703,36 @@ async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
       edgeCacheKey = new Request(cacheUrl.toString(), { method: "GET" });
       const cached = await edgeCache.match(edgeCacheKey);
       if (cached) {
-        const cachedData = await cached.clone().json();
-        const fetchedAtMs = Date.parse(cachedData?.fetchedAt || "");
+        // Newly written entries carry freshness metadata in headers, so the hot path
+        // can return the cached body directly. Parsing and re-serializing up to 800
+        // earthquakes on every client poll can itself exceed the Free CPU budget.
+        const metadataValid = cached.headers.get("x-wrs-payload-valid") === "1";
+        let fetchedAtMs = Number(cached.headers.get("x-wrs-fetched-at-ms"));
+        let cachedData = null;
+        if (!metadataValid || !Number.isFinite(fetchedAtMs) || fetchedAtMs <= 0) {
+          // One-time compatibility path for entries written by older deployments.
+          cachedData = await cached.clone().json();
+          fetchedAtMs = Date.parse(cachedData?.fetchedAt || "");
+        }
         const ageMs = Date.now() - fetchedAtMs;
-        if (cachedData?.ok === true && Array.isArray(cachedData.recent) && cachedData.recent.length &&
-            Number.isFinite(fetchedAtMs) && ageMs >= 0) {
-          // Serve the edge copy immediately only while it is genuinely fresh.
-          if (ageMs <= 10000) {
+        const validCachedPayload = metadataValid ||
+          (cachedData?.ok === true && Array.isArray(cachedData.recent) && cachedData.recent.length > 0);
+        if (validCachedPayload && Number.isFinite(fetchedAtMs) && ageMs >= 0) {
+          if (ageMs <= EDGE_FRESH_MS) {
             const cachedHeaders = new Headers(cached.headers);
             cachedHeaders.set("cache-control", "no-store");
             cachedHeaders.set("x-wrs-cache", "HIT");
-            return new Response(JSON.stringify(cachedData), { status: 200, headers: cachedHeaders });
+            cachedHeaders.set("x-wrs-fetched-at-ms", String(fetchedAtMs));
+            cachedHeaders.set("x-wrs-payload-valid", "1");
+            // Reuse the cached response body verbatim; do not JSON.parse/JSON.stringify it.
+            return new Response(cached.body, { status: 200, headers: cachedHeaders });
           }
-          // Keep a last-known-good edge copy available while live feeds are checked.
-          staleEdgeData = cachedData;
-          staleEdgeAgeSeconds = Math.floor(ageMs / 1000);
+          // Parse stale payload only when it is needed for stale-if-error recovery.
+          if (!cachedData) cachedData = await cached.clone().json();
+          if (cachedData?.ok === true && Array.isArray(cachedData.recent) && cachedData.recent.length > 0) {
+            staleEdgeData = cachedData;
+            staleEdgeAgeSeconds = Math.floor(ageMs / 1000);
+          }
         }
       }
     } catch (_) { /* Cache API is optional; continue with live upstream requests. */ }
@@ -1001,7 +1018,8 @@ async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
     fallbackHeaders.set("x-wrs-data-age-seconds", String(staleEdgeAgeSeconds ?? ""));
     return new Response(JSON.stringify(fallback), { status: 200, headers: fallbackHeaders });
   }
-  const response = new Response(JSON.stringify({ok:true,fetchedAt:new Date().toISOString(),refreshSeconds:8,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,globalTsunamiMessages,globalTsunamiSources,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):historyQL.stale?("Cache riwayat digunakan; refresh gagal: "+String(historyQL.sourceError||"sumber sementara gagal")):null,cached:historyQL.cacheHit===true,cacheAgeSeconds:historyQL.cacheAgeSeconds??null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:recent.filter(q=>q.source==="USGS").length,usgsGlobal:usgs.status==="fulfilled"?usgs.value.length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?usgsIndonesia.value.length:0,tsunami:tsunamiHistory.length,globalTsunami:globalTsunamiSources,client:false,errors}}),{status:200,headers});
+  const responseFetchedAt = new Date().toISOString();
+  const response = new Response(JSON.stringify({ok:true,fetchedAt:responseFetchedAt,refreshSeconds:15,latest:realtime||official||recent[0]||null,realtime,realtimeEvents,official,recent,count:recent.length,tsunamiHistory,globalTsunamiMessages,globalTsunamiSources,sources:{wrs:{ok:ql.status==="fulfilled",eventCount:liveEvents.length,checkedAt:new Date().toISOString(),error:ql.status==="rejected"?String(ql.reason?.message||"Feed InaTEWS lastQL gagal diakses"):null},wrsHistory:{ok:historyQL.status==="fulfilled",eventCount:historyEvents.length,error:historyQL.status==="rejected"?String(historyQL.reason?.message||"Feed InaTEWS gempaQL gagal diakses"):historyQL.stale?("Cache riwayat digunakan; refresh gagal: "+String(historyQL.sourceError||"sumber sementara gagal")):null,cached:historyQL.cacheHit===true,cacheAgeSeconds:historyQL.cacheAgeSeconds??null},public:results.slice(0,3).filter(r=>r.status==="fulfilled").length,inaQL:historyEvents.length,usgs:recent.filter(q=>q.source==="USGS").length,usgsGlobal:usgs.status==="fulfilled"?usgs.value.length:0,usgsIndonesia:usgsIndonesia.status==="fulfilled"?usgsIndonesia.value.length:0,tsunami:tsunamiHistory.length,globalTsunami:globalTsunamiSources,client:false,errors}}),{status:200,headers});
   if (edgeCache && edgeCacheKey) {
     try {
       const cacheHeaders = new Headers(response.headers);
@@ -1009,6 +1027,8 @@ async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
       // only serves it as fresh for 10 seconds; older copies are fallback-only.
       cacheHeaders.set("cache-control", "public, max-age=900");
       cacheHeaders.set("x-wrs-cache", "MISS");
+      cacheHeaders.set("x-wrs-fetched-at-ms", String(Date.parse(responseFetchedAt)));
+      if (recent.length > 0) cacheHeaders.set("x-wrs-payload-valid", "1");
       const cacheResponse = new Response(response.clone().body, { status: response.status, headers: cacheHeaders });
       await scheduleCacheTask(edgeCache.put(edgeCacheKey, cacheResponse), waitUntil, "edge last-good");
     } catch (cacheError) {
@@ -1230,6 +1250,8 @@ export async function onRequestGet(context = {}) {
             const cacheHeaders = new Headers(recoveryHeaders);
             cacheHeaders.set("cache-control", "public, max-age=900");
             cacheHeaders.set("x-wrs-cache", "EMERGENCY-FALLBACK");
+            cacheHeaders.set("x-wrs-fetched-at-ms", String(Date.parse(payload.fetchedAt)));
+            if (recent.length > 0) cacheHeaders.set("x-wrs-payload-valid", "1");
             const cacheWrite = edgeCache.put(recoveryKey, new Response(recoveryBody, {
               status: 200,
               headers: cacheHeaders
