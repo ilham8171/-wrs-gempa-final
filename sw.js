@@ -5,10 +5,11 @@
  * - Network-first untuk HTML/JS/CSS agar data dan kode tetap mudah diperbarui
  */
 
-const CACHE_NAME = "wrs-gempa-shell-v8-0-4";
+const CACHE_NAME = "wrs-gempa-shell-v8-0-5";
 const APP_SHELL = [
   "/",
   "/index.html",
+  "/kesiapsiagaan.html",
   "/styles.css",
   "/ui-refresh.css",
   "/app.js?v=20261012-2",
