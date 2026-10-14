@@ -345,6 +345,19 @@ if ("serviceWorker" in navigator) {
         <span>Data dari potensi tsunami BMKG/InaTEWS. Klik baris untuk detail (ShakeMap, status AWAS/SIAGA/WASPADA, arahan).</span>
       </div>
     </div>
+    <section id="globalTsunamiPanel" class="global-tsunami-panel hidden" aria-live="polite">
+      <div class="global-tsunami-heading">
+        <span class="global-tsunami-emblem" aria-hidden="true">≈</span>
+        <div><b>Pesan tsunami internasional · PTWC / NTWC</b><span>Informasi tambahan dari pusat peringatan tsunami NOAA.</span></div>
+      </div>
+      <div id="globalTsunamiStatus" class="global-tsunami-status">Memeriksa feed pesan resmi…</div>
+      <div id="globalTsunamiItems" class="global-tsunami-items"></div>
+      <p class="global-tsunami-caveat">Cakupan feed tidak meliputi seluruh dunia dan bukan penentu status tsunami untuk Indonesia. Untuk Indonesia, utamakan peringatan resmi BMKG/InaTEWS. Flag tsunami USGS juga bukan peringatan aktif.</p>
+      <div class="global-tsunami-links">
+        <a href="https://www.tsunami.gov/" target="_blank" rel="noopener noreferrer">Pusat pesan tsunami NOAA ↗</a>
+        <a href="https://inatews.bmkg.go.id/wrs/index.html" target="_blank" rel="noopener noreferrer">WRS resmi BMKG ↗</a>
+      </div>
+    </section>
     <div id="histTimeline" class="hist-timeline" aria-label="Timeline aktivitas gempa 7 hari"></div>
     <div class="hist-body">
       <div class="hist-map" id="histMap"></div>
