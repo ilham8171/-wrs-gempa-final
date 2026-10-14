@@ -1,6 +1,6 @@
 const API = "/api/earthquakes";
 const SUBSCRIBE_API = "/api/subscribe";
-const NORMAL_INTERVAL = 4000; // klien memeriksa tiap 4 dtk; edge cache membatasi fetch upstream sekitar tiap 8 dtk
+const NORMAL_INTERVAL = 8000; // Selaras dengan refreshSeconds API; mengurangi polling yang tidak perlu.
 const currentInterval = () => NORMAL_INTERVAL;
 const SHAKEMAP_BASE = "https://bmkg-content-inatews.storage.googleapis.com/";
 const $ = (s) => document.querySelector(s);
@@ -3775,8 +3775,11 @@ function openSharedEventFromUrl() {
 setTimeout(openSharedEventFromUrl, 1200);
 function scheduleRefresh() {
   clearTimeout(refreshTimer);
-  const retryDelay = consecutiveLoadFailures > 0
-    ? Math.min(30000, 2000 * (2 ** Math.min(consecutiveLoadFailures - 1, 4)))
+  // Fallback yang berhasil tetap berarti API utama sedang bermasalah.
+  // Ikutkan kegagalan API utama agar klien tidak terus mengulang setiap 4 detik.
+  const failedPolls = Math.max(consecutiveLoadFailures, primaryApiConsecutiveFailures);
+  const retryDelay = failedPolls > 0
+    ? Math.min(20000, NORMAL_INTERVAL + 3000 * Math.min(failedPolls, 4))
     : currentInterval();
   refreshTimer = setTimeout(async () => {
     await load(false);
