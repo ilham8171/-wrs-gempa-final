@@ -2331,7 +2331,8 @@ function updateDiagnostics(data = null, error = null, simulation = false) {
       : deviceReceiptFallback
         ? ageSeconds + " detik sejak data diterima perangkat (waktu fetch server tidak tersedia)"
         : (isFallback ? ageSeconds + " detik sejak data diterima perangkat (API utama gagal)" : ageSeconds + " detik sejak fetch API"));
-    put("diagLastSuccess", lastSuccessfulLoadAt ? new Date(lastSuccessfulLoadAt).toLocaleString("id-ID") : "Belum ada fetch sukses sejak halaman dibuka");
+    const lastSuccessAt = lastSuccessfulLoadAt || lastGoodSavedAt;
+    put("diagLastSuccess", lastSuccessAt ? new Date(lastSuccessAt).toLocaleString("id-ID") : "Belum ada fetch sukses sejak halaman dibuka");
     put("diagRetries", consecutiveLoadFailures);
     put("diagError", error ? String(error.message || error).slice(0, 180) :
       sourceErrors.length ? sourceErrors.join(" · ").slice(0, 180) :
