@@ -26,6 +26,58 @@ function usgsIndonesiaUrl() {
   }).toString();
 }
 const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" };
+
+// A separate KV namespace preserves a last-known-good full catalogue across
+// Cloudflare edge locations. This is intentionally separate from push subscriptions.
+const DURABLE_LAST_GOOD_KEY = "catalogue:last-good:v1";
+const DURABLE_LAST_GOOD_MAX_AGE_MS = 20 * 60 * 1000;
+const DURABLE_LAST_GOOD_TTL_SECONDS = 30 * 60;
+let lastDurableCacheWriteAt = 0;
+
+async function readDurableLastGood(env) {
+  const kv = env?.WRS_API_CACHE;
+  if (!kv || typeof kv.get !== "function") return null;
+  try {
+    const record = await kv.get(DURABLE_LAST_GOOD_KEY, "json");
+    const payload = record?.payload;
+    if (record?.version !== 1 || payload?.ok !== true ||
+        !Array.isArray(payload.recent) || payload.recent.length === 0) return null;
+    const savedAt = Number(record.savedAt);
+    const fallbackAt = Date.parse(payload.fetchedAt || "");
+    const referenceTime = Number.isFinite(savedAt) && savedAt > 0 ? savedAt : fallbackAt;
+    const ageMs = Date.now() - referenceTime;
+    if (!Number.isFinite(referenceTime) || ageMs < 0 ||
+        ageMs > DURABLE_LAST_GOOD_MAX_AGE_MS) return null;
+    return { payload, ageSeconds: Math.floor(ageMs / 1000) };
+  } catch (error) {
+    console.warn("[WRS API] Durable last-good cache read failed:",
+      String(error?.message || error).slice(0, 120));
+    return null;
+  }
+}
+
+async function writeDurableLastGood(env, payload) {
+  const kv = env?.WRS_API_CACHE;
+  if (!kv || typeof kv.put !== "function" || payload?.ok !== true ||
+      payload?.sources?.emergencyFallback === true ||
+      !Array.isArray(payload.recent) || payload.recent.length === 0) return;
+  const now = Date.now();
+  // The edge cache already serves repeated polls. Limit durable writes to reduce
+  // KV traffic; a failed write never turns a successful API response into an error.
+  if (now - lastDurableCacheWriteAt < 30_000) return;
+  lastDurableCacheWriteAt = now;
+  try {
+    await kv.put(DURABLE_LAST_GOOD_KEY, JSON.stringify({
+      version: 1,
+      savedAt: now,
+      payload
+    }), { expirationTtl: DURABLE_LAST_GOOD_TTL_SECONDS });
+  } catch (error) {
+    lastDurableCacheWriteAt = 0;
+    console.warn("[WRS API] Durable last-good cache write failed:",
+      String(error?.message || error).slice(0, 120));
+  }
+}
 const num = v => { const n = Number(String(v ?? "").replace(/,/g, ".").trim()); return Number.isFinite(n) ? n : NaN; };
 function parseLat(v) {
   if (v == null) return NaN;
@@ -485,7 +537,7 @@ function qlFeatures(value) {
   if (Array.isArray(value)) return value;
   return [];
 }
-async function handleEarthquakesRequest({ request, waitUntil } = {}) {
+async function handleEarthquakesRequest({ request, waitUntil, env } = {}) {
   // Share a single upstream refresh across clients in the same Cloudflare edge location.
   // The browser polls every 4s; a 10s freshness window lets overlapping polls and
   // nearby clients reuse the same response. The live InaTEWS lastQL feed is still
@@ -772,7 +824,7 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
     try {
       const cacheHeaders = new Headers(response.headers);
       // Retain the last known-good payload for recovery, but the handler above
-      // only serves it as fresh for 4 seconds; older copies are fallback-only.
+      // only serves it as fresh for 10 seconds; older copies are fallback-only.
       cacheHeaders.set("cache-control", "public, max-age=900");
       cacheHeaders.set("x-wrs-cache", "MISS");
       const cacheResponse = new Response(response.clone().body, { status: response.status, headers: cacheHeaders });
@@ -780,6 +832,15 @@ async function handleEarthquakesRequest({ request, waitUntil } = {}) {
       else await edgeCache.put(edgeCacheKey, cacheResponse);
     } catch (_) { /* Never fail the live API solely because edge caching failed. */ }
   }
+
+  // Save only a normal full catalogue, never an emergency/partial response.
+  // This shared, dedicated KV fallback survives when requests land on another edge.
+  const durableWrite = response.clone().json()
+    .then(payload => writeDurableLastGood(env, payload))
+    .catch(error => console.warn("[WRS API] Durable cache scheduling failed:",
+      String(error?.message || error).slice(0, 120)));
+  if (typeof waitUntil === "function") waitUntil(durableWrite);
+  else await durableWrite;
   return response;
 }
 
@@ -821,11 +882,37 @@ export async function onRequestGet(context = {}) {
         }
       } catch (_) { /* No usable last-known-good response. */ }
     }
-    // Emergency recovery: if the full catalogue handler throws and no cached
-    // last-known-good response exists in this edge location, rebuild a SMALL
-    // response from the primary BMKG feeds and live InaTEWS feed. Optional USGS,
-    // NOAA and historical-catalogue processing must not make the core monitor
-    // return HTTP 503. This is explicitly marked partial and never fabricates data.
+    // If this edge has no usable local cache, read the last successful full
+    // catalogue from a dedicated KV namespace. It is only served during an
+    // exception and only while recent enough; live requests still refresh normally.
+    const durable = await readDurableLastGood(context?.env);
+    if (durable) {
+      const data = durable.payload;
+      data.sources = {
+        ...(data.sources || {}),
+        staleCache: true,
+        durableStaleCache: true,
+        staleAgeSeconds: durable.ageSeconds,
+        errors: [...new Set([
+          ...(Array.isArray(data.sources?.errors) ? data.sources.errors : []),
+          "API utama sementara gagal; katalog lengkap terakhir dipertahankan dari cache bersama"
+        ])]
+      };
+      const durableHeaders = new Headers(headers);
+      durableHeaders.set("cache-control", "no-store");
+      durableHeaders.set("x-wrs-cache", "DURABLE-STALE-FALLBACK");
+      durableHeaders.set("x-wrs-data-age-seconds", String(durable.ageSeconds));
+      console.warn("[WRS API] Durable last-good catalogue served after handler failure", {
+        ageSeconds: durable.ageSeconds,
+        eventCount: data.recent.length,
+        cause: String(error?.message || error).slice(0, 120)
+      });
+      return new Response(JSON.stringify(data), { status: 200, headers: durableHeaders });
+    }
+
+    // Emergency recovery: if neither local edge cache nor shared last-good data
+    // exists, rebuild a SMALL response from the primary BMKG/InaTEWS feeds.
+    // Optional history/global sources must not make the core monitor return 503.
     try {
       const emergencyResults = await Promise.allSettled([
         ...BMKG_URLS.map(url => getBmkgFeed(url)),
