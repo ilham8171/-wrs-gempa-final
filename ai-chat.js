@@ -4,7 +4,7 @@
 
   const style = document.createElement("link");
   style.rel = "stylesheet";
-  style.href = "/ai-chat.css?v=20261014-3";
+  style.href = "/ai-chat.css?v=20261014-4";
   document.head.appendChild(style);
 
   const dock = document.createElement("div");
