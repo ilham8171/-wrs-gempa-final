@@ -5,7 +5,9 @@ const BMKG_URLS = [
 ];
 const GCS = "https://bmkg-content-inatews.storage.googleapis.com";
 // Use USGS's prefiltered M5+ feed: it is much smaller than all_week.geojson and avoids parsing thousands of irrelevant low-magnitude records on cold edge refreshes.
-const USGS = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/5.0_week.geojson";
+// USGS publishes a documented 4.5+ summary feed; filter it to M5+ below. A second known feed is used only if this one is malformed or temporarily unavailable.
+const USGS = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson";
+const USGS_ALL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson";
 function usgsIndonesiaUrl() {
   // This regional request is a supplemental fallback, so keep its payload
   // bounded to the latest 72 hours; BMKG/InaTEWS remains the primary catalogue.
@@ -277,11 +279,31 @@ async function loadCachedUSGSEvents(options) {
     name: "usgs-global-m5-v1",
     ttlMs: 60 * 1000,
     load: async () => {
-      const value = await getJson(USGS, false, 4500, 60);
-      if (!Array.isArray(value?.features)) throw new Error("respons USGS global tidak memiliki daftar fitur");
-      return value;
+      let primaryError;
+      try {
+        const value = await getJson(USGS, false, 5000, 60);
+        if (!Array.isArray(value?.features)) throw new Error("respons USGS 4.5+ tidak memiliki daftar fitur");
+        return value;
+      } catch (error) {
+        primaryError = error;
+      }
+      // Recovery path: the broad, long-standing USGS all-earthquakes feed is used
+      // only when the smaller 4.5+ feed fails. Filter M5+ before mapping to keep
+      // the rest of the application and notification thresholds unchanged.
+      try {
+        const value = await getJson(USGS_ALL, false, 6500, 60);
+        if (!Array.isArray(value?.features)) throw new Error("respons USGS all-week tidak memiliki daftar fitur");
+        return {
+          ...value,
+          features: value.features.filter(feature => Number(feature?.properties?.mag) >= 5)
+        };
+      } catch (fallbackError) {
+        throw new Error("USGS 4.5+ gagal (" + String(primaryError?.message || primaryError).slice(0, 90) +
+          "); feed cadangan all-week gagal (" + String(fallbackError?.message || fallbackError).slice(0, 90) + ")");
+      }
     },
-    map: value => value.features.slice(0, 300).map(feature => mapUSGS(feature, 5)).filter(Boolean)
+    map: value => value.features.filter(feature => Number(feature?.properties?.mag) >= 5)
+      .slice(0, 500).map(feature => mapUSGS(feature, 5)).filter(Boolean)
   });
 }
 
