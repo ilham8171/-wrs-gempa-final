@@ -406,6 +406,13 @@ function parseTsunamiCapXml(xml) {
       const instruction2 = value(block, parent, "instruction2");
       const instruction3 = value(block, parent, "instruction3");
       const timesent = value(block, parent, "timesent", "sent", "updated", "published");
+      // Preserve CAP lifecycle metadata so push senders can distinguish current
+      // public warnings from historic or cancelled bulletins in the last-30 archive.
+      const capStatus = value(block, parent, "status");
+      const capMsgType = value(block, parent, "msgType", "messageType", "msgtype");
+      const capScope = value(block, parent, "scope");
+      const capExpires = value(block, parent, "expires");
+      const capEffective = value(block, parent, "effective");
       const shakemap = value(block, parent, "shakemap");
       const wzmap = value(block, parent, "wzmap");
       const ttmap = value(block, parent, "ttmap");
@@ -440,6 +447,8 @@ function parseTsunamiCapXml(xml) {
         potential: potential || "Riwayat peringatan dini tsunami InaTEWS",
         subject: subject || ("WARNING TSUNAMI PD-" + (pd || "?")),
         pd: pd || null, headline, description, instruction, instruction1, instruction2, instruction3, timesent,
+        capStatus: capStatus || null, capMsgType: capMsgType || null, capScope: capScope || null,
+        expires: capExpires || null, effective: capEffective || null,
         shakemap: mapCapAsset(shakemap) || null,
         wzmap: mapCapAsset(wzmap), ttmap: mapCapAsset(ttmap), sshmap: mapCapAsset(sshmap),
         ...(sshBounds ? { sshBounds } : {}),
