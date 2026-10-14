@@ -111,7 +111,7 @@
       const data = await response.json().catch(() => ({}));
       waiting.remove();
       if (!response.ok) throw new Error(data.error || "AI belum dapat menjawab. Coba lagi.");
-      addMessage(data.answer + (data.liveCatalogAvailable ? "\\n\\nKonteks katalog live tersedia; tetap periksa sumber resmi." : "\\n\\nCatatan: katalog live tidak tersedia saat permintaan ini; jawaban bukan laporan gempa terkini."), "assistant");
+      addMessage(data.answer + (data.liveCatalogAvailable ? "\n\nKonteks katalog live tersedia; tetap periksa sumber resmi." : "\n\nCatatan: katalog live tidak tersedia saat permintaan ini; jawaban bukan laporan gempa terkini."), "assistant");
     } catch (error) {
       waiting.remove();
       addMessage(error.message || "Koneksi AI terganggu. Coba lagi nanti.", "error");
