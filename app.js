@@ -1073,6 +1073,13 @@ function renderOfficial(q) {
     potEl.style.borderColor = "rgba(220,50,50,.55)";
     potEl.style.color = "#fecaca";
     potEl.style.animation = "";
+  } else if (isUsgsEvent) {
+    // A USGS tsunami flag is supplementary event metadata, not an active warning
+    // and not proof of safety. Keep it neutral instead of using a green "all clear".
+    potEl.style.background = "linear-gradient(135deg,#3c2a07,#1d180b)";
+    potEl.style.borderColor = "rgba(236,185,72,.45)";
+    potEl.style.color = "#ffdf9c";
+    potEl.style.animation = "none";
   } else {
     potEl.style.background = "linear-gradient(135deg,#052e16,#021a0c)";
     potEl.style.borderColor = "rgba(34,197,94,.4)";
@@ -1344,8 +1351,16 @@ function openModal(q) {
       : "tidak ada potensi TSUNAMI";
   const tsEl = $("#modalTsunami");
   $("#modalTsunamiText").textContent = pot;
-  if (isTsunamiPotential(pot)) tsEl.classList.remove("safe");
-  else tsEl.classList.add("safe");
+  tsEl.classList.remove("usgs-neutral");
+  if (isTsunamiPotential(pot)) {
+    tsEl.classList.remove("safe");
+  } else if (isGlobalUsgs) {
+    // Neither a positive nor negative USGS tsunami flag establishes an official warning state.
+    tsEl.classList.remove("safe");
+    tsEl.classList.add("usgs-neutral");
+  } else {
+    tsEl.classList.add("safe");
+  }
 
   // Untuk kejadian global, jangan menampilkan saran/status BMKG seolah-olah
   // berasal dari USGS. Status USGS akan diperbarui setelah detail event dimuat.
