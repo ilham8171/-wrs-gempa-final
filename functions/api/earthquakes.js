@@ -11,10 +11,10 @@ const USGS_ALL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_
 function usgsIndonesiaUrl() {
   // This regional request is a supplemental fallback, so keep its payload
   // bounded to the latest 72 hours; BMKG/InaTEWS remains the primary catalogue.
-  // Round to the minute so the query URL remains cacheable across polling cycles.
-  // The extra 0-59 seconds in the lookback is harmless and avoids a unique URL
-  // on every request, which would defeat Cloudflare's upstream response cache.
-  const roundedNow = Math.floor(Date.now() / 60000) * 60000;
+  // Round to a five-minute boundary. This feed is a supplemental regional backstop,
+  // not the primary live stream; stable URLs let edge locations share upstream cache
+  // entries and avoid querying the USGS FDSN service on every API refresh.
+  const roundedNow = Math.floor(Date.now() / 300000) * 300000;
   const starttime = new Date(roundedNow - 3 * 864e5).toISOString().slice(0, 19);
   return "https://earthquake.usgs.gov/fdsnws/event/1/query?" + new URLSearchParams({
     format: "geojson",
@@ -208,20 +208,34 @@ async function readNormalizedFeedCache(cache, key) {
     const payload = await response.json();
     const fetchedAtMs = Date.parse(payload?.fetchedAt || "");
     if (!Array.isArray(payload?.events) || !Number.isFinite(fetchedAtMs)) return null;
-    return { events: payload.events, fetchedAtMs, ageMs: Date.now() - fetchedAtMs };
+    const retryAfterMs = Date.parse(payload?.retryAfter || "");
+    return {
+      events: payload.events,
+      fetchedAtMs,
+      ageMs: Date.now() - fetchedAtMs,
+      retryAfterMs: Number.isFinite(retryAfterMs) ? retryAfterMs : 0,
+      sourceError: String(payload?.sourceError || "")
+    };
   } catch (_) {
     return null;
   }
 }
-async function writeNormalizedFeedCache(cache, key, events) {
+async function writeNormalizedFeedCache(cache, key, events, options = {}) {
   if (!cache || !key || !Array.isArray(events)) return;
   try {
-    const payload = { fetchedAt: new Date().toISOString(), events };
+    const fetchedAtMs = Number.isFinite(options.fetchedAtMs) ? options.fetchedAtMs : Date.now();
+    const retryAfterMs = Number.isFinite(options.retryAfterMs) ? options.retryAfterMs : 0;
+    const payload = {
+      fetchedAt: new Date(fetchedAtMs).toISOString(),
+      events,
+      ...(retryAfterMs > 0 ? { retryAfter: new Date(retryAfterMs).toISOString() } : {}),
+      ...(options.sourceError ? { sourceError: String(options.sourceError).slice(0, 180) } : {})
+    };
     await cache.put(key, new Response(JSON.stringify(payload), {
       status: 200,
       headers: {
         "content-type": "application/json; charset=utf-8",
-        // Keep a stale copy available; freshness is checked against fetchedAt below.
+        // Keep a stale copy available; source age and retry throttling are separate fields.
         "cache-control": "public, max-age=86400"
       }
     }));
@@ -232,11 +246,22 @@ async function writeNormalizedFeedCache(cache, key, events) {
 async function loadNormalizedFeed({ cache, request, name, ttlMs, load, map }) {
   const key = normalizedFeedCacheKey(request, name);
   const cached = await readNormalizedFeedCache(cache, key);
-  const cachedAgeMs = cached ? Date.now() - cached.fetchedAtMs : Infinity;
+  const now = Date.now();
+  const cachedAgeMs = cached ? now - cached.fetchedAtMs : Infinity;
   if (cached && cachedAgeMs >= 0 && cachedAgeMs <= ttlMs) {
     return {
       status: "fulfilled", value: cached.events, cacheHit: true, stale: false,
       cacheAgeSeconds: Math.floor(cachedAgeMs / 1000)
+    };
+  }
+  // If refreshing a stale optional feed already timed out, back off instead of
+  // retrying it on every 8-15 second catalogue request. Keep the original fetchedAt
+  // so diagnostics continue to report the real source age, not the retry time.
+  if (cached && cachedAgeMs >= 0 && Array.isArray(cached.events) && cached.retryAfterMs > now) {
+    return {
+      status: "fulfilled", value: cached.events, cacheHit: true, stale: true,
+      cacheAgeSeconds: Math.floor(cachedAgeMs / 1000),
+      sourceError: cached.sourceError || "refresh sumber ditunda setelah kegagalan sementara"
     };
   }
   try {
@@ -249,10 +274,17 @@ async function loadNormalizedFeed({ cache, request, name, ttlMs, load, map }) {
     // Optional catalogue failures are isolated: reuse the last normalized copy
     // when available, rather than escalating a USGS/history issue to API HTTP 503.
     if (cached && cachedAgeMs >= 0 && Array.isArray(cached.events)) {
+      const sourceError = String(error?.message || error).slice(0, 180);
+      const retryAfterMs = Date.now() + Math.max(30 * 1000, Math.min(ttlMs, 5 * 60 * 1000));
+      await writeNormalizedFeedCache(cache, key, cached.events, {
+        fetchedAtMs: cached.fetchedAtMs,
+        retryAfterMs,
+        sourceError
+      });
       return {
         status: "fulfilled", value: cached.events, cacheHit: true, stale: true,
         cacheAgeSeconds: Math.floor(cachedAgeMs / 1000),
-        sourceError: String(error?.message || error).slice(0, 180)
+        sourceError
       };
     }
     return { status: "rejected", reason: error };
@@ -313,9 +345,11 @@ async function loadCachedUSGSIndonesiaEvents(options) {
   return loadNormalizedFeed({
     ...options,
     name: "usgs-indonesia-m2-72h-v1",
-    ttlMs: 60 * 1000,
+    // Regional M2+ data is only a supplement to InaTEWS/BMKG; a five-minute
+    // freshness window is sufficient and avoids stressing the FDSN endpoint.
+    ttlMs: 5 * 60 * 1000,
     load: async () => {
-      const value = await getJson(usgsIndonesiaUrl(), false, 4500, 60);
+      const value = await getJson(usgsIndonesiaUrl(), false, 4000, 300);
       if (!Array.isArray(value?.features)) throw new Error("respons USGS Indonesia tidak memiliki daftar fitur");
       return value;
     },
