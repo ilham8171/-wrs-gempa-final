@@ -18,7 +18,7 @@ function json(data, status = 200) {
 }
 
 function cleanText(value, max = 500) {
-  return String(value ?? "").replace(/[\\u0000-\\u001f\\u007f]/g, " ").trim().slice(0, max);
+  return String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, max);
 }
 
 function summarizeCatalog(payload) {
@@ -93,9 +93,9 @@ export async function onRequestPost({ request, env }) {
           { role: "system", content: SYSTEM_PROMPT },
           {
             role: "user",
-            content: "KONTEKS KATALOG WRS GEMPA (data dapat tidak lengkap):\\n" +
+            content: "KONTEKS KATALOG WRS GEMPA (data dapat tidak lengkap):\n" +
               JSON.stringify(catalog).slice(0, 14000) +
-              "\\n\\nPERTANYAAN PENGGUNA:\\n" + question
+              "\n\nPERTANYAAN PENGGUNA:\n" + question
           }
         ],
         max_tokens: 650,
