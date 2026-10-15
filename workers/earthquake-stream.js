@@ -94,8 +94,10 @@ export class WrsEarthquakeStream {
     }
 
     const currentVersion = Number(await this.state.storage.get("version")) || 0;
+    let activeController = null;
     const stream = new ReadableStream({
       start: controller => {
+        activeController = controller;
         this.clients.add(controller);
         this.enqueue(controller, "retry: 5000\n: connected\n\n");
         this.enqueue(controller, "id: " + currentVersion + "\nevent: ready\ndata: " +
@@ -104,8 +106,9 @@ export class WrsEarthquakeStream {
           console.warn("[WRS stream] Unable to schedule first poll:", String(error?.message || error).slice(0, 120));
         });
       },
-      cancel: controller => {
-        this.clients.delete(controller);
+      cancel: () => {
+        if (activeController) this.clients.delete(activeController);
+        activeController = null;
         this.stopIfIdle().catch(() => {});
       }
     });
