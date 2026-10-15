@@ -1726,7 +1726,7 @@ function showPopup(q) {
   }, 10000);
 }
 
-/* ---------- Audio: bel sekolah + TTS lengkap ---------- */
+/* ---------- Audio: bel dan getaran lengkap ---------- */
 function ensureAudio() {
   try {
     if (!audioCtx) {
@@ -1759,7 +1759,7 @@ function tone(ctx, freq, t0, dur, vol, type) {
 
 /**
  * Bel sekolah: nada rendah → tinggi (mirip bel sekolah klasik),
- * lalu bel penutup setelah TTS.
+ * lalu bel dan getaran.
  * mode: 'normal' | 'alert' (M≥5) | 'tsunami'
  */
 function playSchoolBell(mode) {
@@ -1804,81 +1804,32 @@ function playSchoolBell(mode) {
 }
 
 /** Bel penutup singkat */
-function playBellClose(mode) {
-  return ensureAudio().then((ctx) => {
-    if (!ctx) return;
-    const now = ctx.currentTime;
-    const isAlert = mode === "alert" || mode === "tsunami";
-    const vol = isAlert ? 0.3 : 0.22;
-    // Naik singkat lalu turun
-    tone(ctx, 523, now, 0.2, vol, "sine");
-    tone(ctx, 659, now + 0.18, 0.22, vol * 0.9, "sine");
-    tone(ctx, 784, now + 0.36, 0.35, vol, "sine");
-    tone(ctx, 1568, now + 0.36, 0.25, vol * 0.15, "sine");
-  }).catch(() => {});
+function vibrateAlert(q, mode) {
+  const magnitude = Number(q?.magnitude) || 0;
+  const tsunami = mode === "tsunami";
+  if ($("#prefVibrate")?.checked === false) return;
+  const pattern = tsunami
+    ? [0, 900, 180, 900, 180, 1200, 250, 1200]
+    : magnitude >= 6.0
+      ? [0, 700, 150, 700, 150, 900]
+      : magnitude >= 4.5
+        ? [0, 450, 180, 450, 180, 650]
+        : [0, 220, 140, 220];
+  try {
+    if (typeof navigator.vibrate === "function") navigator.vibrate(pattern);
+  } catch (_) { /* Getaran tidak didukung oleh browser/perangkat ini. */ }
 }
 
-function getIdVoice() {
-  if (!("speechSynthesis" in window)) return null;
-  const voices = speechSynthesis.getVoices();
-  return voices.find((v) => /id/i.test(v.lang)) || voices.find((v) => /indonesia/i.test(v.name)) || null;
-}
-
-/**
- * TTS lengkap:
- * "Mohon perhatian. Telah terjadi gempa terbaru magnitudo X,
- *  kedalaman Y kilometer, di wilayah Z. Terima kasih."
- * Versi lebih tegas untuk M≥5 / tsunami.
- */
-function speakFull(q, mode) {
-  if (!$("#optVoice")?.checked || !("speechSynthesis" in window)) return Promise.resolve();
-  speechSynthesis.cancel();
-
-  const mag = q.magnitude.toFixed(1).replace(".", ",");
-  const depth = q.depth;
-  const place = (q.place || "Indonesia").replace(/,/g, " ");
-  let text;
-  if (mode === "tsunami") {
-    text = `Mohon perhatian. Peringatan tsunami. Telah terjadi gempa magnitudo ${mag}, kedalaman ${depth} kilometer, di wilayah ${place}. Terdapat potensi tsunami. Segera menjauh dari pantai dan ikuti arahan petugas. Terima kasih.`;
-  } else if (mode === "alert") {
-    text = `Mohon perhatian. Alert gempa magnitudo ${mag}. Kedalaman ${depth} kilometer. Wilayah ${place}. Harap waspada terhadap gempa susulan. Terima kasih.`;
-  } else {
-    text = `Mohon perhatian. Telah terjadi gempa terbaru magnitudo ${mag}, kedalaman ${depth} kilometer, di wilayah ${place}. Terima kasih.`;
-  }
-
-  return new Promise((resolve) => {
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "id-ID";
-    u.rate = mode === "tsunami" ? 0.95 : 1.0;
-    u.volume = 1;
-    u.pitch = mode === "tsunami" ? 1.05 : 1;
-    const idv = getIdVoice();
-    if (idv) u.voice = idv;
-    u.onend = () => resolve();
-    u.onerror = () => resolve();
-    speechSynthesis.speak(u);
-    // Fallback timeout jika onend tidak terpanggil
-    setTimeout(resolve, Math.min(22000, text.length * 80 + 2000));
-  });
-}
-
-/** Sequence: bel sekolah → TTS → bel penutup */
+/** Alarm operasional hanya menggunakan bel dan getaran. */
 async function playAlarmSequence(q) {
-  const pot = q.potential || "";
-  const isTs = isTsunamiPotential(pot);
-  const mode = isTs ? "tsunami" : q.magnitude >= 5 ? "alert" : "normal";
-
+  const mode = isTsunamiPotential(q.potential || "")
+    ? "tsunami"
+    : Number(q.magnitude) >= 5 ? "alert" : "normal";
   if ($("#optBell")?.checked) {
     const waitMs = await playSchoolBell(mode);
-    await new Promise((r) => setTimeout(r, Math.max(waitMs, 600) + 150));
+    await new Promise(resolve => setTimeout(resolve, Math.max(waitMs, 300)));
   }
-  if ($("#optVoice")?.checked) {
-    await speakFull(q, mode);
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  if ($("#optBell")?.checked) {
-    playBellClose(mode);
-  }
+  vibrateAlert(q, mode);
 }
 
 function processNew() {
@@ -1919,25 +1870,11 @@ function processNew() {
     saveParamCache();
 
     if (rev.significant && alarmOn) {
-      ensureAudio()
-        .then(async () => {
-          if ($("#optBell")?.checked) {
-            await playSchoolBell(rev.next.magnitude >= 5 ? "alert" : "normal");
-            await new Promise((r) => setTimeout(r, 400));
-          }
-          if ($("#optVoice")?.checked && "speechSynthesis" in window) {
-            speechSynthesis.cancel();
-            const u = new SpeechSynthesisUtterance(
-              `Pemutakhiran parameter gempa di ${rev.place || "wilayah terdeteksi"}. Magnitudo sekarang ${rev.next.magnitude.toFixed(1).replace(".", ",")}, kedalaman ${rev.next.depth} kilometer.`
-            );
-            u.lang = "id-ID";
-            u.rate = 1;
-            const idv = getIdVoice();
-            if (idv) u.voice = idv;
-            speechSynthesis.speak(u);
-          }
-        })
-        .catch(() => {});
+      const mode = Number(rev.next.magnitude) >= 5 ? "alert" : "normal";
+      ensureAudio().then(async () => {
+        if ($("#optBell")?.checked) await playSchoolBell(mode);
+        vibrateAlert({ magnitude: rev.next.magnitude }, mode);
+      }).catch(() => {});
     }
   } else {
     saveParamCache();
@@ -3391,17 +3328,6 @@ document.querySelectorAll("#optBell, #prefBell").forEach((element) => {
   element.addEventListener("change", syncBell);
   syncBell();
 });
-document.querySelectorAll("#optVoice, #prefVoice").forEach((element) => {
-  element.addEventListener("change", (event) => {
-    try {
-      if (window.AndroidWrs && typeof window.AndroidWrs.setVoiceEnabled === "function") {
-        window.AndroidWrs.setVoiceEnabled(!!event.target.checked);
-      }
-    } catch (error) {
-      console.warn("Could not sync Android voice preference", error);
-    }
-  });
-});
 $("#prefVibrate")?.addEventListener("change", (event) => {
   try {
     if (window.AndroidWrs && typeof window.AndroidWrs.setVibrationEnabled === "function") {
@@ -3415,33 +3341,22 @@ $("#prefVibrate")?.addEventListener("change", (event) => {
 $("#btnAlarm").onclick = async () => {
   try {
     await ensureAudio();
-    if ("speechSynthesis" in window) {
-      speechSynthesis.getVoices();
-      try {
-        const u0 = new SpeechSynthesisUtterance(" ");
-        u0.volume = 0;
-        speechSynthesis.speak(u0);
-      } catch {}
+    if (alarmOn) {
+      alarmOn = false;
+      $("#btnAlarm")?.classList.remove("on");
+      $("#alarmStatus").textContent = "Alarm · dihentikan";
+      try { if (navigator.vibrate) navigator.vibrate(0); } catch {}
+      return;
     }
     alarmOn = true;
     $("#btnAlarm")?.classList.add("on");
-    $("#alarmStatus").textContent = "Alarm · aktif (bel + suara)";
-    // Demo: bel sekolah normal
-    playSchoolBell("normal").then((ms) => {
-      setTimeout(() => {
-        if ($("#optVoice")?.checked) {
-          const u = new SpeechSynthesisUtterance("Alarm aktif. Bel dan suara siap.");
-          u.lang = "id-ID";
-          u.volume = 1;
-          const idv = getIdVoice();
-          if (idv) u.voice = idv;
-          speechSynthesis.speak(u);
-        }
-      }, Math.max(ms, 500) + 100);
-    });
+    $("#alarmStatus").textContent = "Alarm · aktif (bel + getaran)";
+    const waitMs = await playSchoolBell("normal");
+    await new Promise(resolve => setTimeout(resolve, Math.max(waitMs, 300)));
+    vibrateAlert({ magnitude: 0 }, "normal");
   } catch (err) {
     console.warn(err);
-    $("#alarmStatus").textContent = "Browser blokir audio — ketuk lagi / izinkan suara";
+    $("#alarmStatus").textContent = "Bel belum bisa diputar · ketuk lagi";
   }
 };
 
@@ -4056,20 +3971,9 @@ setInterval(() => {
   if (primary) $("#rtAgo").textContent = timeAgo(primary);
 }, 1000);
 
-if ("speechSynthesis" in window) {
-  speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
-}
-
-// Unlock audio on first user gesture (mobile) — keep listening a few times
+// Unlock audio after the first user gesture so the bell can play on mobile.
 function unlockAudioOnce() {
   ensureAudio().catch(() => {});
-  if ("speechSynthesis" in window) {
-    try {
-      const u = new SpeechSynthesisUtterance(" ");
-      u.volume = 0;
-      speechSynthesis.speak(u);
-    } catch {}
-  }
 }
 ["click", "touchstart", "pointerdown"].forEach((ev) => {
   document.addEventListener(ev, unlockAudioOnce, { passive: true, once: true });
