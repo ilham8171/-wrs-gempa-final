@@ -2,10 +2,13 @@ name: Build WRS GEMPA APK
 
 on:
   workflow_dispatch:
-  push:
+  pull_request:
     paths:
       - ".github/workflows/build-apk.yml"
-      - "android/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-apk.yml"
 
 permissions:
   contents: read
@@ -17,11 +20,15 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
-      - name: Checkout Android app source
+      - name: Checkout canonical Android source
         uses: actions/checkout@v4
         with:
-          path: .
+          repository: ilham8171/wrs-gempa-app
+          ref: main
+          path: android
+          persist-credentials: false
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -34,16 +41,20 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Check Android project files
+      - name: Record APK source version
         working-directory: android
         run: |
-          test -f settings.gradle.kts
-          test -f app/build.gradle.kts
-          test -f app/src/main/AndroidManifest.xml
+          git rev-parse HEAD
+          grep -E 'versionCode|versionName' app/build.gradle.kts
 
       - name: Run unit tests
         working-directory: android
         run: gradle testDebugUnitTest
+
+      - name: Run Android lint (report only)
+        working-directory: android
+        run: gradle lintDebug
+        continue-on-error: true
 
       - name: Build debug APK
         working-directory: android
@@ -54,11 +65,16 @@ jobs:
         run: |
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
+          SIZE_BYTES="$(stat -c '%s' "$APK")"
+          MAX_BYTES=$((500 * 1024 * 1024))
+          if [ "$SIZE_BYTES" -gt "$MAX_BYTES" ]; then
+            echo "APK exceeds the 500 MiB limit."
+            exit 1
+          fi
+          echo "APK size: $((SIZE_BYTES / 1024 / 1024)) MiB"
           sha256sum "$APK"
-          ls -lh "$APK"
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: wrs-gempa-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
