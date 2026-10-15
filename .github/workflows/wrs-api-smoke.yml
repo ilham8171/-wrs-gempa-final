@@ -2,6 +2,14 @@ name: WRS API smoke test
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "functions/api/earthquakes.js"
+      - "app.js"
+      - "index.html"
+      - "sw.js"
+      - "workers/push-cron.js"
+      - ".github/workflows/wrs-api-smoke.yml"
   push:
     branches: [main]
     paths:

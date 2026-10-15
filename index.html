@@ -241,13 +241,12 @@ if ("serviceWorker" in navigator) {
     <a href="https://data.bmkg.go.id/gempabumi/" target="_blank" rel="noopener" class="ext-link">Data Terbuka</a>
   </div>
   <div class="rp-quick">
-    <button type="button" id="btnAlarm" class="qbtn" title="Alarm bel + suara"><span class="qicon" aria-hidden="true">◉</span><span>Alarm</span></button>
+    <button type="button" id="btnAlarm" class="qbtn" title="Alarm bel + getaran"><span class="qicon" aria-hidden="true">◉</span><span>Alarm</span></button>
     <button type="button" id="btnLocation" class="qbtn" title="Lokasi saya di peta"><span class="qicon" aria-hidden="true">⌖</span><span>Lokasi</span></button>
     <button type="button" id="btnPush" class="qbtn" title="Notifikasi latar belakang"><span class="qicon" aria-hidden="true">▣</span><span>Notifikasi</span></button>
   </div>
   <div class="rp-quick-opts">
     <label><input type="checkbox" id="optBell" checked> Bel</label>
-    <label><input type="checkbox" id="optVoice" checked> Suara</label>
   </div>
   <div class="rp-quick-status" id="alarmStatus">Alarm · belum aktif</div>
   <div class="rp-quick-status" id="locStatus">Lokasi · belum aktif</div>
@@ -786,7 +785,7 @@ if ("serviceWorker" in navigator) {
   tick();setInterval(tick,1000);
 })();
 </script>
-<script src="/app.js?v=20261015-4"></script>
+<script src="/app.js?v=20261016-no-tts-1"></script>
 <script src="/ai-chat.js?v=20261014-2" defer></script>
 </body>
 </html>
