@@ -7,7 +7,6 @@ const GCS = "https://bmkg-content-inatews.storage.googleapis.com";
 // Use USGS's prefiltered M5+ feed: it is much smaller than all_week.geojson and avoids parsing thousands of irrelevant low-magnitude records on cold edge refreshes.
 // USGS publishes a documented 4.5+ summary feed; filter it to M5+ below. A second known feed is used only if this one is malformed or temporarily unavailable.
 const USGS = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson";
-const USGS_ALL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson";
 const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" };
 
 // A separate KV namespace preserves a last-known-good full catalogue across
@@ -16,7 +15,7 @@ const DURABLE_LAST_GOOD_KEY = "catalogue:last-good:v1";
 const DURABLE_LAST_GOOD_MAX_AGE_MS = 20 * 60 * 1000;
 const DURABLE_LAST_GOOD_TTL_SECONDS = 30 * 60;
 // Keep edge refreshes modest while preserving the last known-good live catalogue.
-const EDGE_FRESH_MS = 15 * 1000;
+const EDGE_FRESH_MS = 25 * 1000;
 let lastDurableCacheWriteAt = 0;
 
 // Cache persistence must never turn an otherwise valid API response into a
@@ -292,29 +291,14 @@ async function loadCachedUSGSEvents(options) {
     ...options,
     name: "usgs-global-m5-v2",
     ttlMs: 60 * 1000,
+    // Keep this optional request bounded. Do not synchronously download and parse
+    // the much larger all-week catalogue: Indonesia's primary BMKG/InaTEWS path
+    // must not get delayed or pushed over CPU limits by a global supplementary feed.
+    // If this feed fails, loadNormalizedFeed reuses its last normalized cache.
     load: async () => {
-      let primaryError;
-      try {
-        const value = await getJson(USGS, false, 5000, 60);
-        if (!Array.isArray(value?.features)) throw new Error("respons USGS 4.5+ tidak memiliki daftar fitur");
-        return value;
-      } catch (error) {
-        primaryError = error;
-      }
-      // Recovery path: the broad, long-standing USGS all-earthquakes feed is used
-      // only when the smaller 4.5+ feed fails. Filter M5+ before mapping to keep
-      // the rest of the application and notification thresholds unchanged.
-      try {
-        const value = await getJson(USGS_ALL, false, 6500, 60);
-        if (!Array.isArray(value?.features)) throw new Error("respons USGS all-week tidak memiliki daftar fitur");
-        return {
-          ...value,
-          features: value.features.filter(feature => Number(feature?.properties?.mag) >= 5)
-        };
-      } catch (fallbackError) {
-        throw new Error("USGS 4.5+ gagal (" + String(primaryError?.message || primaryError).slice(0, 90) +
-          "); feed cadangan all-week gagal (" + String(fallbackError?.message || fallbackError).slice(0, 90) + ")");
-      }
+      const value = await getJson(USGS, false, 3500, 60);
+      if (!Array.isArray(value?.features)) throw new Error("respons USGS 4.5+ tidak memiliki daftar fitur");
+      return value;
     },
     map: value => value.features.filter(feature => {
       const coordinates = feature?.geometry?.coordinates;

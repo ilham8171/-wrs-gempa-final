@@ -165,11 +165,12 @@ let lastRenderFingerprint = "";
 let loadInFlight = false;
 let consecutiveLoadFailures = 0;
 let lastSuccessfulLoadAt = 0;
-// Stabilize connection status: one poll must not flip the UI green/red.
-// Degradation/recovery require 3 consecutive primary API results.
+// Keep the main badge about the actual API endpoint. Source/feed quality is shown
+// separately in the health panel; a missed optional tsunami/USGS feed is not API loss.
 let primaryApiConsecutiveFailures = 0;
 let primaryApiConsecutiveSuccesses = 0;
 let primaryApiHealthState = "unknown"; // unknown | healthy | unstable | degraded | recovering
+let lastPrimaryApiSuccessAt = 0;
 // Monotonically increasing token: responses from a previous mode/request must never
 // overwrite the screen after the user switches between simulation and operation.
 let loadRequestId = 0;
@@ -909,21 +910,30 @@ function latestIndonesiaCatalogQuake() {
     new Date(b.time).getTime() - new Date(a.time).getTime())[0] || null;
 }
 
-// Native Android WebView calls this after its first data load. The map and quake
-// records live in this module's lexical scope, so expose a small safe focus API.
-window.wrsFocusLatestQuake = function () {
+function focusMapOnLatestQuake(zoom = 7.5) {
   try {
     if (!map || typeof map.setView !== "function") return false;
     const valid = q => hasValidCoordinates(q);
-    const q = primaryRealtimeQuake() ||
-      quakes.filter(valid).sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0))[0];
+    // Prefer the actual InaTEWS/WRS realtime event, then the latest Indonesian
+    // catalogue event. Only use a global event if no Indonesia event is available.
+    const globalFallback = quakes.filter(valid).sort((a, b) =>
+      new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime())[0] || null;
+    const q = [primaryRealtimeQuake(), latestIndonesiaCatalogQuake(), globalFallback].find(valid);
     if (!valid(q)) return false;
+    const coordinates = quakeCoordinates(q);
+    if (!coordinates) return false;
     map.invalidateSize({ animate: false });
-    map.setView(quakeCoordinates(q), 6, { animate: false });
+    map.setView(coordinates, zoom, { animate: false });
     return true;
   } catch (_) {
     return false;
   }
+}
+
+// Native Android WebView calls this after its first data load. The map and quake
+// records live in this module's lexical scope, so expose a small safe focus API.
+window.wrsFocusLatestQuake = function () {
+  return focusMapOnLatestQuake(7.5);
 };
 
 function renderRealtime(q, catalogFallback = false) {
@@ -2696,13 +2706,12 @@ async function load(showSpin, force = false) {
           if (!r.ok) throw new Error("API gempa HTTP " + r.status);
           d = await r.json();
           if (d?.ok === true && Array.isArray(d.recent)) {
+            // A structurally valid HTTP response proves the endpoint is reachable now.
+            // Don't leave a recovered API amber for three more polls after one brief blip.
             primaryApiConsecutiveFailures = 0;
             primaryApiConsecutiveSuccesses++;
-            if (primaryApiConsecutiveSuccesses >= 3) {
-              primaryApiHealthState = "healthy";
-            } else if (primaryApiHealthState === "degraded" || primaryApiHealthState === "recovering" || primaryApiHealthState === "unknown") {
-              primaryApiHealthState = "recovering";
-            }
+            primaryApiHealthState = "healthy";
+            lastPrimaryApiSuccessAt = Date.now();
           } else {
             throw new Error("API utama mengembalikan payload yang tidak valid");
           }
@@ -2875,18 +2884,6 @@ async function load(showSpin, force = false) {
       renderOfficialTsunamiMap();
       updateStats(getFilteredQuakes());
     }
-    // Saat pertama kali dibuka, pusatkan peta tepat pada marker event terbaru
-    // yang ditampilkan di daftar/peta. Jangan mengganggu posisi pengguna saat refresh berikutnya.
-    if (!window.__wrsInitialMapCentered && map) {
-      const preferred = d.realtime || d.official || quakes[0];
-      const focus = hasValidCoordinates(preferred)
-        ? preferred
-        : quakes.find(q => hasValidCoordinates(q));
-      if (focus) {
-        map.setView(quakeCoordinates(focus), Math.max(map.getZoom(), 6), { animate: false });
-        window.__wrsInitialMapCentered = true;
-      }
-    }
     const newFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
     const clientFallback = d.sources?.clientFallback === true;
     const wrsFeedOk = d.sources?.wrs?.ok === true || (!clientFallback && d.sources?.wrs == null && !(d.sources?.errors || []).includes("InaTEWS QL"));
@@ -2894,25 +2891,15 @@ async function load(showSpin, force = false) {
     const apiAgeSeconds = Number.isFinite(fetchedAtMs) ? Math.max(0, Math.floor((Date.now() - fetchedAtMs) / 1000)) : null;
     const apiDataStale = apiAgeSeconds == null || apiAgeSeconds > 45;
     const usingFallback = clientFallback || !wrsFeedOk || apiDataStale;
-    // Brief blips show as a warning; they do not instantly flip the monitor red/green.
-    if (primaryApiHealthState === "unstable") {
-      status("warning", "WRS MEMANTAU · CEK KONEKSI");
-    } else if (primaryApiHealthState === "recovering") {
-      status("warning", "API PULIH · MEMASTIKAN STABIL");
-    } else if (primaryApiHealthState === "degraded") {
-      // A failed primary API with retained data is degraded, not a reason to
-      // claim the entire monitor is offline. Keep it amber while retries continue.
-      status("warning", "DATA CADANGAN · RETRY OTOMATIS");
-    } else if (apiDataStale) {
+    // The top badge reports connectivity to this API endpoint, not whether every
+    // optional upstream feed (USGS/global tsunami/history) succeeded. Feed health and
+    // stale-data warnings remain visible in the diagnostic panel immediately below.
+    if (apiDataStale) {
       status("warning", "DATA TERAKHIR · MEMERIKSA PEMBARUAN");
-    } else if (clientFallback) {
-      status("warning", "SUMBER CADANGAN · RETRY OTOMATIS");
-    } else if (!wrsFeedOk || d.sources?.errors?.length) {
-      // The API can be reachable while one upstream WRS feed is down.
-      // Report that distinction instead of turning the whole indicator red.
-      status("warning", "API TERHUBUNG · MEMERIKSA FEED WRS");
+    } else if (clientFallback || primaryApiHealthState === "degraded") {
+      status("warning", "API UTAMA TERGANGGU · RETRY OTOMATIS");
     } else {
-      status(true, "WRS LIVE");
+      status(true, "API TERHUBUNG");
     }
     const healthText = $("#wrsHealthText");
     const healthTime = $("#wrsLastUpdated");
@@ -2994,24 +2981,15 @@ async function load(showSpin, force = false) {
     else updateStats(getFilteredQuakes());
     processNew();
 
-    // Saat website pertama kali dibuka, pusatkan peta ke titik kejadian terbaru.
-    // Jangan menimpa koordinat jika halaman dibuka dari tautan gempa tertentu.
+    // First open: zoom into the newest Indonesian WRS/BMKG quake. Do not override
+    // a shared-event/deep link and never reposition the user's map on later polls.
     if (!window.__wrsInitialLatestFocused) {
       const urlParams = new URLSearchParams(window.location.search);
       const isDeepLink = urlParams.has("quake") || urlParams.has("event") ||
         (urlParams.has("lat") && urlParams.has("lon"));
-      if (!isDeepLink && map) {
-        const validFocus = q => hasValidCoordinates(q);
-        const latestFocus = validFocus(primaryRealtimeQuake())
-          ? primaryRealtimeQuake()
-          : quakes.filter(validFocus).sort((x,y) =>
-              new Date(y.time || 0).getTime() - new Date(x.time || 0).getTime())[0];
-        if (validFocus(latestFocus)) {
-          map.invalidateSize({ animate: false });
-          map.setView(quakeCoordinates(latestFocus), 6, { animate: false });
-          window.__wrsInitialLatestFocused = true;
-        }
-      } else if (isDeepLink) {
+      if (isDeepLink) {
+        window.__wrsInitialLatestFocused = true;
+      } else if (focusMapOnLatestQuake(7.5)) {
         window.__wrsInitialLatestFocused = true;
       }
     }
@@ -3091,10 +3069,23 @@ async function load(showSpin, force = false) {
           quakes = saved.recent;
           operationalQuakes = saved.recent;
           realtimeEvents = Array.isArray(saved.realtimeEvents) ? saved.realtimeEvents : [];
+          currentRealtime = realtimeEvents.find(q => !q?.simulation) || null;
+          currentOfficial = quakes.find(q => q?.official) || null;
           if (Array.isArray(saved.tsunamiHistory)) tsunamiHistory = saved.tsunamiHistory;
           const savedAt = Number(saved.savedAt);
           window.__wrsRestoredCatalogAt = Number.isFinite(savedAt) ? savedAt : null;
-          if (map) drawMarkers(true);
+          if (map) {
+            drawMarkers(true);
+            const urlParams = new URLSearchParams(window.location.search);
+            const isDeepLink = urlParams.has("quake") || urlParams.has("event") ||
+              (urlParams.has("lat") && urlParams.has("lon"));
+            if (isDeepLink) window.__wrsInitialLatestFocused = true;
+            else if (!window.__wrsInitialLatestFocused && focusMapOnLatestQuake(7.5)) {
+              window.__wrsInitialLatestFocused = true;
+            }
+          }
+          if (currentRealtime) renderRealtime(currentRealtime);
+          if (currentOfficial) renderOfficial(currentOfficial);
           updateStats(getFilteredQuakes());
         }
       } catch (storageError) {
@@ -3112,12 +3103,24 @@ async function load(showSpin, force = false) {
     // Pertahankan layar/marker dan status terakhir yang berhasil, sambil polling otomatis tetap berjalan.
     // Setelah 6 kegagalan beruntun, jelaskan bahwa data yang tampil adalah data terakhir,
     // tetapi jangan menampilkan status "OFFLINE" atau "MENYAMBUNG ULANG".
-    if (hasCachedEvents && consecutiveLoadFailures < 6) {
-      status("warning", "WRS MEMANTAU · CEK KONEKSI");
+    const recentlyConfirmedApi = lastPrimaryApiSuccessAt > 0 &&
+      Date.now() - lastPrimaryApiSuccessAt <= 45_000;
+    if (hasCachedEvents && consecutiveLoadFailures < 3 && recentlyConfirmedApi) {
+      // One missed poll doesn't mean the API is offline if a valid response arrived
+      // moments ago. Keep the connection badge green while the automatic retry runs;
+      // the separate health card still explains that this refresh did not succeed.
+      status(true, "API TERHUBUNG · MENCOBA ULANG");
       if (health) {
         health.classList.remove("is-error");
         health.classList.add("is-warning");
-        health.title = "Satu pembaruan gagal; data dan marker terakhir tetap tampil. Pemantauan mencoba kembali otomatis.";
+        health.title = "Pembaruan terbaru gagal sementara, tetapi API baru saja terverifikasi. Data dan marker terakhir tetap tampil sambil mencoba ulang otomatis.";
+      }
+    } else if (hasCachedEvents && consecutiveLoadFailures < 6) {
+      status("warning", "API DIPANTAU · RETRY OTOMATIS");
+      if (health) {
+        health.classList.remove("is-error");
+        health.classList.add("is-warning");
+        health.title = "Pembaruan gagal; data dan marker terakhir tetap tampil. Pemantauan mencoba kembali otomatis.";
       }
     } else if (hasCachedEvents) {
       status("warning", "DATA TERAKHIR · RETRY OTOMATIS");
