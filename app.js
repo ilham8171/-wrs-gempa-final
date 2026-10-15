@@ -1,7 +1,14 @@
 const API = "/api/earthquakes";
 const SUBSCRIBE_API = "/api/subscribe";
-const NORMAL_INTERVAL = 15000; // Selaras dengan refreshSeconds API; mengurangi polling yang tidak perlu.
-const currentInterval = () => NORMAL_INTERVAL;
+const EARTHQUAKE_STREAM_URL = "https://wrs-gempa-stream.sansat6t5655.workers.dev/events";
+const NORMAL_INTERVAL = 15000;
+const STREAM_FALLBACK_INTERVAL = 60000;
+let earthquakeEventSource = null;
+let earthquakeStreamConnected = false;
+let lastStreamRefreshAt = 0;
+let streamRefreshPending = false;
+// SSE gives shared change notices; normal API polling remains as a recovery fallback.
+const currentInterval = () => earthquakeStreamConnected ? STREAM_FALLBACK_INTERVAL : NORMAL_INTERVAL;
 const SHAKEMAP_BASE = "https://bmkg-content-inatews.storage.googleapis.com/";
 const $ = (s) => document.querySelector(s);
 
@@ -3103,6 +3110,10 @@ async function load(showSpin, force = false) {
     if (requestId === loadRequestId) {
       loadInFlight = false;
       hideLoading();
+      if (streamRefreshPending) {
+        streamRefreshPending = false;
+        window.setTimeout(() => refreshFromEarthquakeStream(true), 250);
+      }
     }
   }
 }
@@ -3965,6 +3976,63 @@ function openSharedEventFromUrl() {
   }
 }
 setTimeout(openSharedEventFromUrl, 1200);
+
+/* Shared SSE notices reduce client polling while the stream is healthy.
+ * The API remains the source of truth and regular polling resumes on SSE errors. */
+function refreshFromEarthquakeStream(force = false) {
+  if (document.hidden) return;
+  if (loadInFlight) {
+    streamRefreshPending = true;
+    return;
+  }
+  if (!force && Date.now() - lastStreamRefreshAt < 5000) return;
+  lastStreamRefreshAt = Date.now();
+  load(false).finally(() => scheduleRefresh());
+}
+
+function startEarthquakeStream() {
+  if (document.hidden || typeof EventSource !== "function" || earthquakeEventSource) return;
+  try {
+    const source = new EventSource(EARTHQUAKE_STREAM_URL);
+    earthquakeEventSource = source;
+    source.onopen = () => {
+      earthquakeStreamConnected = true;
+      scheduleRefresh();
+    };
+    source.addEventListener("ready", () => {
+      earthquakeStreamConnected = true;
+      scheduleRefresh();
+    });
+    source.addEventListener("update", () => {
+      earthquakeStreamConnected = true;
+      refreshFromEarthquakeStream();
+      scheduleRefresh();
+    });
+    source.addEventListener("health", event => {
+      let health = {};
+      try { health = JSON.parse(event.data || "{}"); } catch (_) {}
+      earthquakeStreamConnected = health.ok !== false;
+      scheduleRefresh();
+    });
+    source.onerror = () => {
+      // EventSource retries automatically. Until it reconnects, use normal 15-second polling.
+      earthquakeStreamConnected = false;
+      scheduleRefresh();
+    };
+  } catch (error) {
+    earthquakeStreamConnected = false;
+    console.warn("[WRS SSE] Stream unavailable; normal polling remains enabled.", String(error?.message || error).slice(0, 140));
+  }
+}
+
+function stopEarthquakeStream() {
+  if (earthquakeEventSource) {
+    try { earthquakeEventSource.close(); } catch (_) {}
+    earthquakeEventSource = null;
+  }
+  earthquakeStreamConnected = false;
+}
+
 function scheduleRefresh() {
   clearTimeout(refreshTimer);
   // Fallback yang berhasil tetap berarti API utama sedang bermasalah.
@@ -3980,6 +4048,7 @@ function scheduleRefresh() {
 }
 updateModeButtons();
 if (wrsMode === "simulation") applySimulationMode();
+startEarthquakeStream();
 scheduleRefresh();
 setInterval(() => {
   const legacyClock = $("#clock");
@@ -4060,7 +4129,9 @@ function initMobileSheet() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       clearTimeout(refreshTimer);
+      stopEarthquakeStream();
     } else {
+      startEarthquakeStream();
       load(false);
       scheduleRefresh();
       try {
