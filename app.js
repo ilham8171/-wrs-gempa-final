@@ -171,6 +171,13 @@ let primaryApiConsecutiveFailures = 0;
 let primaryApiConsecutiveSuccesses = 0;
 let primaryApiHealthState = "unknown"; // unknown | healthy | unstable | degraded | recovering
 let lastPrimaryApiSuccessAt = 0;
+const CLIENT_FALLBACK_COOLDOWN_MS = 90_000;
+let lastClientFallbackAttemptAt = (() => {
+  try {
+    const value = Number(localStorage.getItem("wrsClientFallbackAttemptAtV1") || 0);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  } catch (_) { return 0; }
+})();
 // Monotonically increasing token: responses from a previous mode/request must never
 // overwrite the screen after the user switches between simulation and operation.
 let loadRequestId = 0;
@@ -417,7 +424,7 @@ async function fetchClientSide() {
   // ShakeMap gaps are searched on-demand when a BMKG/InaTEWS event lacks a map.
   let usgs = [];
   try {
-    const r = await fetch("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson?t=" + Date.now(), {
+    const r = await fetch("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson?t=" + Date.now(), {
       headers: UA, cache: "no-store", signal: AbortSignal.timeout(5000)
     });
     if (r.ok) {
@@ -2684,8 +2691,22 @@ async function load(showSpin, force = false) {
         // Setelah ambang gagal terlewati, coba BMKG, WRS lastQL, dan USGS.
         // Kegagalan feed WRS saja tidak sama dengan kegagalan API utama.
         const apiFailure = String(lastApiError?.message || lastApiError).slice(0, 120);
-        const fallback = await fetchClientSide();
-        if (Array.isArray(fallback.recent) && fallback.recent.length) {
+        // Direct upstream fallback can multiply public-feed traffic across devices.
+        // After the first emergency attempt, allow at most one client-side source sweep
+        // every 90 seconds per installation; meanwhile prefer the saved last-good data.
+        let fallback = null;
+        const now = Date.now();
+        if (now - lastClientFallbackAttemptAt >= CLIENT_FALLBACK_COOLDOWN_MS) {
+          lastClientFallbackAttemptAt = now;
+          try { localStorage.setItem("wrsClientFallbackAttemptAtV1", String(now)); } catch (_) {}
+          try { fallback = await fetchClientSide(); }
+          catch (fallbackError) {
+            console.warn("[WRS] Client-side emergency fallback failed:", String(fallbackError?.message || fallbackError).slice(0, 160));
+          }
+        } else {
+          console.warn("[WRS] Client-side fallback skipped during cooldown; reusing last-good catalogue.");
+        }
+        if (Array.isArray(fallback?.recent) && fallback.recent.length) {
           d = {
             ...fallback,
             // Client-side fallback has no server fetchedAt. Stamp the time this
