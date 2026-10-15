@@ -53,8 +53,10 @@ jobs:
           if (!Array.isArray(data.tsunamiHistory)) throw new Error("tsunamiHistory must be an array");
           if (!data.sources || typeof data.sources !== "object") throw new Error("Source health summary is missing");
           console.log("API refreshSeconds=" + String(data.refreshSeconds) + " fetchedAt=" + String(data.fetchedAt));
-          if (!Number.isFinite(Number(data.refreshSeconds)) || Number(data.refreshSeconds) > 10) {
-            throw new Error("API refresh interval must be 10 seconds or less; received " + String(data.refreshSeconds));
+          // The production API and client are intentionally aligned at 15 seconds
+          // to reduce duplicate catalogue work and protect the Cloudflare CPU budget.
+          if (!Number.isFinite(Number(data.refreshSeconds)) || Number(data.refreshSeconds) > 15 || Number(data.refreshSeconds) < 5) {
+            throw new Error("API refresh interval must be between 5 and 15 seconds; received " + String(data.refreshSeconds));
           }
           if (!data.sources?.wrs || typeof data.sources.wrs.ok !== "boolean") {
             throw new Error("WRS health status is missing");
