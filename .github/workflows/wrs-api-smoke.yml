@@ -9,6 +9,7 @@ on:
       - "index.html"
       - "sw.js"
       - "workers/push-cron.js"
+      - "workers/earthquake-stream.js"
       - ".github/workflows/wrs-api-smoke.yml"
   push:
     branches: [main]
@@ -16,6 +17,7 @@ on:
       - "functions/api/earthquakes.js"
       - "app.js"
       - "workers/push-cron.js"
+      - "workers/earthquake-stream.js"
       - ".github/workflows/wrs-api-smoke.yml"
   schedule:
     - cron: "*/15 * * * *"
@@ -40,8 +42,10 @@ jobs:
           node --check app.js
           cp functions/api/earthquakes.js /tmp/earthquakes.mjs
           cp workers/push-cron.js /tmp/push-cron.mjs
+          cp workers/earthquake-stream.js /tmp/earthquake-stream.mjs
           node --check /tmp/earthquakes.mjs
           node --check /tmp/push-cron.mjs
+          node --check /tmp/earthquake-stream.mjs
 
       - name: Check production API contract
         env:
@@ -101,4 +105,64 @@ jobs:
             wrsConnected: data.sources.wrs.ok,
             upstreamErrors: data.sources.errors || []
           }, null, 2));
+          NODE
+
+      - name: Check production SSE stream health and handshake
+        env:
+          STREAM_BASE_URL: https://wrs-gempa-stream.sansat6t5655.workers.dev
+        run: |
+          node --input-type=module <<'NODE'
+          const base = process.env.STREAM_BASE_URL;
+          const healthResponse = await fetch(base + "/health", {
+            headers: { accept: "application/json", "cache-control": "no-cache" },
+            signal: AbortSignal.timeout(10000)
+          });
+          if (!healthResponse.ok) throw new Error("SSE health HTTP " + healthResponse.status);
+          const health = await healthResponse.json();
+          if (health?.ok !== true) throw new Error("SSE health did not return ok=true");
+          if (Number(health.pollIntervalMs) !== 15000) {
+            throw new Error("Unexpected SSE poll interval: " + String(health.pollIntervalMs));
+          }
+          if (!Number.isInteger(health.activeClients) || health.activeClients < 0) {
+            throw new Error("SSE health activeClients is invalid");
+          }
+          console.log("SSE health " + JSON.stringify({
+            ok: health.ok,
+            activeClients: health.activeClients,
+            pollIntervalMs: health.pollIntervalMs,
+            lastPollAt: health.lastPollAt,
+            lastSuccessfulPollAt: health.lastSuccessfulPollAt,
+            version: health.version
+          }));
+
+          const controller = new AbortController();
+          const response = await fetch(base + "/events", {
+            headers: { accept: "text/event-stream", "cache-control": "no-cache" },
+            signal: controller.signal
+          });
+          if (!response.ok) throw new Error("SSE events HTTP " + response.status);
+          if (!String(response.headers.get("content-type") || "").includes("text/event-stream")) {
+            throw new Error("SSE endpoint returned the wrong content type");
+          }
+          if (!response.body) throw new Error("SSE response body is missing");
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let text = "";
+          const deadline = Date.now() + 5000;
+          try {
+            while (!text.includes("event: ready") && Date.now() < deadline) {
+              const part = await Promise.race([
+                reader.read(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error("Timed out waiting for SSE ready frame")), Math.max(1, deadline - Date.now())))
+              ]);
+              if (part.done) break;
+              text += decoder.decode(part.value, { stream: true });
+            }
+          } finally {
+            try { await reader.cancel(); } catch {}
+          }
+          if (!text.includes("event: ready")) {
+            throw new Error("SSE stream did not send its initial ready event");
+          }
+          console.log("SSE handshake passed");
           NODE
