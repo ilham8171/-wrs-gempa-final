@@ -114,6 +114,10 @@ function makeQuakePayload(q) {
     body: (q.place || "Lokasi tidak diketahui") + " · kedalaman " + (q.depth ?? "—") + " km",
     magnitude: Number(q.magnitude || 0),
     place: q.place || "",
+    depth: q.depth ?? "",
+    source: q.source || q.status || "BMKG/InaTEWS",
+    lat: q.lat ?? "",
+    lon: q.lon ?? "",
     time: q.time || new Date().toISOString(),
     tsunami: Boolean(q.usgsTsunamiFlag) || /berpotensi tsunami/i.test(q.potential || "") && !/tidak berpotensi tsunami/i.test(q.potential || ""),
     url: url.toString()
@@ -121,8 +125,7 @@ function makeQuakePayload(q) {
 }
 function activeTsunamiPayload(item, now) {
   if (!item || item.ended || item.official !== true || item.isTsunamiWarning !== true) return null;
-  // The API exposes the last-30 bulletin archive, not an "active now" feed.
-  // Only notify when CAP lifecycle fields prove this is a public live warning.
+  // tsunamiHistory is an archive; only announce a public, live CAP bulletin.
   const status = String(item.capStatus || "").trim().toLowerCase();
   const msgType = String(item.capMsgType || "").trim().toLowerCase();
   const scope = String(item.capScope || "").trim().toLowerCase();
@@ -155,12 +158,39 @@ async function listSubscriptions(kv) {
   } while (cursor);
   return all;
 }
+
+let fcmCachedToken = null;
+let fcmCachedExpiry = 0;
+function bytesToB64Url(bytes) { let binary=""; for(const b of bytes) binary+=String.fromCharCode(b); return btoa(binary).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,""); }
+async function fcmAccessToken(sa) {
+ if(fcmCachedToken && Date.now()<fcmCachedExpiry-60000) return fcmCachedToken;
+ const now=Math.floor(Date.now()/1000), encJson=v=>bytesToB64Url(enc.encode(JSON.stringify(v)));
+ const unsigned=encJson({alg:"RS256",typ:"JWT"})+"."+encJson({iss:sa.client_email,scope:"https://www.googleapis.com/auth/firebase.messaging",aud:sa.token_uri||"https://oauth2.googleapis.com/token",iat:now,exp:now+3600});
+ const pem=String(sa.private_key||"").replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g,"");
+ if(!pem) throw new Error("FCM private key missing");
+ const keyBytes=Uint8Array.from(atob(pem),c=>c.charCodeAt(0));
+ const key=await crypto.subtle.importKey("pkcs8",keyBytes,{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["sign"]);
+ const sig=new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5",key,enc.encode(unsigned)));
+ const tokenResponse=await fetch(sa.token_uri||"https://oauth2.googleapis.com/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({grant_type:"urn:ietf:params:oauth:grant-type:jwt-bearer",assertion:unsigned+"."+bytesToB64Url(sig)})});
+ const tokenJson=await tokenResponse.json();
+ if(!tokenResponse.ok||!tokenJson.access_token) throw new Error("FCM OAuth HTTP "+tokenResponse.status);
+ fcmCachedToken=tokenJson.access_token; fcmCachedExpiry=Date.now()+Number(tokenJson.expires_in||3600)*1000; return fcmCachedToken;
+}
+async function sendFcmTopic(sa,item) {
+ if(!sa.project_id) throw new Error("FCM project_id missing");
+ const token=await fcmAccessToken(sa);
+ const tsunami=Boolean(item.tsunami);
+ const data={title:String(item.title||"Peringatan WRS GEMPA"),body:String(item.body||"Ada pembaruan gempa."),category:tsunami?"tsunami":"big",type:tsunami?"tsunami":"big",key:String(item.key),quake_id:String(item.key),url:String(item.url||SITE),tsunami:tsunami?"true":"false",source:String(item.source||"BMKG/InaTEWS"),quake_source:String(item.source||"BMKG/InaTEWS"),quake_magnitude:String(item.magnitude??""),magnitude:String(item.magnitude??""),quake_place:String(item.place||""),place:String(item.place||""),quake_time:String(item.time||""),time:String(item.time||""),quake_depth:String(item.depth??""),depth:String(item.depth??""),lat:String(item.lat??""),lon:String(item.lon??"")};
+ const res=await fetch("https://fcm.googleapis.com/v1/projects/"+encodeURIComponent(sa.project_id)+"/messages:send",{method:"POST",headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},body:JSON.stringify({message:{topic:"wrs-gempa-alerts",notification:{title:String(item.title||"Peringatan WRS GEMPA"),body:String(item.body||"Ada pembaruan gempa.")},data,android:{priority:"HIGH",ttl:tsunami?"600s":"1800s",notification:{channel_id:tsunami?"wrs_tsunami_push_default_v1":"wrs_gempa_push_default_v1",tag:String(item.key||"wrs-gempa-alert").replace(/^tsunami\|/,"").slice(0,100)}}}})});
+ const responseText=await res.text(); if(!res.ok) throw new Error("FCM HTTP "+res.status+": "+responseText.slice(0,250)); return responseText;
+}
+
 async function runPush(env) {
   if (!env.PUSH_SUBSCRIPTIONS) {
     console.error("PUSH_SUBSCRIPTIONS KV binding is missing.");
     return;
   }
-  // VAPID configuration controls browser delivery only. It must not abort event processing.
+  // Web Push readiness must not block Android FCM.
   let privateJwk = null;
   let publicKey = null;
   try {
@@ -172,7 +202,7 @@ async function runPush(env) {
       privateJwk = JSON.parse(privateText);
       publicKey = publicText;
     } else {
-      console.warn("VAPID key pair is not initialized; Web Push delivery will be skipped.");
+      console.warn("VAPID keys unavailable; Web Push delivery will be skipped.");
     }
   } catch (error) {
     console.error("Web Push configuration unavailable:", error.message || error);
@@ -186,13 +216,10 @@ async function runPush(env) {
   const now = Date.now();
   const warnings = (Array.isArray(root.tsunamiHistory) ? root.tsunamiHistory : [])
     .map(item => activeTsunamiPayload(item, now)).filter(Boolean).slice(0, 1);
-  // Scheduled every minute: reject old catalog records so a delayed worker run
-  // cannot announce a historic earthquake as if it had just happened.
-  const MAX_QUAKE_ALERT_AGE_MS = 5 * 60 * 1000;
   const quakes = (Array.isArray(root.recent) ? root.recent : [])
     .filter(q => {
       const age = now - eventTime(q);
-      if (age < -60000 || age > MAX_QUAKE_ALERT_AGE_MS) return false;
+      if (age < -60000 || age > 10 * 60 * 1000) return false;
       const mag = Number(q.magnitude || 0);
       return isIndonesia(q) ? mag >= 3.0 : mag >= 5.0;
     })
@@ -202,7 +229,25 @@ async function runPush(env) {
   const events = [...warnings, ...quakes].filter((q, i, a) => a.findIndex(x => x.key === q.key) === i);
   if (!events.length) return;
 
-  // Skip only browser delivery when VAPID keys are unavailable; event selection still runs.
+  // Native Android topic push is sent separately from browser Web Push.
+  if (env.FCM_SERVICE_ACCOUNT_JSON) {
+    try {
+      const sa = JSON.parse(env.FCM_SERVICE_ACCOUNT_JSON);
+      const sentKey = SENT_PREFIX + "fcm-topic";
+      const previous = await env.PUSH_SUBSCRIPTIONS.get(sentKey, "json") || [];
+      const sent = new Set(Array.isArray(previous) ? previous : []);
+      for (const item of events) {
+        if (sent.has(item.key)) continue;
+        try { await sendFcmTopic(sa, item); sent.add(item.key); console.log("FCM accepted", item.key); }
+        catch (error) { console.error("FCM delivery failed", error.message || error); }
+      }
+      await env.PUSH_SUBSCRIPTIONS.put(sentKey, JSON.stringify(Array.from(sent).slice(-500)));
+    } catch (error) { console.error("FCM config error", error.message || error); }
+  } else {
+    console.warn("FCM_SERVICE_ACCOUNT_JSON secret missing; Android push disabled, browser push still runs.");
+  }
+
+  // Browser delivery is isolated: missing VAPID skips Web Push only, after FCM.
   if (!privateJwk || !publicKey) return;
   const subscriptions = await listSubscriptions(env.PUSH_SUBSCRIPTIONS);
   for (const entry of subscriptions) {
