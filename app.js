@@ -2002,8 +2002,8 @@ function showInitialEventPopup() {
   const key = String(felt.key || stableEventId(felt) || "");
   if (!key) return;
   try {
-    if (localStorage.getItem("wrsInitialFeltPopupSeenV1") === key) return;
-    localStorage.setItem("wrsInitialFeltPopupSeenV1", key);
+    if (localStorage.getItem("wrsInitialFeltPopupSeenV2") === key) return;
+    localStorage.setItem("wrsInitialFeltPopupSeenV2", key);
   } catch {}
   showCompactEventPopup(felt, "felt");
 }
