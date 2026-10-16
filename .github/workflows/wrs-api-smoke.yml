@@ -5,9 +5,12 @@ on:
   pull_request:
     paths:
       - "functions/api/earthquakes.js"
+      - "functions/api/push-feed.js"
       - "app.js"
       - "index.html"
+      - "styles.css"
       - "sw.js"
+      - ".github/scripts/verify-wrs-alert-contract.mjs"
       - "workers/push-cron.js"
       - "workers/earthquake-stream.js"
       - ".github/workflows/wrs-api-smoke.yml"
@@ -15,7 +18,12 @@ on:
     branches: [main]
     paths:
       - "functions/api/earthquakes.js"
+      - "functions/api/push-feed.js"
       - "app.js"
+      - "index.html"
+      - "styles.css"
+      - "sw.js"
+      - ".github/scripts/verify-wrs-alert-contract.mjs"
       - "workers/push-cron.js"
       - "workers/earthquake-stream.js"
       - ".github/workflows/wrs-api-smoke.yml"
@@ -41,11 +49,75 @@ jobs:
         run: |
           node --check app.js
           cp functions/api/earthquakes.js /tmp/earthquakes.mjs
+          cp functions/api/push-feed.js /tmp/push-feed.mjs
           cp workers/push-cron.js /tmp/push-cron.mjs
           cp workers/earthquake-stream.js /tmp/earthquake-stream.mjs
           node --check /tmp/earthquakes.mjs
+          node --check /tmp/push-feed.mjs
           node --check /tmp/push-cron.mjs
           node --check /tmp/earthquake-stream.mjs
+
+      - name: Check compact alert, tsunami priority, and cache contracts
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+
+          const [app, html, css, sw] = await Promise.all([
+            readFile("app.js", "utf8"),
+            readFile("index.html", "utf8"),
+            readFile("styles.css", "utf8"),
+            readFile("sw.js", "utf8")
+          ]);
+          const failures = [];
+          const check = (ok, message) => { if (!ok) failures.push(message); };
+
+          check(html.includes('id="wrsEventPopupOverlay"') &&
+                html.includes('id="wrsEventPopupClose"') &&
+                html.includes('id="wrsEventPopupDetails"'),
+                "Compact event popup markup/close/detail controls are missing.");
+          check(css.includes(".wrs-event-popup-card") &&
+                css.includes("max-height: min(68vh, 560px)") &&
+                css.includes(".wrs-event-popup-overlay.hidden"),
+                "Compact popup CSS must remain constrained and dismissible.");
+          check(app.includes("function showCompactEventPopup(q, kind)") &&
+                app.includes("function closeCompactEventPopup()"),
+                "Compact popup renderer/closer is missing.");
+          check(app.includes('capStatus !== "actual"') &&
+                app.includes('["alert", "update"].includes(msgType)') &&
+                app.includes("expiresAt <= now"),
+                "Tsunami popups must require current official CAP status and expiry.");
+          check(app.includes("function latestVerifiedActiveTsunamiWarning()") &&
+                app.includes("latestByBulletin"),
+                "Tsunami updates/cancellations must supersede older bulletin records.");
+          check(app.includes("function showInitialEventPopup()") &&
+                app.includes("showCompactEventPopup(tsunami, \"tsunami\")") &&
+                app.includes("showCompactEventPopup(felt, \"felt\")"),
+                "First-open popup must use compact tsunami/felt cards.");
+          const processStart = app.indexOf("function processNew()");
+          const statusStart = app.indexOf("\\nfunction status(", processStart);
+          const processBody = processStart >= 0 && statusStart > processStart
+            ? app.slice(processStart, statusStart) : "";
+          check(processBody && !processBody.includes("openTsunamiModal(q)"),
+                "New events must not force a full-screen tsunami modal.");
+          check(app.includes('params.get("quake") || params.get("event")'),
+                "Deep links using either quake= or event= must resolve.");
+          check(app.includes("quake-detail-star") &&
+                css.includes("@keyframes wrsDetailStarPulse") &&
+                css.includes("@keyframes wrsDetailStarRing"),
+                "Detail map should show a low-cost pulsing epicentre star.");
+          const appScript = html.match(/<script src="([^"]*app\\.js[^"]*)"/)?.[1] || "";
+          const cssLink = html.match(/<link rel="stylesheet" href="([^"]*styles\\.css[^"]*)"/)?.[1] || "";
+          check(appScript.length > 0 && sw.includes('"' + appScript.replace(/^\\//, "/") + '"'),
+                "Service worker shell must cache the current app.js URL.");
+          check(cssLink.length > 0 && sw.includes('"' + cssLink.replace(/^\\//, "/") + '"'),
+                "Service worker shell must cache the current stylesheet URL.");
+          if (failures.length) {
+            console.error(failures.map((failure, i) => (i + 1) + ". " + failure).join("\\n"));
+            process.exitCode = 1;
+          } else {
+            console.log("Compact popup, verified tsunami, event links, pulsing star, and cache contracts passed.");
+          }
+          NODE
 
       - name: Check production API contract
         env:
