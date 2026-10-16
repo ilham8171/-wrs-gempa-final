@@ -583,7 +583,9 @@ function pushQuakeEligible(q) {
 }
 
 async function fetchApiCatalogFallback(now) {
-  const url = new URL("/api/earthquakes", SITE);
+  // Use the purpose-built lightweight push endpoint instead of rebuilding the full web catalogue.
+  // The full /api/earthquakes route has recently returned HTTP 503 during fallback scans.
+  const url = new URL("/api/push-feed", SITE);
   url.searchParams.set("_push_fallback", String(now));
   const response = await fetch(url.toString(), {
     signal: AbortSignal.timeout(6500),
@@ -594,7 +596,7 @@ async function fetchApiCatalogFallback(now) {
     },
     cf: { cacheTtl: 0, cacheEverything: false }
   });
-  if (!response.ok) throw new Error("WRS API fallback HTTP " + response.status);
+  if (!response.ok) throw new Error("WRS push-feed fallback HTTP " + response.status);
   const payload = await response.json();
   if (payload?.ok !== true) throw new Error("WRS API fallback did not return ok=true");
 
@@ -675,8 +677,12 @@ async function runPush(env) {
     .map(item => activeTsunamiPayload(item, now)).filter(Boolean)
     .sort((a, b) => (Date.parse(b.capSent || b.time || "") || 0) - (Date.parse(a.capSent || a.time || "") || 0));
 
-  // Keep checking the normalized API for tsunami bulletin revisions even when an ordinary quake was also found.
-  if (!quakes.length || !warnings.length) {
+  // The direct XML feed is the first-line source for tsunami revisions. Only call the backup
+  // push endpoint if no direct quake is eligible or the direct tsunami feed failed; querying
+  // it solely because there is no active warning caused an unnecessary expensive request every minute.
+  const directTsunamiFeedFailed = Array.isArray(root.sources?.errors) &&
+    root.sources.errors.some(error => /InaTEWS tsunami/i.test(String(error)));
+  if (!quakes.length || directTsunamiFeedFailed) {
     fallbackDiagnostics.attempted = true;
     try {
       const fallback = await fetchApiCatalogFallback(now);
