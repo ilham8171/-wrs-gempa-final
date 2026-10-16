@@ -677,7 +677,8 @@ async function runPush(env) {
     .sort((a, b) => (Date.parse(b.capSent || b.time || "") || 0) - (Date.parse(a.capSent || a.time || "") || 0))
     .slice(0, 3);
 
-  if (!quakes.length && !warnings.length) {
+  // Keep checking the normalized API for tsunami bulletin revisions even when an ordinary quake was also found.
+  if (!quakes.length || !warnings.length) {
     fallbackDiagnostics.attempted = true;
     try {
       const fallback = await fetchApiCatalogFallback(now);
