@@ -60,11 +60,13 @@ jobs:
           node --input-type=module <<'NODE'
           import { readFile } from "node:fs/promises";
 
-          const [app, html, css, sw] = await Promise.all([
+          const [app, html, css, sw, pushWorker, pushFeed] = await Promise.all([
             readFile("app.js", "utf8"),
             readFile("index.html", "utf8"),
             readFile("styles.css", "utf8"),
-            readFile("sw.js", "utf8")
+            readFile("sw.js", "utf8"),
+            readFile("workers/push-cron.js", "utf8"),
+            readFile("functions/api/push-feed.js", "utf8")
           ]);
           const failures = [];
           const check = (ok, message) => { if (!ok) failures.push(message); };
@@ -103,6 +105,18 @@ jobs:
                 css.includes("@keyframes wrsDetailStarPulse") &&
                 css.includes("@keyframes wrsDetailStarRing"),
                 "Detail map should show a low-cost pulsing epicentre star.");
+          check(pushWorker.includes("summary/all_day.geojson") &&
+                pushWorker.includes("if (magnitude < 5.0) return null;") &&
+                pushFeed.includes("USGS supplements BMKG/InaTEWS globally at M5.0+, including Indonesia."),
+                "USGS push threshold must be M5+ worldwide and use a broad-enough one-day feed.");
+          check(pushWorker.includes("function fetchApiCatalogFallback(now)") &&
+                pushWorker.includes("apiFallback: fallbackDiagnostics") &&
+                pushWorker.includes("return isIndonesia(q) ? magnitude >= 3.0 : magnitude >= 5.0;"),
+                "Push worker must fall back to the normalized API and log eligibility diagnostics.");
+          check(pushWorker.includes('["alert", "update", "cancel"].includes(msgType)') &&
+                pushWorker.includes("cap_sent:String(item.capSent||item.timesent||") &&
+                pushWorker.includes("PERINGATAN TSUNAMI BERAKHIR/DICABUT"),
+                "Push worker must forward every distinct official tsunami CAP update through cancellation.");
           const appScript = html.match(/<script src="([^"]*app.js[^"]*)"/)?.[1] || "";
           const cssLink = html.match(/<link rel="stylesheet" href="([^"]*styles.css[^"]*)"/)?.[1] || "";
           check(appScript.length > 0 && sw.includes('"' + appScript + '"'),
@@ -113,7 +127,7 @@ jobs:
             console.error(failures.map((failure, i) => (i + 1) + ". " + failure).join("\n"));
             process.exitCode = 1;
           } else {
-            console.log("Compact popup, verified tsunami, event links, pulsing star, and cache contracts passed.");
+            console.log("Compact popup, live push fallback, M3/M5 thresholds, tsunami CAP revisions, event links, pulsing star, and cache contracts passed.");
           }
           NODE
 
