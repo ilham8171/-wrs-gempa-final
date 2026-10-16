@@ -1,7 +1,7 @@
 const SITE = "https://wrs-gempa-final.pages.dev";
 const SUB_PREFIX = "sub:";
 const SENT_PREFIX = "sent:";
-const MAX_EVENTS_PER_RUN = 5;
+const MAX_EVENTS_PER_RUN = 25;
 
 const enc = new TextEncoder();
 const b64u = (bytes) => {
@@ -102,7 +102,13 @@ function isFeltBmkgReport(q) {
   return !!felt && !/^(?:—|-|tidak ada|none|n\/a|tidak dirasakan)$/i.test(felt) && !/tidak dirasakan/i.test(felt);
 }
 function eventTime(q) {
-  let raw = String(q.time || q.timesent || "").trim();
+  const rawValue = q?.time ?? q?.timesent ?? "";
+  if (typeof rawValue === "number" || (typeof rawValue === "string" && /^\\d{10,13}$/.test(rawValue.trim()))) {
+    const numeric = Number(rawValue);
+    const milliseconds = numeric < 100_000_000_000 ? numeric * 1000 : numeric;
+    return Number.isFinite(milliseconds) ? milliseconds : 0;
+  }
+  let raw = String(rawValue).trim();
   if (!raw) return 0;
   const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
   if (!hasTimezone && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(raw)) {
@@ -137,27 +143,63 @@ function makeQuakePayload(q) {
   };
 }
 function activeTsunamiPayload(item, now) {
-  if (!item || item.ended || item.official !== true || item.isTsunamiWarning !== true) return null;
-  // tsunamiHistory is an archive; only announce a public, live CAP bulletin.
+  if (!item || item.official !== true || item.isTsunamiWarning !== true) return null;
+
+  // An archived tsunami event isn't automatically active. Require a genuine current
+  // CAP message; pass cancellation/all-clear bulletins through as explicit updates.
   const status = String(item.capStatus || "").trim().toLowerCase();
   const msgType = String(item.capMsgType || "").trim().toLowerCase();
   const scope = String(item.capScope || "").trim().toLowerCase();
-  const expiresAt = Date.parse(item.expires || "");
-  if (status !== "actual" || !["alert", "update"].includes(msgType) ||
-      (scope && scope !== "public") || !Number.isFinite(expiresAt) || expiresAt <= now) return null;
-  const text = [item.subject, item.headline, item.potential].join(" ").toLowerCase();
-  const negative = text.includes("tidak berpotensi tsunami") || text.includes("tidak ada peringatan") || text.includes("no tsunami");
-  if (negative || !(text.includes("warning tsunami") || text.includes("peringatan dini tsunami") || text.includes("berpotensi tsunami"))) return null;
-  const key = "tsunami|" + String(item.key || item.eventid || item.timesent || item.time);
+  const sentText = String(item.timesent || item.sent || item.updated || "");
+  const sentAt = Date.parse(sentText);
+  const sentAge = Number.isFinite(sentAt) ? now - sentAt : Infinity;
+  const text = [item.subject, item.headline, item.potential, item.description, item.instruction]
+    .filter(Boolean).join(" ").toLowerCase();
+  const ended = item.ended === true || status === "cancel" || msgType === "cancel" ||
+    /berakhir|dicabut|all[\\s-]?clear|cancelled|canceled|cancel warning|peringatan telah diakhiri/i.test(text);
+
+  if (status !== "actual" || !["alert", "update", "cancel"].includes(msgType) ||
+      (scope && scope !== "public") || !Number.isFinite(sentAt) ||
+      sentAge < -60_000 || sentAge > 24 * 60 * 60 * 1000) return null;
+
+  const expiresAt = Date.parse(String(item.expires || ""));
+  if (!ended && Number.isFinite(expiresAt) && expiresAt <= now) return null;
+  if (!ended && !Number.isFinite(expiresAt) && sentAge > 60 * 60 * 1000) return null;
+
+  if (!ended) {
+    const negative = /tidak berpotensi tsunami|tidak ada peringatan|no tsunami|tidak berlaku/i.test(text);
+    const positive = /warning tsunami|peringatan dini tsunami|berpotensi tsunami|tsunami warning/i.test(text);
+    if (negative || !positive) return null;
+  }
+
+  const identifier = String(item.capIdentifier || item.eventid || item.key || sentText || item.time || "");
+  const bulletinSent = sentText || new Date(now).toISOString();
   const url = new URL("/", SITE);
   url.searchParams.set("tab", "tsunami");
   return {
-    key,
-    title: "PERINGATAN TSUNAMI • WRS GEMPA",
-    body: String(item.headline || item.subject || item.potential || "Periksa instruksi resmi BMKG/InaTEWS"),
+    key: "tsunami|" + identifier + "|sent=" + bulletinSent + "|type=" + msgType,
+    title: ended
+      ? "PERINGATAN TSUNAMI BERAKHIR/DICABUT • WRS GEMPA"
+      : msgType === "update"
+        ? "PEMBARUAN PERINGATAN TSUNAMI • WRS GEMPA"
+        : "PERINGATAN TSUNAMI • WRS GEMPA",
+    body: [item.headline || item.subject || (ended
+      ? "Buletin resmi menyatakan peringatan tsunami berakhir atau dicabut."
+      : "Periksa instruksi resmi BMKG/InaTEWS."), item.instruction]
+      .filter(Boolean).join("\\n"),
     magnitude: Number(item.magnitude || 0),
-    time: item.time || item.timesent || new Date().toISOString(),
+    time: item.time || bulletinSent,
     tsunami: true,
+    alertState: ended ? "ended" : msgType === "update" ? "update" : "active",
+    capStatus: status,
+    capMsgType: msgType,
+    capSent: bulletinSent,
+    capExpires: String(item.expires || ""),
+    capPd: String(item.pd || ""),
+    capIdentifier: identifier,
+    capReferences: String(item.references || ""),
+    source: "InaTEWS",
+    place: String(item.place || "Indonesia"),
     url: url.toString()
   };
 }
@@ -197,7 +239,7 @@ async function sendFcmTopic(sa,item) {
  const tsunami=Boolean(item.tsunami);
  const felt=!tsunami && String(item.category||"").toLowerCase()==="felt";
  const category=tsunami?"tsunami":felt?"felt":"big";
- const data={title:String(item.title||"Peringatan WRS GEMPA"),body:String(item.body||"Ada pembaruan gempa."),category,type:category,key:String(item.key),quake_id:String(item.key),url:String(item.url||SITE),tsunami:tsunami?"true":"false",source:String(item.source||"BMKG/InaTEWS"),delivery_note:String(item.deliveryNote||""),quake_source:String(item.source||"BMKG/InaTEWS"),quake_magnitude:String(item.magnitude??""),magnitude:String(item.magnitude??""),quake_place:String(item.place||""),place:String(item.place||""),quake_time:String(item.time||""),time:String(item.time||""),quake_depth:String(item.depth??""),depth:String(item.depth??""),quake_felt:String(item.felt||""),felt:String(item.felt||""),lat:String(item.lat??""),lon:String(item.lon??"")};
+ const data={title:String(item.title||"Peringatan WRS GEMPA"),body:String(item.body||"Ada pembaruan gempa."),category,type:category,key:String(item.key),quake_id:String(item.key),url:String(item.url||SITE),tsunami:tsunami?"true":"false",alert_state:String(item.alertState||""),cap_status:String(item.capStatus||""),cap_msg_type:String(item.capMsgType||""),cap_sent:String(item.capSent||item.timesent||""),cap_expires:String(item.capExpires||item.expires||""),cap_pd:String(item.capPd||item.pd||""),cap_identifier:String(item.capIdentifier||item.eventid||""),cap_references:String(item.capReferences||item.references||""),source:String(item.source||"BMKG/InaTEWS"),delivery_note:String(item.deliveryNote||""),quake_source:String(item.source||"BMKG/InaTEWS"),quake_magnitude:String(item.magnitude??""),magnitude:String(item.magnitude??""),quake_place:String(item.place||""),place:String(item.place||""),quake_time:String(item.time||""),time:String(item.time||""),quake_depth:String(item.depth??""),depth:String(item.depth??""),quake_felt:String(item.felt||""),felt:String(item.felt||""),lat:String(item.lat??""),lon:String(item.lon??"")};
  const res=await fetch("https://fcm.googleapis.com/v1/projects/"+encodeURIComponent(sa.project_id)+"/messages:send",{method:"POST",headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},body:JSON.stringify({message:{topic:"wrs-gempa-alerts",data,android:{priority:"HIGH",ttl:tsunami?"600s":"1800s"}}})});
  const responseText=await res.text(); if(!res.ok) throw new Error("FCM HTTP "+res.status+": "+responseText.slice(0,250)); return responseText;
 }
@@ -208,7 +250,7 @@ const PUSH_BMKG_URLS = [
   "https://data.bmkg.go.id/DataMKG/TEWS/gempadirasakan.json"
 ];
 const PUSH_WRS_LIVE_URL = "https://bmkg-content-inatews.storage.googleapis.com/lastQL.json";
-const PUSH_USGS_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson";
+const PUSH_USGS_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson";
 const PUSH_TSUNAMI_URL = "https://cdn.bmkg.go.id/last30tsunamievent.xml";
 
 async function pushFetchResponse(url, label, cacheSeconds = 30, timeoutMs = 4500, xml = false) {
@@ -346,8 +388,9 @@ function mapPushUsgsFeature(feature) {
   const lat = pushParseNumber(coordinates[1]);
   const time = normalizePushTime(props.time);
   if (!Number.isFinite(magnitude) || !pushValidCoordinates(lat, lon) || !time) return null;
-  const indonesia = lat >= -11 && lat <= 6.5 && lon >= 94 && lon <= 141.5;
-  if (indonesia ? magnitude < 3.0 : magnitude < 5.0) return null;
+  // USGS is a secondary/global source. Only M5.0+ events trigger USGS push alerts,
+  // including events inside Indonesia; Indonesian M3+ priority belongs to BMKG/InaTEWS.
+  if (magnitude < 5.0) return null;
   const id = String(feature.id || props.code || time + "|" + lat + "|" + lon);
   return {
     key: "usgs|" + id + "|M=" + magnitude.toFixed(1),
@@ -406,6 +449,9 @@ function parsePushTsunamiXml(xml) {
       records.push({
         key: "tsunami|" + (identifier || timesent || subject),
         eventid: identifier || timesent || subject,
+        capIdentifier: identifier || timesent || subject,
+        references: pushXmlValue(parent, "references") || read("references"),
+        pd: ((subject + " " + headline + " " + description).match(/PD[-\\s]?([\\d.]+)/i) || [])[1] || "",
         timesent,
         time: read("effective") || timesent,
         expires,
@@ -527,6 +573,70 @@ async function fetchDirectPushRoot() {
     }
   };
 }
+function pushQuakeEligible(q) {
+  const magnitude = Number(q?.magnitude || 0);
+  const source = String(q?.source || q?.status || "").toUpperCase();
+  if (source.includes("USGS")) return magnitude >= 5.0;
+  const recognized = q?.official === true || /BMKG|INATEWS/.test(source) || q?.wrsRealtime === true;
+  if (!recognized) return false;
+  return isIndonesia(q) ? (magnitude >= 3.0 || isFeltBmkgReport(q)) : magnitude >= 5.0;
+}
+
+async function fetchApiCatalogFallback(now) {
+  const url = new URL("/api/earthquakes", SITE);
+  url.searchParams.set("_push_fallback", String(now));
+  const response = await fetch(url.toString(), {
+    signal: AbortSignal.timeout(6500),
+    headers: {
+      accept: "application/json",
+      "cache-control": "no-cache, no-store",
+      pragma: "no-cache"
+    },
+    cf: { cacheTtl: 0, cacheEverything: false }
+  });
+  if (!response.ok) throw new Error("WRS API fallback HTTP " + response.status);
+  const payload = await response.json();
+  if (payload?.ok !== true) throw new Error("WRS API fallback did not return ok=true");
+
+  const candidates = [
+    ...(Array.isArray(payload.realtimeEvents) ? payload.realtimeEvents : []),
+    ...(payload.official && typeof payload.official === "object" ? [payload.official] : []),
+    ...(Array.isArray(payload.recent) ? payload.recent : [])
+  ];
+  const eligible = [];
+  for (const item of candidates) {
+    const magnitude = pushParseNumber(item?.magnitude ?? item?.Magnitude ?? item?.mag);
+    const lat = pushParseNumber(item?.lat ?? item?.latitude);
+    const lon = pushParseNumber(item?.lon ?? item?.longitude);
+    const time = normalizePushTime(item?.time ?? item?.timesent ?? item?.DateTime ?? item?.datetime ?? item?.timestamp);
+    if (!Number.isFinite(magnitude) || !pushValidCoordinates(lat, lon) || !time) continue;
+    const normalized = {
+      ...item,
+      key: String(item.key || item.eventid || item.id || [time, lat, lon, magnitude].join("|")),
+      magnitude, lat, lon, time,
+      source: String(item.source || item.status || ""),
+      official: item.official === true,
+      felt: String(item.felt || item.Dirasakan || "")
+    };
+    const age = now - eventTime(normalized);
+    if (age < -60_000 || age > 30 * 60 * 1000 || !pushQuakeEligible(normalized)) continue;
+    if (eligible.some(previous => previous.key === normalized.key || pushSameEvent(previous, normalized))) continue;
+    eligible.push(normalized);
+  }
+  eligible.sort((a, b) => pushPriority(b) - pushPriority(a) || eventTime(b) - eventTime(a));
+  return {
+    recent: eligible.slice(0, 150),
+    tsunamiHistory: Array.isArray(payload.tsunamiHistory) ? payload.tsunamiHistory : [],
+    diagnostics: {
+      fetchedAt: String(payload.fetchedAt || ""),
+      recentCandidates: Array.isArray(payload.recent) ? payload.recent.length : 0,
+      realtimeCandidates: Array.isArray(payload.realtimeEvents) ? payload.realtimeEvents.length : 0,
+      eligibleFresh: eligible.length,
+      tsunamiCandidates: Array.isArray(payload.tsunamiHistory) ? payload.tsunamiHistory.length : 0
+    }
+  };
+}
+
 async function runPush(env) {
   if (!env.PUSH_SUBSCRIPTIONS) {
     console.error("PUSH_SUBSCRIPTIONS KV binding is missing.");
@@ -550,23 +660,58 @@ async function runPush(env) {
     console.error("Web Push configuration unavailable:", error.message || error);
   }
   const subject = SITE;
-  const root = await fetchDirectPushRoot();
+  let root = await fetchDirectPushRoot();
   const feedUsed = "direct-upstream-feeds";
   const now = Date.now();
-  const warnings = (Array.isArray(root.tsunamiHistory) ? root.tsunamiHistory : [])
-    .map(item => activeTsunamiPayload(item, now)).filter(Boolean).slice(0, 1);
-  const quakes = (Array.isArray(root.recent) ? root.recent : [])
+  let fallbackDiagnostics = { attempted: false, ok: false, eligibleFresh: 0 };
+  const selectQuakes = value => (Array.isArray(value?.recent) ? value.recent : [])
     .filter(q => {
       const age = now - eventTime(q);
-      if (age < -60000 || age > 30 * 60 * 1000) return false;
-      const mag = Number(q.magnitude || 0);
-      const feltReport = isFeltBmkgReport(q);
-      // Official BMKG felt reports are push-worthy even when below the normal M3 Indonesia threshold.
-      return isIndonesia(q) ? (mag >= 3.0 || feltReport) : mag >= 5.0;
+      return age >= -60_000 && age <= 30 * 60 * 1000 && pushQuakeEligible(q);
     })
-    .sort((a,b) => eventTime(b)-eventTime(a))
-    .slice(0, MAX_EVENTS_PER_RUN)
-    .map(q => {
+    .sort((a, b) => eventTime(b) - eventTime(a))
+    .slice(0, MAX_EVENTS_PER_RUN);
+  let quakes = selectQuakes(root);
+  let warnings = (Array.isArray(root.tsunamiHistory) ? root.tsunamiHistory : [])
+    .map(item => activeTsunamiPayload(item, now)).filter(Boolean)
+    .sort((a, b) => (Date.parse(b.capSent || b.time || "") || 0) - (Date.parse(a.capSent || a.time || "") || 0))
+    .slice(0, 3);
+
+  if (!quakes.length && !warnings.length) {
+    fallbackDiagnostics.attempted = true;
+    try {
+      const fallback = await fetchApiCatalogFallback(now);
+      fallbackDiagnostics = { attempted: true, ok: true, ...fallback.diagnostics };
+      const merged = [...(Array.isArray(root.recent) ? root.recent : []), ...fallback.recent]
+        .filter(q => {
+          const age = now - eventTime(q);
+          return age >= -60_000 && age <= 30 * 60 * 1000;
+        })
+        .sort((a, b) => pushPriority(b) - pushPriority(a) || eventTime(b) - eventTime(a));
+      const unique = [];
+      for (const item of merged) {
+        if (unique.some(previous => previous.key === item.key || pushSameEvent(previous, item))) continue;
+        unique.push(item);
+        if (unique.length >= 150) break;
+      }
+      root.recent = unique;
+      quakes = selectQuakes(root);
+      if (!warnings.length) {
+        warnings = fallback.tsunamiHistory
+          .map(item => activeTsunamiPayload(item, now)).filter(Boolean)
+          .sort((a, b) => (Date.parse(b.capSent || b.time || "") || 0) - (Date.parse(a.capSent || a.time || "") || 0))
+          .slice(0, 3);
+      }
+    } catch (error) {
+      fallbackDiagnostics = {
+        attempted: true,
+        ok: false,
+        error: String(error?.message || error).slice(0, 180)
+      };
+      console.warn("WRS API fallback unavailable:", fallbackDiagnostics.error);
+    }
+  }
+  quakes = quakes.map(q => {
       const payload = makeQuakePayload(q);
       const ageMs = now - eventTime(q);
       if (ageMs > 5 * 60 * 1000) {
@@ -581,8 +726,10 @@ async function runPush(env) {
     fetchedAt: root.fetchedAt || null,
     catalogCount: Array.isArray(root.recent) ? root.recent.length : 0,
     eligibleQuakes: quakes.length,
-    activeTsunamiWarnings: warnings.length,
+    activeOrEndedTsunamiBulletins: warnings.length,
     pendingUnique: events.length,
+    directDiagnostics: root.diagnostics || {},
+    apiFallback: fallbackDiagnostics,
     feedErrors: Array.isArray(root.sources && root.sources.errors) ? root.sources.errors.slice(0, 4) : []
   }));
   if (!events.length) return;
