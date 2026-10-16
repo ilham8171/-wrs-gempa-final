@@ -669,8 +669,7 @@ async function runPush(env) {
       const age = now - eventTime(q);
       return age >= -60_000 && age <= 30 * 60 * 1000 && pushQuakeEligible(q);
     })
-    .sort((a, b) => eventTime(b) - eventTime(a))
-    .slice(0, MAX_EVENTS_PER_RUN);
+    .sort((a, b) => eventTime(b) - eventTime(a));
   let quakes = selectQuakes(root);
   let warnings = (Array.isArray(root.tsunamiHistory) ? root.tsunamiHistory : [])
     .map(item => activeTsunamiPayload(item, now)).filter(Boolean)
@@ -742,8 +741,10 @@ async function runPush(env) {
       const sentKey = SENT_PREFIX + "fcm-topic";
       const previous = await env.PUSH_SUBSCRIPTIONS.get(sentKey, "json") || [];
       const sent = new Set(Array.isArray(previous) ? previous : []);
-      for (const item of events) {
-        if (sent.has(item.key)) continue;
+      // Apply the per-run cap only AFTER removing already-sent events. Otherwise the same
+      // newest batch can starve older still-unsent events on every minute tick.
+      const pendingFcm = events.filter(item => !sent.has(item.key)).slice(0, MAX_EVENTS_PER_RUN);
+      for (const item of pendingFcm) {
         try { await sendFcmTopic(sa, item); sent.add(item.key); console.log("FCM accepted", item.key); }
         catch (error) { console.error("FCM delivery failed", error.message || error); }
       }
