@@ -109,6 +109,9 @@ jobs:
                 pushWorker.includes("if (magnitude < 5.0) return null;") &&
                 pushFeed.includes("USGS supplements BMKG/InaTEWS globally at M5.0+, including Indonesia."),
                 "USGS push threshold must be M5+ worldwide and use a broad-enough one-day feed.");
+          check(pushWorker.includes('new URL("/api/push-feed", SITE)') &&
+                !pushWorker.includes('new URL("/api/earthquakes", SITE)'),
+                "Push fallback must use the lightweight push-feed endpoint, not the full catalogue API.");
           check(pushWorker.includes("function fetchApiCatalogFallback(now)") &&
                 pushWorker.includes("apiFallback: fallbackDiagnostics") &&
                 pushWorker.includes("return isIndonesia(q) ? magnitude >= 3.0 : magnitude >= 5.0;"),
