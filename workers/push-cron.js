@@ -673,8 +673,7 @@ async function runPush(env) {
   let quakes = selectQuakes(root);
   let warnings = (Array.isArray(root.tsunamiHistory) ? root.tsunamiHistory : [])
     .map(item => activeTsunamiPayload(item, now)).filter(Boolean)
-    .sort((a, b) => (Date.parse(b.capSent || b.time || "") || 0) - (Date.parse(a.capSent || a.time || "") || 0))
-    .slice(0, 3);
+    .sort((a, b) => (Date.parse(b.capSent || b.time || "") || 0) - (Date.parse(a.capSent || a.time || "") || 0));
 
   // Keep checking the normalized API for tsunami bulletin revisions even when an ordinary quake was also found.
   if (!quakes.length || !warnings.length) {
@@ -699,8 +698,7 @@ async function runPush(env) {
       if (!warnings.length) {
         warnings = fallback.tsunamiHistory
           .map(item => activeTsunamiPayload(item, now)).filter(Boolean)
-          .sort((a, b) => (Date.parse(b.capSent || b.time || "") || 0) - (Date.parse(a.capSent || a.time || "") || 0))
-          .slice(0, 3);
+          .sort((a, b) => (Date.parse(b.capSent || b.time || "") || 0) - (Date.parse(a.capSent || a.time || "") || 0));
       }
     } catch (error) {
       fallbackDiagnostics = {
