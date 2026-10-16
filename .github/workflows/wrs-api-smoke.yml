@@ -10,7 +10,6 @@ on:
       - "index.html"
       - "styles.css"
       - "sw.js"
-      - ".github/scripts/verify-wrs-alert-contract.mjs"
       - "workers/push-cron.js"
       - "workers/earthquake-stream.js"
       - ".github/workflows/wrs-api-smoke.yml"
@@ -23,7 +22,6 @@ on:
       - "index.html"
       - "styles.css"
       - "sw.js"
-      - ".github/scripts/verify-wrs-alert-contract.mjs"
       - "workers/push-cron.js"
       - "workers/earthquake-stream.js"
       - ".github/workflows/wrs-api-smoke.yml"
@@ -94,7 +92,7 @@ jobs:
                 app.includes("showCompactEventPopup(felt, \"felt\")"),
                 "First-open popup must use compact tsunami/felt cards.");
           const processStart = app.indexOf("function processNew()");
-          const statusStart = app.indexOf("\\nfunction status(", processStart);
+          const statusStart = app.indexOf("\nfunction status(", processStart);
           const processBody = processStart >= 0 && statusStart > processStart
             ? app.slice(processStart, statusStart) : "";
           check(processBody && !processBody.includes("openTsunamiModal(q)"),
@@ -112,7 +110,7 @@ jobs:
           check(cssLink.length > 0 && sw.includes('"' + cssLink.replace(/^\\//, "/") + '"'),
                 "Service worker shell must cache the current stylesheet URL.");
           if (failures.length) {
-            console.error(failures.map((failure, i) => (i + 1) + ". " + failure).join("\\n"));
+            console.error(failures.map((failure, i) => (i + 1) + ". " + failure).join("\n"));
             process.exitCode = 1;
           } else {
             console.log("Compact popup, verified tsunami, event links, pulsing star, and cache contracts passed.");
