@@ -60,8 +60,9 @@ function filterGlobalUsgsFeatures(value) {
       const coordinates = feature?.geometry?.coordinates || [];
       const lat = num(coordinates[1]);
       const lon = num(coordinates[0]);
+      // USGS supplements BMKG/InaTEWS globally at M5.0+, including Indonesia.
       return Number(feature?.properties?.mag) >= 5 &&
-        validCoordinates(lat, lon) && !isIndonesiaArea(lat, lon);
+        validCoordinates(lat, lon);
     })
   };
 }
