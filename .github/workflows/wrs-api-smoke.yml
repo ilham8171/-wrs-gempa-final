@@ -105,9 +105,9 @@ jobs:
                 "Detail map should show a low-cost pulsing epicentre star.");
           const appScript = html.match(/<script src="([^"]*app\\.js[^"]*)"/)?.[1] || "";
           const cssLink = html.match(/<link rel="stylesheet" href="([^"]*styles\\.css[^"]*)"/)?.[1] || "";
-          check(appScript.length > 0 && sw.includes('"' + appScript.replace(/^\\//, "/") + '"'),
+          check(appScript.length > 0 && sw.includes('"' + appScript + '"'),
                 "Service worker shell must cache the current app.js URL.");
-          check(cssLink.length > 0 && sw.includes('"' + cssLink.replace(/^\\//, "/") + '"'),
+          check(cssLink.length > 0 && sw.includes('"' + cssLink + '"'),
                 "Service worker shell must cache the current stylesheet URL.");
           if (failures.length) {
             console.error(failures.map((failure, i) => (i + 1) + ". " + failure).join("\n"));
