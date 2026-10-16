@@ -579,7 +579,7 @@ function pushQuakeEligible(q) {
   if (source.includes("USGS")) return magnitude >= 5.0;
   const recognized = q?.official === true || /BMKG|INATEWS/.test(source) || q?.wrsRealtime === true;
   if (!recognized) return false;
-  return isIndonesia(q) ? (magnitude >= 3.0 || isFeltBmkgReport(q)) : magnitude >= 5.0;
+  return isIndonesia(q) ? magnitude >= 3.0 : magnitude >= 5.0;
 }
 
 async function fetchApiCatalogFallback(now) {
