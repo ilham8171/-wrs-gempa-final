@@ -5,12 +5,12 @@
  * - API requests remain network-only; cached earthquake data is handled by the app itself.
  * - Push notification handling is preserved.
  */
-const CACHE_NAME = "wrs-gempa-shell-v10-0-4";
+const CACHE_NAME = "wrs-gempa-shell-v10-0-5";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/offline.html",
-  "/styles.css?v=20261013-11",
+  "/styles.css?v=20261016-alert-ui-1",
   "/ui-refresh.css",
   "/app.js?v=20261016-alert-modal-1",
   "/ai-chat.js?v=20261014-2",

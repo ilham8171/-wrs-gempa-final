@@ -1155,13 +1155,13 @@ function renderOfficial(q) {
   if (officialCoordinates) {
     miniMap.setView(officialCoordinates, 6);
     if (miniMarker) miniMap.removeLayer(miniMarker);
-    const miniSize = Math.max(12, Math.min(18, Math.round(9 + Number(q.magnitude || 0))));
+    const starSize = Math.max(22, Math.min(30, Math.round(19 + Number(q.magnitude || 0))));
     miniMarker = L.marker(officialCoordinates, {
       icon: L.divIcon({
-        className: "quake-marker-wrap",
-        html: '<span class="quake-diamond is-latest" style="--quake-fill:' + magColor(q.magnitude) + ';--quake-edge:' + depthColor(q.depth) + ';--quake-size:' + miniSize + 'px" aria-hidden="true"></span>',
-        iconSize: [miniSize + 8, miniSize + 8],
-        iconAnchor: [(miniSize + 8) / 2, (miniSize + 8) / 2]
+        className: "quake-marker-wrap quake-detail-star-wrap",
+        html: '<span class="quake-detail-star" style="--quake-star-size:' + starSize + 'px" aria-label="Episenter gempa">★</span>',
+        iconSize: [starSize + 18, starSize + 18],
+        iconAnchor: [(starSize + 18) / 2, (starSize + 18) / 2]
       }),
       keyboard: false,
       interactive: false
@@ -1854,16 +1854,13 @@ function hasWrsEventDeepLink() {
     (params.has("lat") && params.has("lon"));
 }
 
-// Hanya CAP resmi yang masih berlaku yang boleh mengambil prioritas sebagai peringatan aktif.
-// Riwayat tsunami biasa, flag USGS, dan buletin yang sudah kedaluwarsa tidak dianggap aktif.
 function isVerifiedActiveTsunamiWarning(q, now = Date.now()) {
   if (!q || q.source !== "InaTEWS" || q.official !== true ||
       q.isTsunamiWarning !== true || isTsunamiEnded(q)) return false;
   const capStatus = String(q.capStatus || "").trim().toLowerCase();
   const msgType = String(q.capMsgType || "").trim().toLowerCase();
   if (capStatus !== "actual" || !["alert", "update"].includes(msgType)) return false;
-  const expiryRaw = String(q.expires || "").trim();
-  const expiresAt = expiryRaw ? Date.parse(expiryRaw) : NaN;
+  const expiresAt = Date.parse(String(q.expires || ""));
   if (!Number.isFinite(expiresAt) || expiresAt <= now) return false;
   const sentAt = [q.timesent, q.time]
     .map(value => Date.parse(String(value || "")))
@@ -1871,12 +1868,29 @@ function isVerifiedActiveTsunamiWarning(q, now = Date.now()) {
   return Number.isFinite(sentAt) && sentAt <= now && now - sentAt <= 6 * 60 * 60 * 1000;
 }
 
+function tsunamiBulletinGroupKey(q) {
+  const pd = String(q?.pd || "").trim();
+  const place = String(q?.place || "").trim().toLowerCase();
+  if (pd) return "pd|" + pd + "|" + place;
+  return "event|" + String(q?.eventid || q?.key || place || "");
+}
+
 function latestVerifiedActiveTsunamiWarning() {
-  return (Array.isArray(tsunamiHistory) ? tsunamiHistory : [])
+  const latestByBulletin = new Map();
+  for (const q of (Array.isArray(tsunamiHistory) ? tsunamiHistory : [])) {
+    if (!q || typeof q !== "object") continue;
+    const key = tsunamiBulletinGroupKey(q);
+    if (!key) continue;
+    const time = Date.parse(String(q.timesent || q.time || "")) || 0;
+    const previous = latestByBulletin.get(key);
+    const previousTime = Date.parse(String(previous?.timesent || previous?.time || "")) || 0;
+    if (!previous || time >= previousTime) latestByBulletin.set(key, q);
+  }
+  return [...latestByBulletin.values()]
     .filter(q => isVerifiedActiveTsunamiWarning(q))
     .sort((a, b) =>
-      (Date.parse(b.timesent || b.time || "") || 0) -
-      (Date.parse(a.timesent || a.time || "") || 0)
+      (Date.parse(String(b.timesent || b.time || "")) || 0) -
+      (Date.parse(String(a.timesent || a.time || "")) || 0)
     )[0] || null;
 }
 
@@ -1902,36 +1916,96 @@ function latestRecentFeltBmkgEvent() {
       return Number.isFinite(time) && time <= now + 60_000 && now - time <= 24 * 60 * 60 * 1000;
     })
     .sort((a, b) =>
-      (Date.parse(b.time || b.timesent || "") || 0) -
-      (Date.parse(a.time || a.timesent || "") || 0)
+      (Date.parse(String(b.time || b.timesent || "")) || 0) -
+      (Date.parse(String(a.time || a.timesent || "")) || 0)
     )[0] || null;
+}
+
+function compactPopupEventKey(q, kind) {
+  return String(kind) + "|" + String(q?.key || q?.eventid || q?.timesent || q?.time || "");
+}
+
+function closeCompactEventPopup() {
+  const overlay = document.getElementById("wrsEventPopupOverlay");
+  const state = window.__wrsCompactPopupState;
+  if (state?.kind === "tsunami" && state.key) {
+    window.__wrsTsunamiPopupDismissedKey = state.key;
+  }
+  if (overlay) {
+    overlay.classList.add("hidden");
+    overlay.setAttribute("aria-hidden", "true");
+  }
+}
+
+function showCompactEventPopup(q, kind) {
+  const overlay = document.getElementById("wrsEventPopupOverlay");
+  const card = document.getElementById("wrsEventPopupCard");
+  if (!overlay || !card || !q) return false;
+  const tsunami = kind === "tsunami";
+  const key = compactPopupEventKey(q, kind);
+  const previous = window.__wrsCompactPopupState;
+  if (previous?.key === key && !overlay.classList.contains("hidden")) return true;
+  if (previous?.kind === "tsunami" && !overlay.classList.contains("hidden") && !tsunami) return false;
+  if (tsunami && window.__wrsTsunamiPopupDismissedKey === key) return false;
+
+  window.__wrsCompactPopupState = { key, kind, event: q };
+  card.classList.toggle("wrs-event-popup-tsunami", tsunami);
+  card.classList.toggle("wrs-event-popup-felt", !tsunami);
+  const el = id => document.getElementById(id);
+  if (el("wrsEventPopupLabel")) el("wrsEventPopupLabel").textContent = tsunami ? "PERINGATAN RESMI" : "RINGKASAN KEJADIAN";
+  if (el("wrsEventPopupSymbol")) el("wrsEventPopupSymbol").textContent = tsunami ? "!" : "✦";
+  if (el("wrsEventPopupTitle")) {
+    if (tsunami) {
+      el("wrsEventPopupTitle").textContent = /awas/i.test(String(q.potential || q.headline || q.subject || ""))
+        ? "PERINGATAN TSUNAMI — AWAS" : "PERINGATAN TSUNAMI AKTIF";
+    } else {
+      const magnitude = Number(q.magnitude);
+      el("wrsEventPopupTitle").textContent = "GEMPA M " + (Number.isFinite(magnitude)
+        ? magnitude.toFixed(1).replace(".", ",") : "—") + " · DIRASAKAN";
+    }
+  }
+  if (el("wrsEventPopupSubtitle")) el("wrsEventPopupSubtitle").textContent = tsunami
+    ? ("Buletin " + (q.pd ? "PD-" + q.pd + " · " : "") + "status resmi terverifikasi")
+    : "Informasi gempa yang dilaporkan dirasakan";
+  if (el("wrsEventPopupPlace")) el("wrsEventPopupPlace").textContent = String(q.place || "Wilayah Indonesia");
+  if (el("wrsEventPopupTime")) el("wrsEventPopupTime").textContent = fmtTime(q);
+  if (el("wrsEventPopupSource")) el("wrsEventPopupSource").textContent = String(q.source || (tsunami ? "InaTEWS / BMKG" : "BMKG"));
+  if (el("wrsEventPopupMessage")) el("wrsEventPopupMessage").textContent = tsunami
+    ? String(q.instruction || q.headline || q.potential ||
+        "Ikuti buletin dan arahan resmi BMKG/InaTEWS. Jika berada di kawasan pesisir terdampak, ikuti prosedur evakuasi resmi.")
+    : String(q.headline || "Periksa magnitudo, waktu, lokasi, kedalaman, dan informasi guncangan pada halaman detail.");
+  if (el("wrsEventPopupDetails")) el("wrsEventPopupDetails").textContent = tsunami ? "BUKA DETAIL TSUNAMI" : "LIHAT DETAIL GEMPA";
+  overlay.classList.remove("hidden");
+  overlay.setAttribute("aria-hidden", "false");
+  return true;
+}
+
+function maybeShowLiveTsunamiPopup() {
+  if (wrsMode !== "operational" || hasWrsEventDeepLink()) return;
+  const q = latestVerifiedActiveTsunamiWarning();
+  if (!q) return;
+  const key = compactPopupEventKey(q, "tsunami");
+  if (window.__wrsTsunamiPopupDismissedKey === key ||
+      window.__wrsCompactPopupState?.key === key) return;
+  showCompactEventPopup(q, "tsunami");
 }
 
 function showInitialEventPopup() {
   if (wrsMode !== "operational" || hasWrsEventDeepLink()) return;
-
-  // Tsunami resmi yang benar-benar aktif selalu diprioritaskan di atas popup gempa.
   const tsunami = latestVerifiedActiveTsunamiWarning();
   if (tsunami) {
-    const key = String(tsunami.key || tsunami.eventid || tsunami.timesent || "");
-    if (!key || window.__wrsInitialTsunamiPopupKey === key) return;
-    window.__wrsInitialTsunamiPopupKey = key;
-    openTsunamiModal(tsunami);
+    showCompactEventPopup(tsunami, "tsunami");
     return;
   }
-
-  // Jika tidak ada peringatan aktif, buka detail gempa BMKG yang dirasakan (maksimal 24 jam).
   const felt = latestRecentFeltBmkgEvent();
   if (!felt) return;
   const key = String(felt.key || stableEventId(felt) || "");
   if (!key) return;
   try {
     if (localStorage.getItem("wrsInitialFeltPopupSeenV1") === key) return;
+    localStorage.setItem("wrsInitialFeltPopupSeenV1", key);
   } catch {}
-  try { localStorage.setItem("wrsInitialFeltPopupSeenV1", key); } catch {}
-  const coordinates = quakeCoordinates(felt);
-  if (coordinates && map) map.flyTo(coordinates, 7.5, { duration: 0.65 });
-  openModal(felt);
+  showCompactEventPopup(felt, "felt");
 }
 
 function processNew() {
@@ -2021,9 +2095,9 @@ function processNew() {
     setTimeout(() => { try { map.removeLayer(highlight); } catch {} }, 10000);
   }
 
-  if (isTsunamiPotential(q.potential)) {
-    openTsunamiModal(q);
-  }
+  // Only a currently verified official CAP warning gets alert priority.
+  // Generic quake headlines do not automatically open a full-screen detail modal.
+  maybeShowLiveTsunamiPopup();
 
   if (alarmOn) {
     ensureAudio().then(() => playAlarmSequence(q)).catch(() => {});
@@ -2942,6 +3016,7 @@ async function load(showSpin, force = false) {
       tsunamiHistory = mergeTsunamiHistory(d.tsunamiHistory);
       renderOfficialTsunamiMap();
       updateStats(getFilteredQuakes());
+      if (!firstLoad) maybeShowLiveTsunamiPopup();
     }
     const newFingerprint = quakes.map(q => q.key + ":" + q.magnitude).join("|");
     const clientFallback = d.sources?.clientFallback === true;
@@ -3055,7 +3130,7 @@ async function load(showSpin, force = false) {
 
     // Push deep link: resolve the exact event after fresh data has arrived.
     const params = new URLSearchParams(window.location.search);
-    const requestedKey = params.get("quake");
+    const requestedKey = params.get("quake") || params.get("event");
     if (requestedKey && !window.__wrsHandledQuakeDeepLink) {
       const paramsLat = Number(params.get("lat"));
       const paramsLon = Number(params.get("lon"));
@@ -3487,6 +3562,24 @@ $("#btnAlarm").onclick = async () => {
 };
 
 $("#popupClose").onclick = () => { clearTimeout(popupTimer); $("#popupNew").classList.add("hidden"); renderRealtime(quakes[0]); };
+$("#wrsEventPopupClose")?.addEventListener("click", closeCompactEventPopup);
+$("#wrsEventPopupDetails")?.addEventListener("click", () => {
+  const state = window.__wrsCompactPopupState;
+  if (!state?.event) return;
+  closeCompactEventPopup();
+  if (state.kind === "tsunami") openTsunamiModal(state.event);
+  else {
+    const coordinates = quakeCoordinates(state.event);
+    if (coordinates && map) map.flyTo(coordinates, 7.5, { duration: 0.6 });
+    openModal(state.event);
+  }
+});
+$("#wrsEventPopupOverlay")?.addEventListener("click", event => {
+  if (event.target === $("#wrsEventPopupOverlay")) closeCompactEventPopup();
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeCompactEventPopup();
+});
 $("#modalClose").onclick = () => $("#modalDetail").classList.add("hidden");
 $("#modalDetail").addEventListener("click", (e) => {
   if (e.target === $("#modalDetail")) $("#modalDetail").classList.add("hidden");
