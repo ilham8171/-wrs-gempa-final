@@ -118,15 +118,28 @@ function eventTime(q) {
   return Number.isFinite(t) ? t : 0;
 }
 function makeQuakePayload(q) {
-  const key = String(q.key || q.eventid || q.time + "|" + q.magnitude + "|" + q.place);
+  // Keep the source ID for the detail deep link, but dedupe push by origin time,
+  // epicentre, and magnitude. This avoids suppressing a new event if a feed reuses its ID.
+  const sourceKey = String(q.key || q.eventid || q.time + "|" + q.magnitude + "|" + q.place);
+  const originMs = eventTime(q);
+  const magnitude = pushParseNumber(q.magnitude);
+  const lat = pushParseNumber(q.lat);
+  const lon = pushParseNumber(q.lon);
+  const key = originMs > 0 && Number.isFinite(magnitude) &&
+      pushValidCoordinates(lat, lon)
+    ? "quake|" + new Date(originMs).toISOString() + "|M=" + magnitude.toFixed(1) +
+      "|lat=" + lat.toFixed(3) + "|lon=" + lon.toFixed(3)
+    : "quake|" + sourceKey + "|M=" + String(q.magnitude ?? "") +
+      "|time=" + String(q.time || q.timesent || "");
   const url = new URL("/", SITE);
-  url.searchParams.set("quake", key);
+  url.searchParams.set("quake", sourceKey);
   if (q.lat != null) url.searchParams.set("lat", q.lat);
   if (q.lon != null) url.searchParams.set("lon", q.lon);
   if (q.magnitude != null) url.searchParams.set("mag", q.magnitude);
   if (q.time) url.searchParams.set("time", q.time);
   return {
     key,
+    sourceKey,
     title: (isFeltBmkgReport(q) ? "Gempa dirasakan M " : "Gempa M") + Number(q.magnitude || 0).toFixed(1) + " • WRS GEMPA",
     category: isFeltBmkgReport(q) ? "felt" : "big",
     felt: String(q.felt || ""),
@@ -748,6 +761,15 @@ async function runPush(env) {
       // Apply the per-run cap only AFTER removing already-sent events. Otherwise the same
       // newest batch can starve older still-unsent events on every minute tick.
       const pendingFcm = events.filter(item => !sent.has(item.key)).slice(0, MAX_EVENTS_PER_RUN);
+      console.log("FCM topic batch", JSON.stringify({
+        eligible: events.length,
+        pending: pendingFcm.length,
+        sentHistoryCount: sent.size,
+        pendingEvents: pendingFcm.map(item => ({
+          key: item.key, sourceKey: item.sourceKey || "", category: item.category || "",
+          magnitude: item.magnitude ?? "", time: item.time || "", place: item.place || ""
+        }))
+      }));
       for (const item of pendingFcm) {
         try { await sendFcmTopic(sa, item); sent.add(item.key); console.log("FCM accepted", item.key); }
         catch (error) { console.error("FCM delivery failed", error.message || error); }
