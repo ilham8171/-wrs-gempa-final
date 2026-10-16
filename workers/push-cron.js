@@ -103,7 +103,7 @@ function isFeltBmkgReport(q) {
 }
 function eventTime(q) {
   const rawValue = q?.time ?? q?.timesent ?? "";
-  if (typeof rawValue === "number" || (typeof rawValue === "string" && /^\\d{10,13}$/.test(rawValue.trim()))) {
+  if (typeof rawValue === "number" || (typeof rawValue === "string" && /^[0-9]{10,13}$/.test(rawValue.trim()))) {
     const numeric = Number(rawValue);
     const milliseconds = numeric < 100_000_000_000 ? numeric * 1000 : numeric;
     return Number.isFinite(milliseconds) ? milliseconds : 0;
@@ -156,7 +156,7 @@ function activeTsunamiPayload(item, now) {
   const text = [item.subject, item.headline, item.potential, item.description, item.instruction]
     .filter(Boolean).join(" ").toLowerCase();
   const ended = item.ended === true || status === "cancel" || msgType === "cancel" ||
-    /berakhir|dicabut|all[\\s-]?clear|cancelled|canceled|cancel warning|peringatan telah diakhiri/i.test(text);
+    /berakhir|dicabut|all[- ]?clear|cancelled|canceled|cancel warning|peringatan telah diakhiri/i.test(text);
 
   if (status !== "actual" || !["alert", "update", "cancel"].includes(msgType) ||
       (scope && scope !== "public") || !Number.isFinite(sentAt) ||
@@ -186,7 +186,7 @@ function activeTsunamiPayload(item, now) {
     body: [item.headline || item.subject || (ended
       ? "Buletin resmi menyatakan peringatan tsunami berakhir atau dicabut."
       : "Periksa instruksi resmi BMKG/InaTEWS."), item.instruction]
-      .filter(Boolean).join("\\n"),
+      .filter(Boolean).join("\n"),
     magnitude: Number(item.magnitude || 0),
     time: item.time || bulletinSent,
     tsunami: true,
@@ -451,7 +451,7 @@ function parsePushTsunamiXml(xml) {
         eventid: identifier || timesent || subject,
         capIdentifier: identifier || timesent || subject,
         references: pushXmlValue(parent, "references") || read("references"),
-        pd: ((subject + " " + headline + " " + description).match(/PD[-\\s]?([\\d.]+)/i) || [])[1] || "",
+        pd: ((subject + " " + headline + " " + description).match(/PD[- ]?([0-9.]+)/i) || [])[1] || "",
         timesent,
         time: read("effective") || timesent,
         expires,
