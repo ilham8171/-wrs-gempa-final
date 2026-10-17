@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">WRS GEMPA</title>
+  <desc id="desc">Gelombang seismik berwarna sian dengan penanda pusat putih dan tiga lengkung sinyal pada latar biru gelap.</desc>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0c1a2b"/>
+      <stop offset="1" stop-color="#06101e"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#00a9d3"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="488" height="488" rx="116" fill="url(#tile)"/>
+  <path d="M98 264 A158 158 0 0 1 414 264" fill="none" stroke="#20445a" stroke-width="19" stroke-linecap="round"/>
+  <path d="M136 264 A120 120 0 0 1 376 264" fill="none" stroke="#14718c" stroke-width="19" stroke-linecap="round"/>
+  <path d="M174 264 A82 82 0 0 1 338 264" fill="none" stroke="#13a9cb" stroke-width="19" stroke-linecap="round"/>
+  <path d="M58 305 C91 305 102 257 135 257 C169 257 179 356 211 356 C245 356 241 145 273 145 C308 145 298 292 336 292 C365 292 392 259 454 259" fill="none" stroke="url(#wave)" stroke-width="23" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="256" cy="225" r="28" fill="#f7fbff"/>
+</svg>
