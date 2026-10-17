@@ -821,14 +821,14 @@ if ("serviceWorker" in navigator) {
         }
         const tableY=Math.max(y+4,plan.intro?566:430);
         const left=64,width=952,headerH=48,rowH=42;
-        ctx.fillStyle='#103448';ctx.beginPath();ctx.roundRect(left,tableY,width,headerH,12);ctx.fill();
+        ctx.fillStyle='#103448';ctx.fillRect(left,tableY,width,headerH);
         ctx.fillStyle='#9feaff';ctx.font='bold 19px Arial';ctx.fillText('NO.',left+18,tableY+30);
         ctx.fillText('WILAYAH TERDAMPAK',left+92,tableY+30);
         plan.areas.forEach((area,j)=>{
           const rowY=tableY+headerH+j*rowH;
           ctx.fillStyle=j%2===0?'#0b2030':'#10283a';ctx.fillRect(left,rowY,width,rowH);
           ctx.strokeStyle='#27465a';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,rowY+rowH);ctx.lineTo(left+width,rowY+rowH);ctx.stroke();
-          ctx.fillStyle='#53d8ef';ctx.font='bold 20px Arial';ctx.fillText(String((i===0?0:0)+1+(i*0))+String(''),left+18,rowY+27);
+          ctx.fillStyle='#53d8ef';ctx.font='bold 20px Arial';ctx.fillText(String(i*18+j+1),left+18,rowY+27);
           ctx.fillStyle='#dceaf4';ctx.font='24px Arial';
           let label=String(area).replace(/\s+/g,' ').trim();
           if(ctx.measureText(label).width>840)ctx.font='21px Arial';
