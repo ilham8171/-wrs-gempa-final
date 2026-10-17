@@ -861,23 +861,72 @@ if ("serviceWorker" in navigator) {
       await navigator.clipboard.writeText(text);alert('Ringkasan dan sumber berhasil disalin. Kamu bisa menempelkannya ke aplikasi berbagi.');
     }catch(e){if(e&&e.name!=='AbortError')alert('Berbagi tidak tersedia di browser ini. Gunakan tombol unduh gambar.');}
   }
-  document.addEventListener('click',e=>{
-    const detail=e.target.closest('[data-alert-detail]'); const imageBtn=e.target.closest('[data-alert-image]'); const shareBtn=e.target.closest('[data-alert-share]');
-    if(detail||imageBtn||shareBtn){
-      const btn=detail||imageBtn||shareBtn, item=getAlertItem(btn.dataset.alertDetail||btn.dataset.alertImage||btn.dataset.alertShare,Number(btn.dataset.alertIndex));
-      if(!item)return;
-      if(detail)showAlertDetail(item,btn.dataset.alertDetail);
-      else if(imageBtn)downloadAlertImages(item,btn.dataset.alertImage);
-      else shareAlertItem(item,btn.dataset.alertShare);
-    }
-  });
+  window.wrsDownloadBMKGAlertImages=downloadAlertImages;
+  window.wrsShareBMKGAlertItem=shareAlertItem;
   document.getElementById('wrsAlertRefresh')?.addEventListener('click',loadWrsBmkgAlerts);
   setInterval(()=>{if(document.body.dataset.mobilePage==='alerts')loadWrsBmkgAlerts();},5*60*1000);
 })();
 </script>
 
 
-<!-- Duplicate BMKG alert download/detail handler removed; the progress flow above owns these actions. -->
+<script>
+(function(){
+  function pick(kind,index){const list=kind==='alert'?window.wrsBmkgAlertItems:window.wrsBmkgNewsItems;return list&&list[index];}
+  function text(item,kind){const tables=Array.isArray(item.tables)?item.tables:[];const tableText=tables.map((t,i)=>'\\nTABEL WILAYAH '+(i+1)+'\\n'+(t.rows||[]).map(r=>r.join(' | ')).join('\\n')).join('\\n');return {title:item.title||'Informasi BMKG',body:(item.description||item.summary||'Rincian lengkap belum tersedia pada feed ringkas BMKG.')+tableText,kind:kind==='alert'?'PERINGATAN DINI BMKG':(item.category||'BERITA / SIARAN PERS BMKG'),url:item.url||'https://www.bmkg.go.id',image:item.image||'',tables};}
+  function structuredHtml(item){const esc=v=>String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));let out='';if(item.image)out+='<figure class="wrs-bmkg-image"><img src="'+esc(item.image)+'" alt="Gambar resmi BMKG" loading="lazy"><figcaption>Gambar dari sumber resmi BMKG</figcaption></figure>';for(const t of (item.tables||[])){const rows=Array.isArray(t.rows)?t.rows:[];if(!rows.length)continue;out+='<div class="wrs-bmkg-table-wrap"><table><tbody>'+rows.map((r,ri)=>'<tr>'+r.map(cell=>ri===0?'<th>'+esc(cell)+'</th>':'<td>'+esc(cell)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';}return out;}
+  function showDetail(item,kind){
+    const d=text(item,kind);let m=document.getElementById('wrsBMKGDetail');
+    if(!m){m=document.createElement('div');m.id='wrsBMKGDetail';m.className='wrs-bmkg-detail';m.innerHTML='<section><button type="button" class="close">Tutup ×</button><div class="content"></div></section>';document.body.appendChild(m);m.querySelector('.close').onclick=()=>m.classList.remove('open');m.onclick=e=>{if(e.target===m)m.classList.remove('open')};}
+    m.querySelector('.content').innerHTML='<small>'+d.kind+'</small><h2>'+d.title.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</h2>'+(item.summary?'<p class="wrs-bmkg-summary">'+item.summary.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</p>':'')+structuredHtml(item)+'<p>'+d.body.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</p><p class="source">Sumber: BMKG<br>'+d.url.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</p><button type="button" class="download">Unduh gambar 9:16</button> <button type="button" class="share">Bagikan</button>';
+    m.classList.add('open');m.querySelector('.download').onclick=()=>window.wrsDownloadBMKGAlertImages?window.wrsDownloadBMKGAlertImages(item,kind):download(item,kind);m.querySelector('.share').onclick=()=>window.wrsShareBMKGAlertItem?window.wrsShareBMKGAlertItem(item,kind):share(item,kind);
+  }
+  function bodyPages(body){
+    const words=String(body||'').split(/\s+/),pages=[];let line='';
+    for(const word of words){if((line+' '+word).trim().length>780&&line){pages.push(line);line=word;}else line=(line+' '+word).trim();}
+    if(line)pages.push(line);return pages.length?pages:[''];
+  }
+  async function makeImage(item,kind,pageIndex=0){
+    const d=text(item,kind),parts=bodyPages(d.body),canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1920;
+    const c=canvas.getContext('2d'),g=c.createLinearGradient(0,0,1080,1920);g.addColorStop(0,'#07111f');g.addColorStop(1,'#12344a');c.fillStyle=g;c.fillRect(0,0,1080,1920);
+    c.fillStyle='#49cbe8';c.fillRect(64,84,120,10);c.fillStyle='#a6e9fa';c.font='bold 30px Arial';c.fillText('WRS GEMPA · INFORMASI BMKG',64,150);
+    c.fillStyle='#78dff5';c.font='bold 26px Arial';c.fillText(d.kind.toUpperCase().slice(0,45),64,230);
+    c.fillStyle='#f3f8ff';c.font='bold 54px Arial';let y=320;
+    function wrap(str,size,color,limit,lh){c.font=(size==='54'?'bold ':'')+size+'px Arial';c.fillStyle=color;let line='';for(const w of String(str||'').split(/\s+/)){let t=line?line+' '+w:w;if(c.measureText(t).width>limit&&line){c.fillText(line,64,y);y+=lh;line=w;}else line=t;}if(line){c.fillText(line,64,y);y+=lh;}}
+    wrap(d.title,'54','#f3f8ff',950,68);y+=20;
+    if(item.image){try{const img=await new Promise((resolve,reject)=>{const im=new Image();im.crossOrigin='anonymous';im.onload=()=>resolve(im);im.onerror=reject;im.src=item.image;});const h=Math.min(320,Math.round(img.height*(950/img.width)));c.drawImage(img,64,y,950,h);y+=h+20;}catch{c.fillStyle='#153449';c.fillRect(64,y,950,70);c.fillStyle='#a6e9fa';c.font='bold 22px Arial';c.fillText('Gambar resmi tersedia di detail WRS GEMPA',82,y+43);y+=92;}}
+    wrap(parts[pageIndex]||'', '30','#d6e6f1',950,42);
+    c.fillStyle='#87aabe';c.font='24px Arial';c.fillText('Sumber: BMKG · '+(pageIndex+1)+'/'+parts.length,64,1760);c.font='20px Arial';c.fillText(d.url.slice(0,72),64,1810);c.fillText('Ikuti peringatan resmi dan arahan petugas setempat.',64,1870);
+    return {canvas,d,parts};
+  }
+  async function download(item,kind){
+    const first=await makeImage(item,kind),total=first.parts.length;
+    for(let i=0;i<total;i++){
+      const o=await makeImage(item,kind,i),blob=await new Promise(resolve=>o.canvas.toBlob(resolve,'image/png'));if(!blob)continue;
+      const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='wrs-bmkg-'+kind+'-'+(i+1)+'-dari-'+total+'.png';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),30000);
+      if(i<total-1)await new Promise(resolve=>setTimeout(resolve,350));
+    }
+  }
+  async function share(item,kind){const o=await makeImage(item,kind),d=o.d;const msg=d.kind+'\n'+d.title+'\n\n'+d.body+'\n\nSumber BMKG: '+d.url;try{if(navigator.share){const b=await new Promise(r=>o.canvas.toBlob(r,'image/png'));if(b&&window.File){const f=new File([b],'wrs-bmkg.png',{type:'image/png'});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({title:d.title,text:msg,files:[f]});return;}}await navigator.share({title:d.title,text:msg,url:d.url});}else{await navigator.clipboard.writeText(msg);alert('Ringkasan dan sumber disalin.');}}catch(e){if(e.name!=='AbortError')alert('Berbagi tidak tersedia. Gunakan Unduh gambar.');}}
+  document.addEventListener('click',e=>{
+    const detail=e.target.closest('[data-alert-detail]');
+    const imageBtn=e.target.closest('[data-alert-image]');
+    const shareBtn=e.target.closest('[data-alert-share]');
+    const button=detail||imageBtn||shareBtn;
+    if(!button)return;
+    const kind=button.dataset.alertDetail||button.dataset.alertImage||button.dataset.alertShare;
+    const item=pick(kind,Number(button.dataset.alertIndex));
+    if(!item)return;
+    if(detail)showDetail(item,kind);
+    else if(imageBtn){
+      if(window.wrsDownloadBMKGAlertImages)window.wrsDownloadBMKGAlertImages(item,kind);
+      else download(item,kind);
+    }else{
+      if(window.wrsShareBMKGAlertItem)window.wrsShareBMKGAlertItem(item,kind);
+      else share(item,kind);
+    }
+  });
+})();
+</script>
 
 <script>
 (function(){
