@@ -781,7 +781,7 @@ if ("serviceWorker" in navigator) {
       const perPage=18;
       const groups=[];
       for(let i=0;i<parsed.areas.length;i+=perPage)groups.push(parsed.areas.slice(i,i+perPage));
-      const separateTail=parsed.tail.length>420?chunkAlertText(parsed.tail,760):[];
+      const separateTail=parsed.tail.length>300?chunkAlertText(parsed.tail,760):[];
       groups.forEach((areas,index)=>pagesPlan.push({
         type:'areas',areas,
         intro:index===0?parsed.intro:'',
@@ -838,7 +838,7 @@ if ("serviceWorker" in navigator) {
         if(plan.tail){
           ctx.fillStyle='#9feaff';ctx.font='bold 20px Arial';ctx.fillText('DAMPAK & IMBAUAN',64,y+2);y+=34;
           ctx.fillStyle='#d5e4f0';ctx.font='25px Arial';
-          y=wrapAlertText(ctx,plan.tail,64,y,950,34,7);
+          y=wrapAlertText(ctx,plan.tail,64,y,950,34,10);
         }
       }else{
         if(plan.section){
