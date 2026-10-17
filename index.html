@@ -690,37 +690,163 @@ if ("serviceWorker" in navigator) {
       pages.push(canvas);
     }return pages;
   }
+
+  let alertDownloadBusy = false;
+  function ensureAlertDownloadModal(){
+    let modal=document.getElementById('wrsAlertDownloadProgress');
+    if(modal)return modal;
+    if(!document.getElementById('wrsAlertDownloadProgressStyle')){
+      const style=document.createElement('style');
+      style.id='wrsAlertDownloadProgressStyle';
+      style.textContent=[
+        '.wrs-dl-overlay{display:none;position:fixed;inset:0;z-index:2500;padding:18px;align-items:center;justify-content:center;background:rgba(2,8,18,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}',
+        '.wrs-dl-overlay.open{display:flex}',
+        '.wrs-dl-card{position:relative;width:min(440px,100%);padding:22px;border:1px solid rgba(87,202,232,.28);border-radius:22px;background:radial-gradient(circle at 100% 0,rgba(22,139,170,.17),transparent 44%),linear-gradient(150deg,#0e2234,#07121f 72%);color:#e8f7ff;box-shadow:0 28px 90px #0009}',
+        '.wrs-dl-brand{display:flex;align-items:center;gap:9px;margin-bottom:19px;color:#8ee7f6;font-size:10px;font-weight:900;letter-spacing:.13em}',
+        '.wrs-dl-brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;background:linear-gradient(145deg,#1aa7c8,#16627f);color:#fff;font-size:17px;box-shadow:0 5px 18px #18a9c744}',
+        '.wrs-dl-close{position:absolute;right:15px;top:15px;width:34px;height:34px;border:1px solid #28465b;border-radius:10px;background:#102536;color:#a9c5d5;font-size:20px;cursor:pointer}',
+        '.wrs-dl-close:disabled{opacity:.35;cursor:default}',
+        '.wrs-dl-icon{display:grid;place-items:center;width:54px;height:54px;margin:0 0 14px;border:1px solid #2b7084;border-radius:17px;background:#103447;color:#8deaff;font-size:25px;box-shadow:0 0 30px #0891b21b}',
+        '.wrs-dl-overlay[data-state="complete"] .wrs-dl-icon{border-color:#237d68;background:#0d362f;color:#70f0c1}',
+        '.wrs-dl-overlay[data-state="error"] .wrs-dl-icon{border-color:#87404b;background:#3a1c26;color:#ffabb3}',
+        '.wrs-dl-card h2{margin:0 0 8px;font-size:22px;line-height:1.25;letter-spacing:-.025em;color:#f3fbff}',
+        '.wrs-dl-message{min-height:40px;margin:0;color:#9fb8ca;font-size:12px;line-height:1.65;overflow-wrap:anywhere}',
+        '.wrs-dl-progress-head{display:flex;justify-content:space-between;gap:12px;margin:20px 0 8px;color:#9db6c7;font-size:10px;font-weight:800}',
+        '.wrs-dl-percent{color:#8fe7fa;font-variant-numeric:tabular-nums}',
+        '.wrs-dl-track{height:8px;overflow:hidden;border-radius:99px;background:#1a3346;box-shadow:inset 0 1px 3px #0006}',
+        '.wrs-dl-fill{height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,#1596ba,#69e6f5);box-shadow:0 0 16px #39cce955;transition:width .28s ease}',
+        '.wrs-dl-overlay[data-state="complete"] .wrs-dl-fill{background:linear-gradient(90deg,#15966f,#66e7b4)}',
+        '.wrs-dl-steps{display:grid;gap:9px;margin:19px 0 0}',
+        '.wrs-dl-step{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:9px;padding:10px 11px;border:1px solid #183448;border-radius:12px;background:#091a29;color:#8faabd;font-size:11px}',
+        '.wrs-dl-step>span:first-child{display:grid;place-items:center;width:26px;height:26px;border-radius:9px;background:#132e41;color:#83a7bc;font-size:10px;font-weight:900}',
+        '.wrs-dl-step b{font-size:8px;letter-spacing:.06em;font-weight:900;color:#69869a}',
+        '.wrs-dl-step.active{border-color:#287c93;background:#0d2b3d;color:#e4f8ff}',
+        '.wrs-dl-step.active>span:first-child{background:#15536a;color:#a7f1ff}',
+        '.wrs-dl-step.active b{color:#82e8fa}',
+        '.wrs-dl-step.done{border-color:#215e54;color:#b6e9da}',
+        '.wrs-dl-step.done>span:first-child{background:#12443a;color:#83f0c6}',
+        '.wrs-dl-step.done b{color:#73dbb5}',
+        '.wrs-dl-note{margin:16px 0 0;padding-top:13px;border-top:1px solid #1b3548;color:#748fa4;font-size:10px;line-height:1.6}',
+        '.wrs-dl-action{display:none;width:100%;margin-top:16px;padding:12px 16px;border:1px solid #238ba6;border-radius:12px;background:linear-gradient(100deg,#12627b,#0e455e);color:#e7fbff;font-size:12px;font-weight:900;cursor:pointer}',
+        '.wrs-dl-overlay[data-state="complete"] .wrs-dl-action{border-color:#218d6d;background:linear-gradient(100deg,#12684e,#0d483e)}',
+        '.wrs-dl-overlay[data-state="error"] .wrs-dl-action,.wrs-dl-overlay[data-state="complete"] .wrs-dl-action{display:block}',
+        '@media(prefers-reduced-motion:reduce){.wrs-dl-fill{transition:none}}'
+      ].join('');
+      document.head.appendChild(style);
+    }
+    modal=document.createElement('div');
+    modal.id='wrsAlertDownloadProgress';
+    modal.className='wrs-dl-overlay';
+    modal.dataset.state='working';
+    modal.setAttribute('role','dialog');
+    modal.setAttribute('aria-modal','true');
+    modal.setAttribute('aria-labelledby','wrsDlTitle');
+    modal.setAttribute('aria-describedby','wrsDlMessage');
+    modal.innerHTML='<section class="wrs-dl-card"><button type="button" class="wrs-dl-close" data-dl-close aria-label="Tutup proses" disabled>×</button><div class="wrs-dl-brand"><span class="wrs-dl-brand-mark" aria-hidden="true">↓</span><span>WRS GEMPA · BMKG</span></div><div class="wrs-dl-icon" id="wrsDlIcon" aria-hidden="true">↓</div><h2 id="wrsDlTitle">Menyiapkan gambar</h2><p class="wrs-dl-message" id="wrsDlMessage" role="status" aria-live="polite">Sedang menyiapkan materi peringatan dari data yang tersedia.</p><div class="wrs-dl-progress-head"><span>PROGRES UNDUHAN</span><span class="wrs-dl-percent" id="wrsDlPercent">0%</span></div><div class="wrs-dl-track" role="progressbar" aria-label="Progres unduhan" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="wrs-dl-fill" id="wrsDlFill"></div></div><div class="wrs-dl-steps"><div class="wrs-dl-step active" data-dl-step="prepare"><span>01</span><span>Menyiapkan informasi</span><b>PROSES</b></div><div class="wrs-dl-step" data-dl-step="build"><span>02</span><span>Menyusun kartu gambar</span><b>MENUNGGU</b></div><div class="wrs-dl-step" data-dl-step="save"><span>03</span><span>Menyimpan file PNG</span><b>MENUNGGU</b></div></div><p class="wrs-dl-note">Sumber informasi tetap tercantum pada gambar. Ikuti peringatan resmi BMKG dan arahan petugas setempat.</p><button type="button" class="wrs-dl-action" data-dl-close>Selesai</button></section>';
+    document.body.appendChild(modal);
+    modal.querySelectorAll('[data-dl-close]').forEach(button=>button.addEventListener('click',()=>{if(!alertDownloadBusy)modal.classList.remove('open');}));
+    modal.addEventListener('click',event=>{if(event.target===modal&&!alertDownloadBusy)modal.classList.remove('open');});
+    document.addEventListener('keydown',event=>{if(event.key==='Escape'&&modal.classList.contains('open')&&!alertDownloadBusy)modal.classList.remove('open');});
+    return modal;
+  }
+  function setAlertDownloadStatus(modal,options={}){
+    const state=options.state||'working';
+    const progress=Math.max(0,Math.min(100,Math.round(Number(options.progress)||0)));
+    modal.dataset.state=state;
+    modal.classList.add('open');
+    modal.querySelector('#wrsDlTitle').textContent=options.title||'Menyiapkan gambar';
+    modal.querySelector('#wrsDlMessage').textContent=options.message||'Sedang memproses gambar peringatan.';
+    modal.querySelector('#wrsDlPercent').textContent=progress+'%';
+    modal.querySelector('#wrsDlFill').style.width=progress+'%';
+    modal.querySelector('.wrs-dl-track').setAttribute('aria-valuenow',String(progress));
+    modal.querySelector('#wrsDlIcon').textContent=state==='complete'?'✓':state==='error'?'!':'↓';
+    const stageOrder=['prepare','build','save'];
+    const activeIndex=stageOrder.indexOf(options.stage||'prepare');
+    modal.querySelectorAll('[data-dl-step]').forEach(step=>{
+      const index=stageOrder.indexOf(step.dataset.dlStep);
+      step.classList.toggle('active',state==='working'&&index===activeIndex);
+      step.classList.toggle('done',state==='complete'||(state==='working'&&index<activeIndex)||(state==='error'&&index<activeIndex));
+      const badge=step.querySelector('b');
+      if(state==='complete')badge.textContent='SELESAI';
+      else if(state==='error'&&index===activeIndex)badge.textContent='PERLU CEK';
+      else if(index<activeIndex)badge.textContent='SELESAI';
+      else if(state==='working'&&index===activeIndex)badge.textContent='PROSES';
+      else badge.textContent='MENUNGGU';
+    });
+    const action=modal.querySelector('.wrs-dl-action');
+    action.textContent=state==='error'?'Tutup dan coba lagi':'Selesai';
+    modal.querySelector('.wrs-dl-close').disabled=state==='working';
+    action.style.display=state==='working'?'none':'block';
+  }
+  function setAlertDownloadButtonsDisabled(disabled){
+    document.querySelectorAll('[data-alert-image],[data-detail-image]').forEach(button=>{
+      if(disabled){
+        button.dataset.wrsWasDisabled=button.disabled?'1':'0';
+        button.disabled=true;
+        button.setAttribute('aria-busy','true');
+      }else{
+        if(button.dataset.wrsWasDisabled!=='1')button.disabled=false;
+        delete button.dataset.wrsWasDisabled;
+        button.removeAttribute('aria-busy');
+      }
+    });
+  }
+  const nextAlertPaint=()=>new Promise(resolve=>{if(typeof requestAnimationFrame==='function')requestAnimationFrame(()=>resolve());else setTimeout(resolve,16);});
   async function downloadAlertImages(item,kind){
-    const pages=buildAlertCanvases(item,kind);
-    const base='wrs-bmkg-'+(kind==='alert'?'peringatan':'siaran-pers');
-    let saved=0;
-    for(let i=0;i<pages.length;i++){
-      const canvas=pages[i];
-      const pageName=base+'-'+(i+1)+'-dari-'+pages.length+'.png';
-      // Android WebView does not reliably download blob: URLs. Send the PNG
-      // bytes through the native bridge so it is saved directly to Pictures/WRS GEMPA.
-      if(window.AndroidWrs&&typeof window.AndroidWrs.saveImage==='function'){
-        try{
+    if(alertDownloadBusy)return;
+    alertDownloadBusy=true;
+    let saved=0,total=0;
+    const modal=ensureAlertDownloadModal();
+    setAlertDownloadButtonsDisabled(true);
+    setAlertDownloadStatus(modal,{progress:4,stage:'prepare',message:'Menyiapkan judul, isi informasi, sumber BMKG, dan format gambar vertikal.'});
+    await nextAlertPaint();
+    try{
+      setAlertDownloadStatus(modal,{progress:15,stage:'build',message:'Menyusun tampilan poster 9:16 dengan sumber informasi dan nomor halaman.'});
+      await nextAlertPaint();
+      const pages=buildAlertCanvases(item,kind);
+      total=pages.length;
+      setAlertDownloadStatus(modal,{progress:25,stage:'save',message:'Konten siap. Menyiapkan '+total+' file PNG.'});
+      await nextAlertPaint();
+      const base='wrs-bmkg-'+(kind==='alert'?'peringatan':'siaran-pers');
+      const nativeGallery=Boolean(window.AndroidWrs&&typeof window.AndroidWrs.saveImage==='function');
+      for(let i=0;i<pages.length;i++){
+        const canvas=pages[i];
+        const pageName=base+'-'+(i+1)+'-dari-'+pages.length+'.png';
+        const before=Math.round(25+(i/pages.length)*70);
+        setAlertDownloadStatus(modal,{progress:before,stage:'save',message:(nativeGallery?'Menyimpan ke Galeri perangkat':'Menyiapkan file untuk browser')+' · gambar '+(i+1)+' dari '+pages.length+'.'});
+        await nextAlertPaint();
+        if(nativeGallery){
           const dataUrl=canvas.toDataURL('image/png');
           const base64=dataUrl.substring(dataUrl.indexOf(',')+1);
           const result=window.AndroidWrs.saveImage(pageName,base64);
-          if(result!=='OK')throw new Error(result||'Gagal menyimpan gambar');
+          if(result!=='OK')throw new Error(result?String(result):'Aplikasi Android tidak mengonfirmasi penyimpanan.');
           saved++;
-          continue;
-        }catch(error){
-          alert('Gambar belum tersimpan: '+(error&&error.message?error.message:String(error)));
-          return;
+        }else{
+          const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+          if(!blob)throw new Error('Gagal mengubah gambar '+(i+1)+' menjadi PNG.');
+          const url=URL.createObjectURL(blob);
+          const anchor=document.createElement('a');
+          anchor.href=url;
+          anchor.download=pageName;
+          anchor.style.display='none';
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          setTimeout(()=>URL.revokeObjectURL(url),30000);
+          saved++;
+          if(i<pages.length-1)await new Promise(resolve=>setTimeout(resolve,450));
         }
+        setAlertDownloadStatus(modal,{progress:Math.round(25+((i+1)/pages.length)*70),stage:'save',message:(nativeGallery?'Gambar tersimpan di Galeri':'Permintaan unduhan dikirim ke browser')+' · '+saved+' dari '+pages.length+' gambar diproses.'});
+        await nextAlertPaint();
       }
-      const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
-      if(!blob){alert('Gagal membuat gambar PNG. Coba lagi.');return;}
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement('a');a.href=url;a.download=pageName;
-      document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
-      saved++;
-      if(i<pages.length-1)await new Promise(resolve=>setTimeout(resolve,350));
+      setAlertDownloadStatus(modal,{progress:100,stage:'save',state:'complete',title:'Gambar berhasil disiapkan',message:nativeGallery?saved+' gambar PNG tersimpan di Galeri · Pictures/WRS GEMPA.':saved+' gambar PNG sudah diserahkan ke browser untuk diunduh. Periksa folder Unduhan perangkat.'});
+    }catch(error){
+      const reason=String(error&&error.message?error.message:error).slice(0,180);
+      setAlertDownloadStatus(modal,{progress:Math.min(95,Math.round(25+(saved/Math.max(total,1))*70)),stage:'save',state:'error',title:'Proses unduhan terhenti',message:(saved?'Sebagian proses selesai ('+saved+(total?' dari '+total:'')+' gambar). ':'')+(reason||'Terjadi kendala saat membuat gambar.')+' Tutup pesan ini lalu coba unduh kembali.'});
+    }finally{
+      alertDownloadBusy=false;
+      setAlertDownloadButtonsDisabled(false);
     }
-    if(saved)alert(window.AndroidWrs?'Berhasil menyimpan '+saved+' gambar ke Galeri · Pictures/WRS GEMPA.':'Unduhan gambar dimulai ('+saved+' file). Periksa folder Unduhan.');
   }
   async function shareAlertItem(item,kind){
     const d=alertText(item,kind), text=d.category+'\n'+d.title+'\n\n'+d.body+'\n\nSumber: BMKG '+d.source;
@@ -751,47 +877,7 @@ if ("serviceWorker" in navigator) {
 </script>
 
 
-<script>
-(function(){
-  function pick(kind,index){const list=kind==='alert'?window.wrsBmkgAlertItems:window.wrsBmkgNewsItems;return list&&list[index];}
-  function text(item,kind){const tables=Array.isArray(item.tables)?item.tables:[];const tableText=tables.map((t,i)=>'\\nTABEL WILAYAH '+(i+1)+'\\n'+(t.rows||[]).map(r=>r.join(' | ')).join('\\n')).join('\\n');return {title:item.title||'Informasi BMKG',body:(item.description||item.summary||'Rincian lengkap belum tersedia pada feed ringkas BMKG.')+tableText,kind:kind==='alert'?'PERINGATAN DINI BMKG':(item.category||'BERITA / SIARAN PERS BMKG'),url:item.url||'https://www.bmkg.go.id',image:item.image||'',tables};}
-  function structuredHtml(item){const esc=v=>String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));let out='';if(item.image)out+='<figure class="wrs-bmkg-image"><img src="'+esc(item.image)+'" alt="Gambar resmi BMKG" loading="lazy"><figcaption>Gambar dari sumber resmi BMKG</figcaption></figure>';for(const t of (item.tables||[])){const rows=Array.isArray(t.rows)?t.rows:[];if(!rows.length)continue;out+='<div class="wrs-bmkg-table-wrap"><table><tbody>'+rows.map((r,ri)=>'<tr>'+r.map(cell=>ri===0?'<th>'+esc(cell)+'</th>':'<td>'+esc(cell)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';}return out;}
-  function showDetail(item,kind){
-    const d=text(item,kind);let m=document.getElementById('wrsBMKGDetail');
-    if(!m){m=document.createElement('div');m.id='wrsBMKGDetail';m.className='wrs-bmkg-detail';m.innerHTML='<section><button type="button" class="close">Tutup ×</button><div class="content"></div></section>';document.body.appendChild(m);m.querySelector('.close').onclick=()=>m.classList.remove('open');m.onclick=e=>{if(e.target===m)m.classList.remove('open')};}
-    m.querySelector('.content').innerHTML='<small>'+d.kind+'</small><h2>'+d.title.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</h2>'+(item.summary?'<p class="wrs-bmkg-summary">'+item.summary.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</p>':'')+structuredHtml(item)+'<p>'+d.body.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</p><p class="source">Sumber: BMKG<br>'+d.url.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</p><button type="button" class="download">Unduh gambar 9:16</button> <button type="button" class="share">Bagikan</button>';
-    m.classList.add('open');m.querySelector('.download').onclick=()=>download(item,kind);m.querySelector('.share').onclick=()=>share(item,kind);
-  }
-  function bodyPages(body){
-    const words=String(body||'').split(/\s+/),pages=[];let line='';
-    for(const word of words){if((line+' '+word).trim().length>780&&line){pages.push(line);line=word;}else line=(line+' '+word).trim();}
-    if(line)pages.push(line);return pages.length?pages:[''];
-  }
-  async function makeImage(item,kind,pageIndex=0){
-    const d=text(item,kind),parts=bodyPages(d.body),canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1920;
-    const c=canvas.getContext('2d'),g=c.createLinearGradient(0,0,1080,1920);g.addColorStop(0,'#07111f');g.addColorStop(1,'#12344a');c.fillStyle=g;c.fillRect(0,0,1080,1920);
-    c.fillStyle='#49cbe8';c.fillRect(64,84,120,10);c.fillStyle='#a6e9fa';c.font='bold 30px Arial';c.fillText('WRS GEMPA · INFORMASI BMKG',64,150);
-    c.fillStyle='#78dff5';c.font='bold 26px Arial';c.fillText(d.kind.toUpperCase().slice(0,45),64,230);
-    c.fillStyle='#f3f8ff';c.font='bold 54px Arial';let y=320;
-    function wrap(str,size,color,limit,lh){c.font=(size==='54'?'bold ':'')+size+'px Arial';c.fillStyle=color;let line='';for(const w of String(str||'').split(/\s+/)){let t=line?line+' '+w:w;if(c.measureText(t).width>limit&&line){c.fillText(line,64,y);y+=lh;line=w;}else line=t;}if(line){c.fillText(line,64,y);y+=lh;}}
-    wrap(d.title,'54','#f3f8ff',950,68);y+=20;
-    if(item.image){try{const img=await new Promise((resolve,reject)=>{const im=new Image();im.crossOrigin='anonymous';im.onload=()=>resolve(im);im.onerror=reject;im.src=item.image;});const h=Math.min(320,Math.round(img.height*(950/img.width)));c.drawImage(img,64,y,950,h);y+=h+20;}catch{c.fillStyle='#153449';c.fillRect(64,y,950,70);c.fillStyle='#a6e9fa';c.font='bold 22px Arial';c.fillText('Gambar resmi tersedia di detail WRS GEMPA',82,y+43);y+=92;}}
-    wrap(parts[pageIndex]||'', '30','#d6e6f1',950,42);
-    c.fillStyle='#87aabe';c.font='24px Arial';c.fillText('Sumber: BMKG · '+(pageIndex+1)+'/'+parts.length,64,1760);c.font='20px Arial';c.fillText(d.url.slice(0,72),64,1810);c.fillText('Ikuti peringatan resmi dan arahan petugas setempat.',64,1870);
-    return {canvas,d,parts};
-  }
-  async function download(item,kind){
-    const first=await makeImage(item,kind),total=first.parts.length;
-    for(let i=0;i<total;i++){
-      const o=await makeImage(item,kind,i),blob=await new Promise(resolve=>o.canvas.toBlob(resolve,'image/png'));if(!blob)continue;
-      const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='wrs-bmkg-'+kind+'-'+(i+1)+'-dari-'+total+'.png';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),30000);
-      if(i<total-1)await new Promise(resolve=>setTimeout(resolve,350));
-    }
-  }
-  async function share(item,kind){const o=await makeImage(item,kind),d=o.d;const msg=d.kind+'\n'+d.title+'\n\n'+d.body+'\n\nSumber BMKG: '+d.url;try{if(navigator.share){const b=await new Promise(r=>o.canvas.toBlob(r,'image/png'));if(b&&window.File){const f=new File([b],'wrs-bmkg.png',{type:'image/png'});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({title:d.title,text:msg,files:[f]});return;}}await navigator.share({title:d.title,text:msg,url:d.url});}else{await navigator.clipboard.writeText(msg);alert('Ringkasan dan sumber disalin.');}}catch(e){if(e.name!=='AbortError')alert('Berbagi tidak tersedia. Gunakan Unduh gambar.');}}
-  document.addEventListener('click',e=>{const b=e.target.closest('[data-alert-detail],[data-alert-image],[data-alert-share]');if(!b)return;const kind=b.dataset.alertDetail||b.dataset.alertImage||b.dataset.alertShare;const item=pick(kind,Number(b.dataset.alertIndex));if(!item)return;if(b.dataset.alertDetail)showDetail(item,kind);else if(b.dataset.alertImage)download(item,kind);else share(item,kind);});
-})();
-</script>
+<!-- Duplicate BMKG alert download/detail handler removed; the progress flow above owns these actions. -->
 
 <script>
 (function(){
