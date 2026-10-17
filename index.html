@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="description" content="WRS Gempa: pemantauan gempa Indonesia dan dunia dari BMKG, InaTEWS, dan USGS.">
 <link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/svg+xml" href="/icons/wrs-gempa-logo.svg">
 <link rel="icon" href="/icons/icon-192.png">
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
 <title>WRS Gempa — Earthquake Monitor</title>
@@ -22,12 +23,13 @@ if ("serviceWorker" in navigator) {
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="/styles.css?v=20261016-alert-ui-1">
 <link rel="stylesheet" href="/ui-refresh.css">
+<style id="wrs-brand-logo-style">.health-brand{display:inline-flex;align-items:center;justify-content:center}.wrs-brand-logo{display:block;width:25px;height:25px;object-fit:contain;flex:0 0 25px}.wrs-brand-box{display:inline-flex;align-items:center;gap:6px}.wrs-brand-box img{display:block;width:27px;height:27px;object-fit:contain}.wrs-dl-brand-mark img{display:block;width:34px;height:34px;object-fit:contain;border-radius:10px}@media(max-width:430px){.wrs-health{gap:6px}.wrs-brand-logo{width:22px;height:22px;flex-basis:22px}}</style>
 </head>
 <body>
 <div id="map"></div>
 <div class="map-overlay"></div>
 
-<div class="wrs-health" id="wrsHealth" role="status" aria-live="polite"><span class="health-led"></span><span class="health-brand">WRS</span><span class="health-divider" aria-hidden="true"></span><span id="wrsHealthText">MENYIAPKAN PEMANTAUAN</span><time id="wrsLastUpdated">Menunggu pembaruan</time></div>
+<div class="wrs-health" id="wrsHealth" role="status" aria-live="polite"><span class="health-led"></span><span class="health-brand" aria-label="WRS GEMPA"><img class="wrs-brand-logo" src="/icons/wrs-gempa-logo.svg" alt="Logo WRS GEMPA"></span><span class="health-divider" aria-hidden="true"></span><span id="wrsHealthText">MENYIAPKAN PEMANTAUAN</span><time id="wrsLastUpdated">Menunggu pembaruan</time></div>
 
 
 <div class="map-stats glass-panel" id="mapStats">
@@ -129,7 +131,7 @@ if ("serviceWorker" in navigator) {
     </div>
   </div>
   <div class="brand-row">
-    <div class="brand-box">WRS</div>
+    <div class="brand-box wrs-brand-box"><img src="/icons/wrs-gempa-logo.svg" alt="Logo WRS GEMPA"><span>WRS GEMPA</span></div>
     <div class="brand-box accent">MONITOR</div>
     <div class="brand-clock" id="clock">—</div>
   </div>
@@ -663,32 +665,199 @@ if ("serviceWorker" in navigator) {
     modal.querySelector('[data-detail-image]').onclick=()=>downloadAlertImages(item,kind);
     modal.querySelector('[data-detail-share]').onclick=()=>shareAlertItem(item,kind);
   }
+  function getAlertCanvasLines(ctx,text,maxWidth){
+    const output=[];
+    String(text||'').split(/\n+/).forEach(paragraph=>{
+      const words=paragraph.trim().split(/\s+/).filter(Boolean);
+      if(!words.length){output.push('');return;}
+      let line='';
+      words.forEach(word=>{
+        const candidate=line?line+' '+word:word;
+        if(line&&ctx.measureText(candidate).width>maxWidth){output.push(line);line=word;}
+        else line=candidate;
+      });
+      if(line)output.push(line);
+    });
+    return output;
+  }
   function wrapAlertText(ctx,text,x,y,maxWidth,lineHeight,maxLines){
-    const words=String(text||'').split(/\s+/); let line='',lines=0;
-    for(const word of words){const test=line?line+' '+word:word;if(ctx.measureText(test).width>maxWidth&&line){ctx.fillText(line,x,y);y+=lineHeight;line=word;lines++;if(lines>=maxLines)return y;}else line=test;}
-    if(line&&lines<maxLines){ctx.fillText(line,x,y);y+=lineHeight;}return y;
+    const lines=getAlertCanvasLines(ctx,text,maxWidth);
+    const visible=typeof maxLines==='number'?lines.slice(0,maxLines):lines;
+    visible.forEach(line=>{ctx.fillText(line,x,y);y+=lineHeight;});
+    return y;
+  }
+  function cleanAlertCanvasText(value){
+    return String(value||'')
+      .replace(/<br\s*\/?>/gi,'\n')
+      .replace(/<[^>]+>/g,' ')
+      .replace(/&nbsp;/gi,' ')
+      .replace(/&amp;/gi,'&')
+      .replace(/&quot;/gi,'"')
+      .replace(/&#39;|&apos;/gi,"'")
+      .replace(/&lt;/gi,'<')
+      .replace(/&gt;/gi,'>')
+      .replace(/&#(\d+);/g,(_,n)=>{const code=Number(n);return Number.isFinite(code)&&code>0&&code<=0x10ffff?String.fromCodePoint(code):' ';})
+      .replace(/[ \t]+/g,' ')
+      .replace(/\s*\n\s*/g,'\n')
+      .trim();
+  }
+  function splitAlertAreaDetails(item,body,kind){
+    if(kind!=='alert')return {intro:'',areas:[],tail:'',body};
+    const source=cleanAlertCanvasText(body);
+    const marker=/\b(?:khususnya|terutama)\s+di\s+/i.exec(source);
+    if(marker){
+      const start=marker.index+marker[0].length;
+      const remaining=source.slice(start);
+      const stopPattern=/[.;,]\s*(?=(?:Kondisi|Masyarakat|Waspada|Dampak|Potensi|Diperkirakan|Peringatan|Hujan|Angin|Petir|Imbauan|Himbauan|Tetap|Selain|Berdasarkan|Untuk|Kepada|Sementara|Daerah)\b)/i;
+      let stop=remaining.search(stopPattern);
+      if(stop<0)stop=remaining.search(/\.\s+(?=[A-Z][a-z])/);
+      const areaSource=stop>=0?remaining.slice(0,stop):remaining;
+      const areas=areaSource.split(/[,;\n]+/)
+        .map(value=>value.trim().replace(/^[•\-–]\s*/,'').replace(/^[.:\s]+|[.:\s]+$/g,'').replace(/^dan\s+/i,''))
+        .filter(value=>value.length>1);
+      if(areas.length>=4){
+        const intro=source.slice(0,marker.index).trim().replace(/[,\s;:]+$/,'');
+        const tail=stop>=0?remaining.slice(stop).replace(/^[.;,\s]+/,'').trim():'';
+        return {intro,areas,tail,body:source};
+      }
+    }
+    const areaValue=cleanAlertCanvasText(item&&item.area);
+    const fallbackAreas=areaValue.split(/[,;\n]+/).map(value=>value.trim().replace(/^dan\s+/i,'')).filter(value=>value.length>1);
+    if(fallbackAreas.length>=6)return {intro:source,areas:fallbackAreas,tail:'',body:source};
+    return {intro:'',areas:[],tail:'',body:source};
+  }
+  function chunkAlertText(text,maxChars){
+    const words=String(text||'').split(/\s+/).filter(Boolean);
+    const chunks=[];
+    let chunk='';
+    words.forEach(word=>{
+      if(chunk&&(chunk+' '+word).length>maxChars){chunks.push(chunk);chunk=word;}
+      else chunk=chunk?chunk+' '+word:word;
+    });
+    if(chunk)chunks.push(chunk);
+    return chunks.length?chunks:[''];
+  }
+  function drawWrsLogoCanvas(ctx,x,y,size){
+    ctx.save();
+    const radius=size*.235;
+    ctx.beginPath();
+    ctx.moveTo(x+radius,y);
+    ctx.lineTo(x+size-radius,y);
+    ctx.quadraticCurveTo(x+size,y,x+size,y+radius);
+    ctx.lineTo(x+size,y+size-radius);
+    ctx.quadraticCurveTo(x+size,y+size,x+size-radius,y+size);
+    ctx.lineTo(x+radius,y+size);
+    ctx.quadraticCurveTo(x,y+size,x,y+size-radius);
+    ctx.lineTo(x,y+radius);
+    ctx.quadraticCurveTo(x,y,x+radius,y);
+    ctx.closePath();
+    const tile=ctx.createLinearGradient(x,y,x+size,y+size);
+    tile.addColorStop(0,'#0c1a2b');tile.addColorStop(1,'#06101e');
+    ctx.fillStyle=tile;ctx.fill();
+    const cx=x+size*.5, arcY=y+size*.54;
+    ctx.lineCap='round';ctx.lineWidth=size*.036;
+    ctx.strokeStyle='#20445a';ctx.beginPath();ctx.arc(cx,arcY,size*.315,Math.PI,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle='#14718c';ctx.beginPath();ctx.arc(cx,arcY,size*.24,Math.PI,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle='#13a9cb';ctx.beginPath();ctx.arc(cx,arcY,size*.165,Math.PI,Math.PI*2);ctx.stroke();
+    ctx.lineWidth=size*.045;
+    const wave=ctx.createLinearGradient(x,y,x+size,y+size);
+    wave.addColorStop(0,'#22d3ee');wave.addColorStop(1,'#00a9d3');
+    ctx.strokeStyle=wave;ctx.beginPath();
+    ctx.moveTo(x+size*.115,y+size*.615);
+    ctx.bezierCurveTo(x+size*.18,y+size*.615,x+size*.205,y+size*.52,x+size*.26,y+size*.52);
+    ctx.bezierCurveTo(x+size*.335,y+size*.52,x+size*.35,y+size*.72,x+size*.415,y+size*.72);
+    ctx.bezierCurveTo(x+size*.485,y+size*.72,x+size*.48,y+size*.27,x+size*.545,y+size*.27);
+    ctx.bezierCurveTo(x+size*.615,y+size*.27,x+size*.595,y+size*.59,x+size*.67,y+size*.59);
+    ctx.bezierCurveTo(x+size*.73,y+size*.59,x+size*.78,y+size*.52,x+size*.89,y+size*.52);
+    ctx.stroke();
+    ctx.fillStyle='#f7fbff';ctx.beginPath();ctx.arc(x+size*.5,y+size*.44,size*.055,0,Math.PI*2);ctx.fill();
+    ctx.restore();
   }
   function buildAlertCanvases(item,kind){
-    const d=alertText(item,kind), text=(d.body||'').match(/[\s\S]{1,900}(?:\s|$)/g)||[d.body];
-    const chunks=[]; let chunk='';
-    for(const piece of text){if((chunk+piece).length>850&&chunk){chunks.push(chunk.trim());chunk='';}chunk+=piece;}
-    if(chunk.trim())chunks.push(chunk.trim());
-    const pages=[]; const total=Math.max(1,chunks.length);
+    const d=alertText(item,kind);
+    const parsed=splitAlertAreaDetails(item,d.body,kind);
+    const pagesPlan=[];
+    if(parsed.areas.length){
+      const perPage=18;
+      const groups=[];
+      for(let i=0;i<parsed.areas.length;i+=perPage)groups.push(parsed.areas.slice(i,i+perPage));
+      const separateTail=parsed.tail.length>420?chunkAlertText(parsed.tail,760):[];
+      groups.forEach((areas,index)=>pagesPlan.push({
+        type:'areas',areas,
+        intro:index===0?parsed.intro:'',
+        tail:index===groups.length-1&&!separateTail.length?parsed.tail:''
+      }));
+      separateTail.forEach(body=>pagesPlan.push({type:'prose',body,section:'DAMPAK & IMBAUAN'}));
+    }else{
+      chunkAlertText(parsed.body||d.body,850).forEach(body=>pagesPlan.push({type:'prose',body,section:''}));
+    }
+    const total=pagesPlan.length;
+    const pages=[];
     for(let i=0;i<total;i++){
+      const plan=pagesPlan[i];
       const canvas=document.createElement('canvas');canvas.width=1080;canvas.height=1920;
       const ctx=canvas.getContext('2d');
-      const grad=ctx.createLinearGradient(0,0,1080,1920);grad.addColorStop(0,'#07111f');grad.addColorStop(1,'#102b40');ctx.fillStyle=grad;ctx.fillRect(0,0,1080,1920);
-      ctx.fillStyle='#29c4e8';ctx.fillRect(70,82,100,10);
-      ctx.fillStyle='#a9eaff';ctx.font='bold 30px Arial';ctx.fillText('WRS GEMPA  ·  INFORMASI RESMI',70,145);
-      ctx.fillStyle=kind==='alert'?'#ffc76a':'#80e4f7';ctx.font='bold 26px Arial';ctx.fillText(d.category.toUpperCase().slice(0,42),70,220);
-      ctx.fillStyle='#f4f8ff';ctx.font='bold 54px Arial';
-      let y=310;y=wrapAlertText(ctx,d.title,70,y,940,68,5)+35;
-      ctx.fillStyle='#d5e4f0';ctx.font='30px Arial';y=wrapAlertText(ctx,chunks[i]||d.body,70,y,940,48,22);
-      ctx.fillStyle='#86a8bf';ctx.font='23px Arial';ctx.fillText('Sumber: BMKG · '+(i+1)+'/'+total,70,1760);
-      ctx.fillStyle='#6ed9f0';ctx.font='22px Arial';wrapAlertText(ctx,d.source,70,1810,940,32,2);
-      ctx.fillStyle='#9cb4c7';ctx.font='20px Arial';ctx.fillText('Ikuti peringatan resmi dan arahan petugas setempat.',70,1880);
+      const grad=ctx.createLinearGradient(0,0,1080,1920);
+      grad.addColorStop(0,'#07111f');grad.addColorStop(1,'#102b40');
+      ctx.fillStyle=grad;ctx.fillRect(0,0,1080,1920);
+      drawWrsLogoCanvas(ctx,64,48,68);
+      ctx.fillStyle='#a9eaff';ctx.font='bold 29px Arial';ctx.fillText('WRS GEMPA',148,82);
+      ctx.fillStyle='#8aa9be';ctx.font='bold 19px Arial';ctx.fillText('INFORMASI BMKG',148,111);
+      ctx.fillStyle='#86a8bf';ctx.font='bold 17px Arial';ctx.textAlign='right';
+      ctx.fillText('HALAMAN '+(i+1)+'/'+total,1016,91);ctx.textAlign='left';
+      ctx.fillStyle=kind==='alert'?'#ffc76a':'#80e4f7';ctx.font='bold 24px Arial';
+      ctx.fillText(String(d.category||'INFORMASI BMKG').toUpperCase().slice(0,48),64,179);
+      ctx.fillStyle='#f4f8ff';ctx.font='bold 48px Arial';
+      let y=258;
+      y=wrapAlertText(ctx,d.title,64,y,950,59,4)+16;
+      if(plan.type==='areas'){
+        if(plan.intro){
+          ctx.fillStyle='#d5e4f0';ctx.font='27px Arial';
+          y=wrapAlertText(ctx,plan.intro,64,y,950,38,5)+16;
+        }else{
+          ctx.fillStyle='#9fc0d3';ctx.font='bold 20px Arial';
+          ctx.fillText('DAFTAR WILAYAH TERDAMPAK · LANJUTAN',64,y+2);
+          y+=34;
+        }
+        const tableY=Math.max(y+4,plan.intro?566:430);
+        const left=64,width=952,headerH=48,rowH=42;
+        ctx.fillStyle='#103448';ctx.beginPath();ctx.roundRect(left,tableY,width,headerH,12);ctx.fill();
+        ctx.fillStyle='#9feaff';ctx.font='bold 19px Arial';ctx.fillText('NO.',left+18,tableY+30);
+        ctx.fillText('WILAYAH TERDAMPAK',left+92,tableY+30);
+        plan.areas.forEach((area,j)=>{
+          const rowY=tableY+headerH+j*rowH;
+          ctx.fillStyle=j%2===0?'#0b2030':'#10283a';ctx.fillRect(left,rowY,width,rowH);
+          ctx.strokeStyle='#27465a';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,rowY+rowH);ctx.lineTo(left+width,rowY+rowH);ctx.stroke();
+          ctx.fillStyle='#53d8ef';ctx.font='bold 20px Arial';ctx.fillText(String((i===0?0:0)+1+(i*0))+String(''),left+18,rowY+27);
+          ctx.fillStyle='#dceaf4';ctx.font='24px Arial';
+          let label=String(area).replace(/\s+/g,' ').trim();
+          if(ctx.measureText(label).width>840)ctx.font='21px Arial';
+          ctx.fillText(label.slice(0,100),left+92,rowY+27);
+        });
+        y=tableY+headerH+plan.areas.length*rowH+20;
+        if(plan.tail){
+          ctx.fillStyle='#9feaff';ctx.font='bold 20px Arial';ctx.fillText('DAMPAK & IMBAUAN',64,y+2);y+=34;
+          ctx.fillStyle='#d5e4f0';ctx.font='25px Arial';
+          y=wrapAlertText(ctx,plan.tail,64,y,950,34,7);
+        }
+      }else{
+        if(plan.section){
+          ctx.fillStyle='#9feaff';ctx.font='bold 21px Arial';ctx.fillText(plan.section,64,y+4);y+=42;
+        }
+        ctx.fillStyle='#d5e4f0';ctx.font='29px Arial';
+        y=wrapAlertText(ctx,plan.body,64,y,950,43,25);
+      }
+      // Fixed footer keeps the source and safety guidance visually separate from content.
+      ctx.strokeStyle='#24455a';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(64,1740);ctx.lineTo(1016,1740);ctx.stroke();
+      ctx.fillStyle='#86a8bf';ctx.font='bold 19px Arial';
+      ctx.fillText('Sumber: BMKG · '+(i+1)+'/'+total,64,1774);
+      ctx.fillStyle='#6ed9f0';ctx.font='19px Arial';
+      wrapAlertText(ctx,d.source,64,1808,950,25,2);
+      ctx.fillStyle='#9cb4c7';ctx.font='18px Arial';
+      ctx.fillText('Ikuti peringatan resmi dan arahan petugas setempat.',64,1880);
       pages.push(canvas);
-    }return pages;
+    }
+    return pages;
   }
 
   let alertDownloadBusy = false;
@@ -742,7 +911,7 @@ if ("serviceWorker" in navigator) {
     modal.setAttribute('aria-modal','true');
     modal.setAttribute('aria-labelledby','wrsDlTitle');
     modal.setAttribute('aria-describedby','wrsDlMessage');
-    modal.innerHTML='<section class="wrs-dl-card"><button type="button" class="wrs-dl-close" data-dl-close aria-label="Tutup proses" disabled>×</button><div class="wrs-dl-brand"><span class="wrs-dl-brand-mark" aria-hidden="true">↓</span><span>WRS GEMPA · BMKG</span></div><div class="wrs-dl-icon" id="wrsDlIcon" aria-hidden="true">↓</div><h2 id="wrsDlTitle">Menyiapkan gambar</h2><p class="wrs-dl-message" id="wrsDlMessage" role="status" aria-live="polite">Sedang menyiapkan materi peringatan dari data yang tersedia.</p><div class="wrs-dl-progress-head"><span>PROGRES UNDUHAN</span><span class="wrs-dl-percent" id="wrsDlPercent">0%</span></div><div class="wrs-dl-track" role="progressbar" aria-label="Progres unduhan" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="wrs-dl-fill" id="wrsDlFill"></div></div><div class="wrs-dl-steps"><div class="wrs-dl-step active" data-dl-step="prepare"><span>01</span><span>Menyiapkan informasi</span><b>PROSES</b></div><div class="wrs-dl-step" data-dl-step="build"><span>02</span><span>Menyusun kartu gambar</span><b>MENUNGGU</b></div><div class="wrs-dl-step" data-dl-step="save"><span>03</span><span>Menyimpan file PNG</span><b>MENUNGGU</b></div></div><p class="wrs-dl-note">Sumber informasi tetap tercantum pada gambar. Ikuti peringatan resmi BMKG dan arahan petugas setempat.</p><button type="button" class="wrs-dl-action" data-dl-close>Selesai</button></section>';
+    modal.innerHTML='<section class="wrs-dl-card"><button type="button" class="wrs-dl-close" data-dl-close aria-label="Tutup proses" disabled>×</button><div class="wrs-dl-brand"><span class="wrs-dl-brand-mark" aria-hidden="true"><img src="/icons/wrs-gempa-logo.svg" alt=""></span><span>WRS GEMPA · BMKG</span></div><div class="wrs-dl-icon" id="wrsDlIcon" aria-hidden="true">↓</div><h2 id="wrsDlTitle">Menyiapkan gambar</h2><p class="wrs-dl-message" id="wrsDlMessage" role="status" aria-live="polite">Sedang menyiapkan materi peringatan dari data yang tersedia.</p><div class="wrs-dl-progress-head"><span>PROGRES UNDUHAN</span><span class="wrs-dl-percent" id="wrsDlPercent">0%</span></div><div class="wrs-dl-track" role="progressbar" aria-label="Progres unduhan" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="wrs-dl-fill" id="wrsDlFill"></div></div><div class="wrs-dl-steps"><div class="wrs-dl-step active" data-dl-step="prepare"><span>01</span><span>Menyiapkan informasi</span><b>PROSES</b></div><div class="wrs-dl-step" data-dl-step="build"><span>02</span><span>Menyusun kartu gambar</span><b>MENUNGGU</b></div><div class="wrs-dl-step" data-dl-step="save"><span>03</span><span>Menyimpan file PNG</span><b>MENUNGGU</b></div></div><p class="wrs-dl-note">Sumber informasi tetap tercantum pada gambar. Ikuti peringatan resmi BMKG dan arahan petugas setempat.</p><button type="button" class="wrs-dl-action" data-dl-close>Selesai</button></section>';
     document.body.appendChild(modal);
     modal.querySelectorAll('[data-dl-close]').forEach(button=>button.addEventListener('click',()=>{if(!alertDownloadBusy)modal.classList.remove('open');}));
     modal.addEventListener('click',event=>{if(event.target===modal&&!alertDownloadBusy)modal.classList.remove('open');});
